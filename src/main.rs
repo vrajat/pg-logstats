@@ -381,7 +381,10 @@ fn main() -> Result<()> {
     // Output results
     match args.extension.as_deref().unwrap_or("text") {
         "json" => {
-            let output = json_formatter.format_query_analysis(&query_analysis)?;
+            let output = JsonFormatter::new()
+                .with_pretty(true)
+                .with_metadata(env!("CARGO_PKG_VERSION"), vec![], entries.len())
+                .format(&query_analysis)?;
             println!("{}", output);
         }
         "text" | _ => {
