@@ -21,7 +21,10 @@ To build the documentation locally:
 cargo doc --no-deps --open
 ```
 
-This will generate HTML documentation and open it in your default browser.
+This will generate HTML documentation and open it in your default browser. The generated docs include the latest public API for:
+- `parsers` (e.g., `StderrParser`)
+- `analytics` (e.g., `QueryAnalyzer`, `TimingAnalyzer`)
+- `output` (e.g., `JsonFormatter`, `TextFormatter`)
 
 ## Contributing to Documentation
 

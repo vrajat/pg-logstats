@@ -13,16 +13,16 @@ The parsers module contains implementations for different PostgreSQL log formats
 #### StderrParser
 
 ```rust
-use pg_loggrep::StderrParser;
+use pg_loggrep::{StderrParser, Result};
 
 let parser = StderrParser::new();
 let entries = parser.parse_lines(&log_lines)?;
 ```
 
 **Methods:**
-- `new() -> Self`: Create a new stderr parser
-- `parse_line(&self, line: &str) -> Result<LogEntry, String>`: Parse a single log line
-- `parse_lines(&self, lines: &[String]) -> Result<Vec<LogEntry>, String>`: Parse multiple log lines
+- `new() -> Self`
+- `parse_line(&mut self, line: &str) -> Result<Option<LogEntry>>` — returns `Ok(None)` for unparseable/continuation lines
+- `parse_lines(&self, lines: &[String]) -> Result<Vec<LogEntry>>`
 
 ### Analytics (`analytics`)
 
@@ -31,30 +31,31 @@ The analytics module provides tools for analyzing parsed log data.
 #### QueryAnalyzer
 
 ```rust
-use pg_loggrep::QueryAnalyzer;
+use pg_loggrep::{QueryAnalyzer, Result};
 
 let analyzer = QueryAnalyzer::new();
-let analysis = analyzer.analyze_queries(&entries);
+let analysis = analyzer.analyze_queries(&entries)?;
 ```
 
 **Methods:**
-- `new() -> Self`: Create a new query analyzer
-- `analyze_queries(&self, entries: &[LogEntry]) -> QueryAnalysis`: Analyze queries from log entries
-- `find_slow_queries(&self, entries: &[LogEntry], threshold_ms: u64) -> Vec<LogEntry>`: Find slow queries above a threshold
+- `new() -> Self`
+- `analyze_queries(&self, entries: &[LogEntry]) -> Result<AnalysisResult>`
+- `find_slow_queries(&self, entries: &[LogEntry], threshold_ms: f64) -> Result<Vec<LogEntry>>`
 
 #### TimingAnalyzer
 
 ```rust
-use pg_loggrep::TimingAnalyzer;
+use pg_loggrep::{TimingAnalyzer, Result};
 
 let analyzer = TimingAnalyzer::new();
-let analysis = analyzer.analyze_timing(&entries);
+let analysis = analyzer.analyze_timing(&entries)?;
 ```
 
 **Methods:**
-- `new() -> Self`: Create a new timing analyzer
-- `analyze_timing(&self, entries: &[LogEntry]) -> TimingAnalysis`: Analyze timing patterns
-- `calculate_percentiles(&self, response_times: &[Duration], percentiles: &[f64]) -> HashMap<f64, Duration>`: Calculate response time percentiles
+- `new() -> Self`
+- `with_bucket_size(time_bucket_size: u32) -> Self`
+- `analyze_timing(&self, entries: &[LogEntry]) -> Result<TimingAnalysis>`
+- `calculate_percentiles(&self, response_times: &[f64], percentiles: &[f64]) -> Result<Vec<(f64, f64)>>`
 
 ### Output (`output`)
 
@@ -70,10 +71,10 @@ let json_output = formatter.format_query_analysis(&analysis)?;
 ```
 
 **Methods:**
-- `new() -> Self`: Create a new JSON formatter
-- `format_query_analysis(&self, analysis: &QueryAnalysis) -> Result<String, String>`: Format query analysis as JSON
-- `format_timing_analysis(&self, analysis: &TimingAnalysis) -> Result<String, String>`: Format timing analysis as JSON
-- `format_log_entries(&self, entries: &[LogEntry]) -> Result<String, String>`: Format log entries as JSON
+- `new() -> Self`
+- `format_query_analysis(&self, analysis: &AnalysisResult) -> Result<String>`
+- `format_timing_analysis(&self, analysis: &TimingAnalysis) -> Result<String>`
+- `format_log_entries(&self, entries: &[LogEntry]) -> Result<String>`
 
 #### TextFormatter
 
@@ -85,53 +86,71 @@ let text_output = formatter.format_query_analysis(&analysis)?;
 ```
 
 **Methods:**
-- `new() -> Self`: Create a new text formatter
-- `format_query_analysis(&self, analysis: &QueryAnalysis) -> Result<String, String>`: Format query analysis as text
-- `format_timing_analysis(&self, analysis: &TimingAnalysis) -> Result<String, String>`: Format timing analysis as text
-- `format_log_entries(&self, entries: &[LogEntry]) -> Result<String, String>`: Format log entries as text
+- `new() -> Self`
+- `format_query_analysis(&self, analysis: &AnalysisResult) -> Result<String>`
+- `format_timing_analysis(&self, analysis: &TimingAnalysis) -> Result<String>`
+- `format_log_entries(&self, entries: &[LogEntry]) -> Result<String>`
 
 ## Data Structures
 
 ### LogEntry
 
 ```rust
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
     pub timestamp: DateTime<Utc>,
-    pub level: String,
+    pub process_id: String,
+    pub user: Option<String>,
+    pub database: Option<String>,
+    pub client_host: Option<String>,
+    pub application_name: Option<String>,
+    pub message_type: LogLevel,
     pub message: String,
-    pub details: HashMap<String, String>,
+    pub query: Option<String>,
+    pub duration: Option<f64>,
 }
 ```
 
-### QueryAnalysis
+### AnalysisResult
 
 ```rust
-#[derive(Debug)]
-pub struct QueryAnalysis {
-    pub total_queries: usize,
-    pub slow_queries: Vec<LogEntry>,
-    pub frequent_queries: HashMap<String, usize>,
-    pub query_types: HashMap<String, usize>,
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalysisResult {
+    pub total_queries: u64,
+    pub total_duration: f64,
+    pub query_types: HashMap<String, u64>,
+    pub slowest_queries: Vec<(String, f64)>,
+    pub most_frequent_queries: Vec<(String, u64)>,
+    pub error_count: u64,
+    pub connection_count: u64,
+    pub average_duration: f64,
+    pub p95_duration: f64,
+    pub p99_duration: f64,
 }
 ```
 
 ### TimingAnalysis
 
 ```rust
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimingAnalysis {
     pub average_response_time: Duration,
     pub p95_response_time: Duration,
     pub p99_response_time: Duration,
-    pub hourly_patterns: HashMap<u32, Duration>,
-    pub daily_patterns: HashMap<u32, Duration>,
+    pub hourly_patterns: HashMap<u32, f64>,
+    pub daily_patterns: HashMap<u32, f64>,
 }
 ```
 
 ## Error Handling
 
-All parsing and formatting methods return `Result<T, String>` where errors are returned as descriptive string messages. In production code, you may want to use a more sophisticated error type.
+The library uses a unified error type:
+
+```rust
+use pg_loggrep::{PgLoggrepError, Result};
+```
+
+Most public methods return `Result<T>` where errors are `PgLoggrepError` variants, including `Io`, `Parse`, `TimestampParse`, `Configuration`, `Analytics`, `Serialization`, and `Unexpected`.
 
 ## Examples
 

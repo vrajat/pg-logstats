@@ -6,12 +6,12 @@ This directory contains usage examples for the pg-loggrep library.
 
 ### basic_usage.rs
 
-A basic example showing how to:
-- Parse PostgreSQL log files
-- Analyze queries and timing
-- Format results in different output formats (JSON and text)
+Demonstrates how to:
+- Parse PostgreSQL stderr logs using `StderrParser`
+- Analyze queries with `QueryAnalyzer` and timing with `TimingAnalyzer`
+- Format results using `JsonFormatter` and `TextFormatter`
 
-To run this example:
+Run the example:
 
 ```bash
 cargo run --example basic_usage

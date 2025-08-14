@@ -37,6 +37,14 @@ The PostgreSQL instance is configured with:
 - Log format set to stderr
 - Sample database with test tables
 
+Default `log_line_prefix` used by the parser:
+
+```
+%m [%p] %q%u@%d %a:
+```
+
+This matches the `StderrParser` expectations in the library.
+
 ## Log Files
 
 PostgreSQL logs are available in the `./logs/` directory after running the demo.
