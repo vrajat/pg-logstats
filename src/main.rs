@@ -375,7 +375,7 @@ fn main() -> Result<()> {
     println!("Parsed {} log entries", entries.len());
 
     // Analyze data
-    let query_analysis = query_analyzer.analyze_queries(&entries)?;
+    let query_analysis = query_analyzer.analyze(&entries)?;
     let _timing_analysis = timing_analyzer.analyze_timing(&entries)?;
 
     // Output results
