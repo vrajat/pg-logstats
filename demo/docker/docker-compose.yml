@@ -1,0 +1,41 @@
+version: '3.8'
+
+services:
+  postgres:
+    build:
+      context: ./postgres
+      dockerfile: Dockerfile
+    container_name: pg-loggrep-postgres
+    environment:
+      POSTGRES_DB: testdb
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./logs:/var/log/postgresql
+    networks:
+      - pg-loggrep-network
+
+  workload:
+    build:
+      context: ./workload
+      dockerfile: Dockerfile
+    container_name: pg-loggrep-workload
+    depends_on:
+      - postgres
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_DB: testdb
+      POSTGRES_USER: testuser
+      POSTGRES_PASSWORD: testpass
+    networks:
+      - pg-loggrep-network
+
+volumes:
+  postgres_data:
+
+networks:
+  pg-loggrep-network:
+    driver: bridge
