@@ -2,18 +2,31 @@
 name = "pg-loggrep"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+authors = ["Rajat Venkatesh <your.email@example.com>"]
+description = "A fast PostgreSQL log analysis tool written in Rust"
+license = "MIT"
+repository = "https://github.com/yourusername/pg-loggrep"
+keywords = ["postgresql", "logs", "analysis", "database", "performance"]
+categories = ["command-line-utilities", "database", "development-tools"]
+readme = "README.md"
 
 [dependencies]
 clap = { version = "4.3.4", features = ["derive"] }
-predicates = "1.0.8"
-chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+regex = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+tokio = { version = "1.0", features = ["full"] }
+anyhow = "1.0"
+thiserror = "1.0"
+indicatif = "0.17"
+env_logger = "0.10"
+log = "0.4"
 
 [dev-dependencies]
+tempfile = "3.0"
 assert_cmd = "1.0"
+predicates = "1.0.8"
 
 [[example]]
 name = "basic_usage"
