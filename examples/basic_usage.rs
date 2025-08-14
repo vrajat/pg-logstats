@@ -5,12 +5,10 @@
 
 use pg_loggrep::{
     StderrParser, QueryAnalyzer, TimingAnalyzer,
-    JsonFormatter, TextFormatter
+    JsonFormatter, TextFormatter, Result
 };
-use std::fs::File;
-use std::io::{self, BufRead, BufReader};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     println!("pg-loggrep Basic Usage Example");
     println!("==============================");
 
@@ -32,11 +30,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Parsed {} log entries", entries.len());
 
     // Analyze queries
-    let query_analysis = query_analyzer.analyze_queries(&entries);
+    let query_analysis = query_analyzer.analyze_queries(&entries)?;
     println!("Query analysis completed");
 
     // Analyze timing
-    let timing_analysis = timing_analyzer.analyze_timing(&entries);
+    let timing_analysis = timing_analyzer.analyze_timing(&entries)?;
     println!("Timing analysis completed");
 
     // Format results as text
@@ -56,7 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn read_log_lines(file_pattern: &str) -> Result<Vec<String>, io::Error> {
+fn read_log_lines(_file_pattern: &str) -> Result<Vec<String>> {
     // This is a simplified example - in practice you'd want to handle
     // glob patterns and multiple files
     let mut lines = Vec::new();

@@ -1,7 +1,6 @@
 //! JSON output formatter for pg-loggrep results
 
-use crate::analytics::{QueryAnalysis, TimingAnalysis};
-use crate::parsers::LogEntry;
+use crate::{AnalysisResult, TimingAnalysis, LogEntry, PgLoggrepError, Result};
 use serde_json::json;
 
 /// JSON formatter for analysis results
@@ -16,20 +15,27 @@ impl JsonFormatter {
     }
 
     /// Format query analysis results as JSON
-    pub fn format_query_analysis(&self, analysis: &QueryAnalysis) -> Result<String, String> {
+    pub fn format_query_analysis(&self, analysis: &AnalysisResult) -> Result<String> {
         let json_value = json!({
             "total_queries": analysis.total_queries,
-            "slow_queries_count": analysis.slow_queries.len(),
-            "frequent_queries": analysis.frequent_queries,
+            "total_duration": analysis.total_duration,
+            "average_duration": analysis.average_duration,
+            "p95_duration": analysis.p95_duration,
+            "p99_duration": analysis.p99_duration,
+            "slow_queries_count": analysis.slowest_queries.len(),
+            "slowest_queries": analysis.slowest_queries,
+            "most_frequent_queries": analysis.most_frequent_queries,
             "query_types": analysis.query_types,
+            "error_count": analysis.error_count,
+            "connection_count": analysis.connection_count,
         });
 
         serde_json::to_string_pretty(&json_value)
-            .map_err(|e| format!("Failed to serialize JSON: {}", e))
+            .map_err(|e| PgLoggrepError::Serialization(e))
     }
 
     /// Format timing analysis results as JSON
-    pub fn format_timing_analysis(&self, analysis: &TimingAnalysis) -> Result<String, String> {
+    pub fn format_timing_analysis(&self, analysis: &TimingAnalysis) -> Result<String> {
         let json_value = json!({
             "average_response_time_ms": analysis.average_response_time.num_milliseconds(),
             "p95_response_time_ms": analysis.p95_response_time.num_milliseconds(),
@@ -39,15 +45,15 @@ impl JsonFormatter {
         });
 
         serde_json::to_string_pretty(&json_value)
-            .map_err(|e| format!("Failed to serialize JSON: {}", e))
+            .map_err(|e| PgLoggrepError::Serialization(e))
     }
 
     /// Format log entries as JSON
-    pub fn format_log_entries(&self, entries: &[LogEntry]) -> Result<String, String> {
+    pub fn format_log_entries(&self, entries: &[LogEntry]) -> Result<String> {
         let json_value = json!(entries);
 
         serde_json::to_string_pretty(&json_value)
-            .map_err(|e| format!("Failed to serialize JSON: {}", e))
+            .map_err(|e| PgLoggrepError::Serialization(e))
     }
 }
 

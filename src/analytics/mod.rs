@@ -3,5 +3,5 @@
 pub mod queries;
 pub mod timing;
 
-pub use queries::{QueryAnalyzer, QueryAnalysis};
+pub use queries::QueryAnalyzer;
 pub use timing::{TimingAnalyzer, TimingAnalysis};

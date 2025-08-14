@@ -2,4 +2,4 @@
 
 pub mod stderr;
 
-pub use stderr::{StderrParser, LogEntry};
+pub use stderr::StderrParser;

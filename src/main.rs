@@ -1,6 +1,5 @@
 use clap::{Parser, ValueEnum};
-use pg_loggrep::{StderrParser, QueryAnalyzer, TimingAnalyzer, JsonFormatter, TextFormatter};
-use std::io;
+use pg_loggrep::{StderrParser, QueryAnalyzer, TimingAnalyzer, JsonFormatter, TextFormatter, Result};
 
 
 #[derive(Debug, Parser)]
@@ -358,7 +357,7 @@ enum Format {
     Redshift,
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<()> {
     let args = Arguments::parse();
 
     // Initialize components
@@ -376,8 +375,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Parsed {} log entries", entries.len());
 
     // Analyze data
-    let query_analysis = query_analyzer.analyze_queries(&entries);
-    let _timing_analysis = timing_analyzer.analyze_timing(&entries);
+    let query_analysis = query_analyzer.analyze_queries(&entries)?;
+    let _timing_analysis = timing_analyzer.analyze_timing(&entries)?;
 
     // Output results
     match args.extension.as_deref().unwrap_or("text") {
@@ -394,7 +393,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn read_log_files(_pattern: &str) -> Result<Vec<String>, io::Error> {
+fn read_log_files(_pattern: &str) -> Result<Vec<String>> {
     // Simplified implementation - in practice you'd want to handle glob patterns
     let mut lines = Vec::new();
 
