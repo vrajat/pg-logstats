@@ -4,7 +4,6 @@ FROM postgres:17
 RUN apt-get update && \
     apt-get install -y \
         postgresql-contrib \
-        postgresql-17-pg-stat-statements \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy custom PostgreSQL configuration
