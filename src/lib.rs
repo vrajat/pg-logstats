@@ -85,6 +85,10 @@ pub enum LogLevel {
     Statement,
     /// Duration messages
     Duration,
+    /// Fatal error messages
+    Fatal,
+    /// Panic messages
+    Panic,
     /// Unknown or unrecognized log level
     Unknown(String),
 }
@@ -100,6 +104,8 @@ impl std::fmt::Display for LogLevel {
             LogLevel::Log => write!(f, "LOG"),
             LogLevel::Statement => write!(f, "STATEMENT"),
             LogLevel::Duration => write!(f, "DURATION"),
+            LogLevel::Fatal => write!(f, "FATAL"),
+            LogLevel::Panic => write!(f, "PANIC"),
             LogLevel::Unknown(s) => write!(f, "{}", s.to_uppercase()),
         }
     }
