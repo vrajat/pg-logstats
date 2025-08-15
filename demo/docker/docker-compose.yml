@@ -10,13 +10,20 @@ services:
       POSTGRES_DB: testdb
       POSTGRES_USER: testuser
       POSTGRES_PASSWORD: testpass
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=peer"
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./logs:/var/log/postgresql
+      - postgres_logs:/var/log/postgresql
     networks:
       - pg-loggrep-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U testuser -d testdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   workload:
     build:
@@ -24,17 +31,29 @@ services:
       dockerfile: Dockerfile
     container_name: pg-loggrep-workload
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
     environment:
       POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
       POSTGRES_DB: testdb
       POSTGRES_USER: testuser
       POSTGRES_PASSWORD: testpass
+      WORKLOAD_ITERATIONS: 5
+      WORKLOAD_DELAY: 2
+    volumes:
+      - postgres_logs:/var/log/postgresql:ro
     networks:
       - pg-loggrep-network
+    profiles:
+      - workload
+    restart: "no"
 
 volumes:
   postgres_data:
+    driver: local
+  postgres_logs:
+    driver: local
 
 networks:
   pg-loggrep-network:
