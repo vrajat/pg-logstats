@@ -1,0 +1,95 @@
+2024-01-15 14:00:00.000 UTC [20001]: [1-1] user=analytics,db=warehouse LOG:  connection received: host=10.0.2.100 port=55001
+2024-01-15 14:00:00.001 UTC [20001]: [2-1] user=analytics,db=warehouse LOG:  connection authorized: user=analytics database=warehouse
+2024-01-15 14:00:00.005 UTC [20001]: [3-1] user=analytics,db=warehouse LOG:  statement: SELECT customer_id, SUM(order_total) as total_spent
+	FROM orders o
+	JOIN customers c ON o.customer_id = c.id
+	WHERE o.created_at >= '2024-01-01'
+	GROUP BY customer_id
+	HAVING SUM(order_total) > 1000
+	ORDER BY total_spent DESC
+	LIMIT 100;
+2024-01-15 14:00:02.456 UTC [20001]: [3-2] user=analytics,db=warehouse LOG:  duration: 2451.234 ms
+2024-01-15 14:00:03.000 UTC [20002]: [1-1] user=reporting,db=warehouse LOG:  connection received: host=10.0.2.101 port=55002
+2024-01-15 14:00:03.001 UTC [20002]: [2-1] user=reporting,db=warehouse LOG:  connection authorized: user=reporting database=warehouse
+2024-01-15 14:00:03.005 UTC [20002]: [3-1] user=reporting,db=warehouse LOG:  statement: WITH monthly_sales AS (
+	SELECT
+		DATE_TRUNC('month', created_at) as month,
+		SUM(total) as monthly_total,
+		COUNT(*) as order_count
+	FROM orders
+	WHERE created_at >= '2023-01-01'
+	GROUP BY DATE_TRUNC('month', created_at)
+),
+growth_rates AS (
+	SELECT
+		month,
+		monthly_total,
+		order_count,
+		LAG(monthly_total) OVER (ORDER BY month) as prev_month_total,
+		(monthly_total - LAG(monthly_total) OVER (ORDER BY month)) /
+		LAG(monthly_total) OVER (ORDER BY month) * 100 as growth_rate
+	FROM monthly_sales
+)
+SELECT * FROM growth_rates ORDER BY month;
+2024-01-15 14:00:08.789 UTC [20002]: [3-2] user=reporting,db=warehouse LOG:  duration: 5784.123 ms
+2024-01-15 14:00:09.000 UTC [20003]: [1-1] user=etl_user,db=warehouse LOG:  connection received: host=10.0.2.102 port=55003
+2024-01-15 14:00:09.001 UTC [20003]: [2-1] user=etl_user,db=warehouse LOG:  connection authorized: user=etl_user database=warehouse
+2024-01-15 14:00:09.005 UTC [20003]: [3-1] user=etl_user,db=warehouse LOG:  statement: INSERT INTO daily_aggregates (date, total_orders, total_revenue, avg_order_value)
+SELECT
+	DATE(created_at) as date,
+	COUNT(*) as total_orders,
+	SUM(total) as total_revenue,
+	AVG(total) as avg_order_value
+FROM orders
+WHERE DATE(created_at) = CURRENT_DATE - INTERVAL '1 day'
+GROUP BY DATE(created_at);
+2024-01-15 14:00:09.234 UTC [20003]: [3-2] user=etl_user,db=warehouse LOG:  duration: 229.456 ms
+2024-01-15 14:00:10.000 UTC [20004]: [1-1] user=app_user,db=production LOG:  connection received: host=192.168.1.200 port=55004
+2024-01-15 14:00:10.001 UTC [20004]: [2-1] user=app_user,db=production LOG:  connection authorized: user=app_user database=production
+2024-01-15 14:00:10.005 UTC [20004]: [3-1] user=app_user,db=production LOG:  statement: SELECT u.id, u.name, u.email, p.name as profile_name
+FROM users u
+LEFT JOIN profiles p ON u.id = p.user_id
+WHERE u.active = true AND u.last_login > NOW() - INTERVAL '30 days'
+ORDER BY u.last_login DESC;
+2024-01-15 14:00:12.678 UTC [20004]: [3-2] user=app_user,db=production LOG:  duration: 2673.234 ms
+2024-01-15 14:00:13.000 UTC [20005]: [1-1] user=readonly,db=production LOG:  connection received: host=10.0.1.50 port=55005
+2024-01-15 14:00:13.001 UTC [20005]: [2-1] user=readonly,db=production LOG:  connection authorized: user=readonly database=production
+2024-01-15 14:00:13.005 UTC [20005]: [3-1] user=readonly,db=production LOG:  statement: SELECT * FROM orders WHERE id = 12345;
+2024-01-15 14:00:13.007 UTC [20005]: [3-2] user=readonly,db=production LOG:  duration: 1.234 ms
+2024-01-15 14:00:14.000 UTC [20006]: [1-1] user=batch_job,db=warehouse LOG:  connection received: host=10.0.3.100 port=55006
+2024-01-15 14:00:14.001 UTC [20006]: [2-1] user=batch_job,db=warehouse LOG:  connection authorized: user=batch_job database=warehouse
+2024-01-15 14:00:14.005 UTC [20006]: [3-1] user=batch_job,db=warehouse LOG:  statement: UPDATE product_inventory
+SET quantity = quantity - sold_quantity,
+    last_updated = NOW()
+FROM (
+    SELECT product_id, SUM(quantity) as sold_quantity
+    FROM order_items oi
+    JOIN orders o ON oi.order_id = o.id
+    WHERE o.status = 'completed'
+    AND o.created_at >= CURRENT_DATE
+    GROUP BY product_id
+) sales
+WHERE product_inventory.product_id = sales.product_id;
+2024-01-15 14:00:15.890 UTC [20006]: [3-2] user=batch_job,db=warehouse LOG:  duration: 1885.123 ms
+2024-01-15 14:00:16.000 UTC [20007]: [1-1] user=admin,db=postgres LOG:  connection received: host=127.0.0.1 port=55007
+2024-01-15 14:00:16.001 UTC [20007]: [2-1] user=admin,db=postgres LOG:  connection authorized: user=admin database=postgres
+2024-01-15 14:00:16.005 UTC [20007]: [3-1] user=admin,db=postgres LOG:  statement: VACUUM ANALYZE orders;
+2024-01-15 14:00:18.234 UTC [20007]: [3-2] user=admin,db=postgres LOG:  duration: 2229.456 ms
+2024-01-15 14:00:19.000 UTC [20008]: [1-1] user=monitoring,db=postgres LOG:  connection received: host=10.0.4.100 port=55008
+2024-01-15 14:00:19.001 UTC [20008]: [2-1] user=monitoring,db=postgres LOG:  connection authorized: user=monitoring database=postgres
+2024-01-15 14:00:19.005 UTC [20008]: [3-1] user=monitoring,db=postgres LOG:  statement: SELECT
+    schemaname,
+    tablename,
+    n_tup_ins,
+    n_tup_upd,
+    n_tup_del,
+    n_live_tup,
+    n_dead_tup,
+    last_vacuum,
+    last_autovacuum,
+    last_analyze,
+    last_autoanalyze
+FROM pg_stat_user_tables
+WHERE schemaname = 'public'
+ORDER BY n_dead_tup DESC;
+2024-01-15 14:00:19.123 UTC [20008]: [3-2] user=monitoring,db=postgres LOG:  duration: 118.456 ms

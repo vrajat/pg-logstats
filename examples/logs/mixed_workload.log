@@ -1,0 +1,99 @@
+2024-01-15 18:00:00.000 UTC [40001]: [1-1] user=web_app,db=ecommerce LOG:  connection received: host=192.168.1.200 port=70001
+2024-01-15 18:00:00.001 UTC [40001]: [2-1] user=web_app,db=ecommerce LOG:  connection authorized: user=web_app database=ecommerce
+2024-01-15 18:00:00.005 UTC [40001]: [3-1] user=web_app,db=ecommerce LOG:  statement: SELECT p.id, p.name, p.price, p.stock_quantity FROM products p WHERE p.category_id = 5 AND p.active = true ORDER BY p.popularity_score DESC LIMIT 20;
+2024-01-15 18:00:00.012 UTC [40001]: [3-2] user=web_app,db=ecommerce LOG:  duration: 6.789 ms
+2024-01-15 18:00:00.100 UTC [40002]: [1-1] user=mobile_app,db=ecommerce LOG:  connection received: host=192.168.1.201 port=70002
+2024-01-15 18:00:00.101 UTC [40002]: [2-1] user=mobile_app,db=ecommerce LOG:  connection authorized: user=mobile_app database=ecommerce
+2024-01-15 18:00:00.105 UTC [40002]: [3-1] user=mobile_app,db=ecommerce LOG:  statement: SELECT u.id, u.username, u.email, u.last_login FROM users u WHERE u.id = 12345;
+2024-01-15 18:00:00.107 UTC [40002]: [3-2] user=mobile_app,db=ecommerce LOG:  duration: 1.234 ms
+2024-01-15 18:00:00.200 UTC [40003]: [1-1] user=analytics,db=warehouse LOG:  connection received: host=10.0.2.100 port=70003
+2024-01-15 18:00:00.201 UTC [40003]: [2-1] user=analytics,db=warehouse LOG:  connection authorized: user=analytics database=warehouse
+2024-01-15 18:00:00.205 UTC [40003]: [3-1] user=analytics,db=warehouse LOG:  statement: SELECT
+    DATE_TRUNC('hour', o.created_at) as hour,
+    COUNT(*) as order_count,
+    SUM(o.total) as revenue,
+    AVG(o.total) as avg_order_value,
+    COUNT(DISTINCT o.customer_id) as unique_customers
+FROM orders o
+WHERE o.created_at >= CURRENT_DATE - INTERVAL '7 days'
+GROUP BY DATE_TRUNC('hour', o.created_at)
+ORDER BY hour;
+2024-01-15 18:00:01.456 UTC [40003]: [3-2] user=analytics,db=warehouse LOG:  duration: 1251.234 ms
+2024-01-15 18:00:01.500 UTC [40004]: [1-1] user=web_app,db=ecommerce LOG:  connection received: host=192.168.1.200 port=70004
+2024-01-15 18:00:01.501 UTC [40004]: [2-1] user=web_app,db=ecommerce LOG:  connection authorized: user=web_app database=ecommerce
+2024-01-15 18:00:01.505 UTC [40004]: [3-1] user=web_app,db=ecommerce LOG:  statement: INSERT INTO orders (customer_id, total, status, created_at) VALUES (12345, 89.99, 'pending', NOW());
+2024-01-15 18:00:01.508 UTC [40004]: [3-2] user=web_app,db=ecommerce LOG:  duration: 2.456 ms
+2024-01-15 18:00:01.600 UTC [40005]: [1-1] user=inventory,db=ecommerce LOG:  connection received: host=10.0.1.150 port=70005
+2024-01-15 18:00:01.601 UTC [40005]: [2-1] user=inventory,db=ecommerce LOG:  connection authorized: user=inventory database=ecommerce
+2024-01-15 18:00:01.605 UTC [40005]: [3-1] user=inventory,db=ecommerce LOG:  statement: UPDATE products SET stock_quantity = stock_quantity - 1 WHERE id = 789 AND stock_quantity > 0;
+2024-01-15 18:00:01.607 UTC [40005]: [3-2] user=inventory,db=ecommerce LOG:  duration: 1.789 ms
+2024-01-15 18:00:02.000 UTC [40006]: [1-1] user=reporting,db=warehouse LOG:  connection received: host=10.0.2.101 port=70006
+2024-01-15 18:00:02.001 UTC [40006]: [2-1] user=reporting,db=warehouse LOG:  connection authorized: user=reporting database=warehouse
+2024-01-15 18:00:02.005 UTC [40006]: [3-1] user=reporting,db=warehouse LOG:  statement: WITH customer_segments AS (
+    SELECT
+        c.id,
+        c.email,
+        COUNT(o.id) as order_count,
+        SUM(o.total) as total_spent,
+        MAX(o.created_at) as last_order_date,
+        CASE
+            WHEN SUM(o.total) > 1000 THEN 'VIP'
+            WHEN SUM(o.total) > 500 THEN 'Premium'
+            WHEN COUNT(o.id) > 5 THEN 'Regular'
+            ELSE 'New'
+        END as segment
+    FROM customers c
+    LEFT JOIN orders o ON c.id = o.customer_id
+    WHERE c.created_at >= '2023-01-01'
+    GROUP BY c.id, c.email
+)
+SELECT segment, COUNT(*) as customer_count, AVG(total_spent) as avg_spent
+FROM customer_segments
+GROUP BY segment
+ORDER BY avg_spent DESC;
+2024-01-15 18:00:04.789 UTC [40006]: [3-2] user=reporting,db=warehouse LOG:  duration: 2784.123 ms
+2024-01-15 18:00:05.000 UTC [40007]: [1-1] user=mobile_app,db=ecommerce LOG:  connection received: host=192.168.1.201 port=70007
+2024-01-15 18:00:05.001 UTC [40007]: [2-1] user=mobile_app,db=ecommerce LOG:  connection authorized: user=mobile_app database=ecommerce
+2024-01-15 18:00:05.005 UTC [40007]: [3-1] user=mobile_app,db=ecommerce LOG:  statement: SELECT c.id, c.name, c.description, COUNT(p.id) as product_count FROM categories c LEFT JOIN products p ON c.id = p.category_id WHERE c.active = true GROUP BY c.id, c.name, c.description ORDER BY c.sort_order;
+2024-01-15 18:00:05.023 UTC [40007]: [3-2] user=mobile_app,db=ecommerce LOG:  duration: 17.456 ms
+2024-01-15 18:00:05.100 UTC [40008]: [1-1] user=payment_service,db=ecommerce LOG:  connection received: host=10.0.1.200 port=70008
+2024-01-15 18:00:05.101 UTC [40008]: [2-1] user=payment_service,db=ecommerce LOG:  connection authorized: user=payment_service database=ecommerce
+2024-01-15 18:00:05.105 UTC [40008]: [3-1] user=payment_service,db=ecommerce LOG:  statement: UPDATE orders SET status = 'paid', payment_method = 'credit_card', paid_at = NOW() WHERE id = 98765 AND status = 'pending';
+2024-01-15 18:00:05.108 UTC [40008]: [3-2] user=payment_service,db=ecommerce LOG:  duration: 2.123 ms
+2024-01-15 18:00:05.200 UTC [40009]: [1-1] user=search_service,db=ecommerce LOG:  connection received: host=10.0.1.250 port=70009
+2024-01-15 18:00:05.201 UTC [40009]: [2-1] user=search_service,db=ecommerce LOG:  connection authorized: user=search_service database=ecommerce
+2024-01-15 18:00:05.205 UTC [40009]: [3-1] user=search_service,db=ecommerce LOG:  statement: SELECT p.id, p.name, p.description, p.price, c.name as category_name FROM products p JOIN categories c ON p.category_id = c.id WHERE p.name ILIKE '%laptop%' OR p.description ILIKE '%laptop%' AND p.active = true ORDER BY p.popularity_score DESC, p.price ASC LIMIT 50;
+2024-01-15 18:00:05.234 UTC [40009]: [3-2] user=search_service,db=ecommerce LOG:  duration: 28.789 ms
+2024-01-15 18:00:06.000 UTC [40010]: [1-1] user=batch_etl,db=warehouse LOG:  connection received: host=10.0.3.100 port=70010
+2024-01-15 18:00:06.001 UTC [40010]: [2-1] user=batch_etl,db=warehouse LOG:  connection authorized: user=batch_etl database=warehouse
+2024-01-15 18:00:06.005 UTC [40010]: [3-1] user=batch_etl,db=warehouse LOG:  statement: INSERT INTO fact_daily_sales (date, product_id, category_id, quantity_sold, revenue, profit_margin)
+SELECT
+    DATE(o.created_at) as date,
+    oi.product_id,
+    p.category_id,
+    SUM(oi.quantity) as quantity_sold,
+    SUM(oi.price * oi.quantity) as revenue,
+    SUM((oi.price - p.cost_price) * oi.quantity) as profit_margin
+FROM orders o
+JOIN order_items oi ON o.id = oi.order_id
+JOIN products p ON oi.product_id = p.id
+WHERE DATE(o.created_at) = CURRENT_DATE - INTERVAL '1 day'
+AND o.status = 'completed'
+GROUP BY DATE(o.created_at), oi.product_id, p.category_id
+ON CONFLICT (date, product_id) DO UPDATE SET
+    quantity_sold = EXCLUDED.quantity_sold,
+    revenue = EXCLUDED.revenue,
+    profit_margin = EXCLUDED.profit_margin;
+2024-01-15 18:00:06.456 UTC [40010]: [3-2] user=batch_etl,db=warehouse LOG:  duration: 451.234 ms
+2024-01-15 18:00:07.000 UTC [40011]: [1-1] user=web_app,db=ecommerce LOG:  connection received: host=192.168.1.200 port=70011
+2024-01-15 18:00:07.001 UTC [40011]: [2-1] user=web_app,db=ecommerce LOG:  connection authorized: user=web_app database=ecommerce
+2024-01-15 18:00:07.005 UTC [40011]: [3-1] user=web_app,db=ecommerce LOG:  statement: SELECT o.id, o.total, o.status, o.created_at, u.username FROM orders o JOIN users u ON o.customer_id = u.id WHERE u.id = 12345 ORDER BY o.created_at DESC LIMIT 10;
+2024-01-15 18:00:07.012 UTC [40011]: [3-2] user=web_app,db=ecommerce LOG:  duration: 6.234 ms
+2024-01-15 18:00:08.000 UTC [40012]: [1-1] user=admin,db=postgres LOG:  connection received: host=127.0.0.1 port=70012
+2024-01-15 18:00:08.001 UTC [40012]: [2-1] user=admin,db=postgres LOG:  connection authorized: user=admin database=postgres
+2024-01-15 18:00:08.005 UTC [40012]: [3-1] user=admin,db=postgres LOG:  statement: REINDEX INDEX CONCURRENTLY idx_orders_customer_created;
+2024-01-15 18:00:10.234 UTC [40012]: [3-2] user=admin,db=postgres LOG:  duration: 2229.456 ms
+2024-01-15 18:00:11.000 UTC [40013]: [1-1] user=monitoring,db=postgres LOG:  connection received: host=10.0.4.100 port=70013
+2024-01-15 18:00:11.001 UTC [40013]: [2-1] user=monitoring,db=postgres LOG:  connection authorized: user=monitoring database=postgres
+2024-01-15 18:00:11.005 UTC [40013]: [3-1] user=monitoring,db=postgres LOG:  statement: SELECT datname, numbackends, xact_commit, xact_rollback, blks_read, blks_hit, tup_returned, tup_fetched, tup_inserted, tup_updated, tup_deleted FROM pg_stat_database WHERE datname NOT IN ('template0', 'template1');
+2024-01-15 18:00:11.023 UTC [40013]: [3-2] user=monitoring,db=postgres LOG:  duration: 17.789 ms

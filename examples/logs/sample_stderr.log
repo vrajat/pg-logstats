@@ -1,0 +1,24 @@
+2024-01-15 10:30:15.123 UTC [12345]: [1-1] user=postgres,db=testdb LOG:  connection received: host=127.0.0.1 port=54321
+2024-01-15 10:30:15.124 UTC [12345]: [2-1] user=postgres,db=testdb LOG:  connection authorized: user=postgres database=testdb
+2024-01-15 10:30:15.125 UTC [12345]: [3-1] user=postgres,db=testdb LOG:  statement: SELECT * FROM users WHERE id = 1;
+2024-01-15 10:30:15.126 UTC [12345]: [3-2] user=postgres,db=testdb LOG:  duration: 0.123 ms
+2024-01-15 10:30:16.200 UTC [12346]: [1-1] user=app_user,db=production LOG:  connection received: host=192.168.1.100 port=45678
+2024-01-15 10:30:16.201 UTC [12346]: [2-1] user=app_user,db=production LOG:  connection authorized: user=app_user database=production
+2024-01-15 10:30:16.205 UTC [12346]: [3-1] user=app_user,db=production LOG:  statement: INSERT INTO orders (customer_id, total, created_at) VALUES (123, 99.99, NOW());
+2024-01-15 10:30:16.208 UTC [12346]: [3-2] user=app_user,db=production LOG:  duration: 2.456 ms
+2024-01-15 10:30:17.300 UTC [12347]: [1-1] user=readonly,db=analytics LOG:  connection received: host=10.0.1.50 port=33445
+2024-01-15 10:30:17.301 UTC [12347]: [2-1] user=readonly,db=analytics LOG:  connection authorized: user=readonly database=analytics
+2024-01-15 10:30:17.305 UTC [12347]: [3-1] user=readonly,db=analytics LOG:  statement: SELECT COUNT(*) FROM user_sessions WHERE created_at >= '2024-01-01';
+2024-01-15 10:30:17.312 UTC [12347]: [3-2] user=readonly,db=analytics LOG:  duration: 6.789 ms
+2024-01-15 10:30:18.400 UTC [12348]: [1-1] user=app_user,db=production LOG:  connection received: host=192.168.1.100 port=45679
+2024-01-15 10:30:18.401 UTC [12348]: [2-1] user=app_user,db=production LOG:  connection authorized: user=app_user database=production
+2024-01-15 10:30:18.405 UTC [12348]: [3-1] user=app_user,db=production LOG:  statement: UPDATE users SET last_login = NOW() WHERE id = 123;
+2024-01-15 10:30:18.407 UTC [12348]: [3-2] user=app_user,db=production LOG:  duration: 1.234 ms
+2024-01-15 10:30:19.500 UTC [12349]: [1-1] user=admin,db=postgres LOG:  connection received: host=127.0.0.1 port=54322
+2024-01-15 10:30:19.501 UTC [12349]: [2-1] user=admin,db=postgres LOG:  connection authorized: user=admin database=postgres
+2024-01-15 10:30:19.505 UTC [12349]: [3-1] user=admin,db=postgres LOG:  statement: CREATE INDEX CONCURRENTLY idx_users_email ON users(email);
+2024-01-15 10:30:19.506 UTC [12349]: [3-2] user=admin,db=postgres LOG:  duration: 0.567 ms
+2024-01-15 10:30:20.600 UTC [12350]: [1-1] user=backup,db=postgres LOG:  connection received: host=10.0.1.100 port=22334
+2024-01-15 10:30:20.601 UTC [12350]: [2-1] user=backup,db=postgres LOG:  connection authorized: user=backup database=postgres
+2024-01-15 10:30:20.605 UTC [12350]: [3-1] user=backup,db=postgres LOG:  statement: SELECT pg_start_backup('daily_backup');
+2024-01-15 10:30:20.608 UTC [12350]: [3-2] user=backup,db=postgres LOG:  duration: 2.123 ms
