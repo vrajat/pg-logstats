@@ -1,265 +1,439 @@
--- Minimal workload for pg-loggrep demo
--- This file contains sample SQL statements to generate comprehensive log activity
+-- Comprehensive PostgreSQL Workload for pg-loggrep Demo
+-- This workload generates diverse log patterns for realistic analysis
+-- Expected runtime: 2-3 minutes, ~200-500 log entries
 
--- Enable timing for all statements
+-- Enable timing and verbose output
 \timing on
+\set VERBOSITY verbose
 
--- Create a test table for users
-CREATE TABLE IF NOT EXISTS demo_users (
-    id SERIAL PRIMARY KEY,
-    username VARCHAR(50) NOT NULL UNIQUE,
-    email VARCHAR(100),
-    first_name VARCHAR(50),
-    last_name VARCHAR(50),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+-- =============================================================================
+-- SECTION 1: SCHEMA CREATION AND SETUP
+-- Tests: DDL operations, index creation, constraint handling
+-- =============================================================================
 
--- Create index for better query performance and logging
-CREATE INDEX IF NOT EXISTS idx_demo_users_username ON demo_users(username);
-CREATE INDEX IF NOT EXISTS idx_demo_users_email ON demo_users(email);
-CREATE INDEX IF NOT EXISTS idx_demo_users_created_at ON demo_users(created_at);
+\echo '=== Creating Schema and Tables ==='
 
--- Insert sample user data
-INSERT INTO demo_users (username, email, first_name, last_name) VALUES
-    ('alice_smith', 'alice.smith@example.com', 'Alice', 'Smith'),
-    ('bob_jones', 'bob.jones@example.com', 'Bob', 'Jones'),
-    ('charlie_brown', 'charlie.brown@example.com', 'Charlie', 'Brown'),
-    ('diana_wilson', 'diana.wilson@example.com', 'Diana', 'Wilson'),
-    ('eve_davis', 'eve.davis@example.com', 'Eve', 'Davis')
-ON CONFLICT (username) DO NOTHING;
+-- Drop tables if they exist (will generate notices/errors in logs)
+DROP TABLE IF EXISTS orders CASCADE;
+DROP TABLE IF EXISTS products CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
 
--- Create orders table with foreign key relationship
-CREATE TABLE IF NOT EXISTS demo_orders (
-    id SERIAL PRIMARY KEY,
-    user_id INTEGER REFERENCES demo_users(id) ON DELETE CASCADE,
-    order_number VARCHAR(20) UNIQUE NOT NULL,
-    amount DECIMAL(10,2) NOT NULL CHECK (amount > 0),
-    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'completed', 'cancelled', 'refunded')),
-    order_date DATE DEFAULT CURRENT_DATE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- Create indexes for orders table
-CREATE INDEX IF NOT EXISTS idx_demo_orders_user_id ON demo_orders(user_id);
-CREATE INDEX IF NOT EXISTS idx_demo_orders_status ON demo_orders(status);
-CREATE INDEX IF NOT EXISTS idx_demo_orders_order_date ON demo_orders(order_date);
-CREATE INDEX IF NOT EXISTS idx_demo_orders_amount ON demo_orders(amount);
-
--- Insert sample order data
-INSERT INTO demo_orders (user_id, order_number, amount, status, order_date) VALUES
-    (1, 'ORD-2024-001', 125.50, 'completed', '2024-01-15'),
-    (2, 'ORD-2024-002', 89.99, 'completed', '2024-01-16'),
-    (3, 'ORD-2024-003', 234.75, 'processing', '2024-01-17'),
-    (1, 'ORD-2024-004', 67.25, 'completed', '2024-01-18'),
-    (4, 'ORD-2024-005', 156.00, 'pending', '2024-01-19'),
-    (5, 'ORD-2024-006', 298.50, 'cancelled', '2024-01-20'),
-    (2, 'ORD-2024-007', 45.99, 'completed', '2024-01-21'),
-    (3, 'ORD-2024-008', 178.25, 'refunded', '2024-01-22')
-ON CONFLICT (order_number) DO NOTHING;
-
--- Create products table for more complex queries
-CREATE TABLE IF NOT EXISTS demo_products (
+-- Create users table
+CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
-    category VARCHAR(50),
-    price DECIMAL(10,2) NOT NULL CHECK (price >= 0),
-    stock_quantity INTEGER DEFAULT 0 CHECK (stock_quantity >= 0),
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    email VARCHAR(150) UNIQUE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    active BOOLEAN DEFAULT true,
+    last_login TIMESTAMP,
+    user_type VARCHAR(20) DEFAULT 'regular' CHECK (user_type IN ('regular', 'premium', 'admin'))
 );
 
--- Insert sample products
-INSERT INTO demo_products (name, category, price, stock_quantity) VALUES
-    ('Laptop Pro 15"', 'Electronics', 1299.99, 25),
-    ('Wireless Mouse', 'Electronics', 29.99, 150),
-    ('Office Chair', 'Furniture', 199.99, 45),
-    ('Coffee Mug', 'Kitchen', 12.99, 200),
-    ('Notebook Set', 'Office', 15.99, 75)
-ON CONFLICT DO NOTHING;
-
--- Create order items table for many-to-many relationship
-CREATE TABLE IF NOT EXISTS demo_order_items (
+-- Create products table
+CREATE TABLE products (
     id SERIAL PRIMARY KEY,
-    order_id INTEGER REFERENCES demo_orders(id) ON DELETE CASCADE,
-    product_id INTEGER REFERENCES demo_products(id),
-    quantity INTEGER NOT NULL CHECK (quantity > 0),
-    unit_price DECIMAL(10,2) NOT NULL CHECK (unit_price > 0),
-    total_price DECIMAL(10,2) GENERATED ALWAYS AS (quantity * unit_price) STORED
+    name VARCHAR(200) NOT NULL,
+    category VARCHAR(50) NOT NULL,
+    price DECIMAL(10,2) NOT NULL CHECK (price >= 0),
+    stock INTEGER DEFAULT 0 CHECK (stock >= 0),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    description TEXT,
+    is_active BOOLEAN DEFAULT true
 );
 
--- Insert sample order items
-INSERT INTO demo_order_items (order_id, product_id, quantity, unit_price) VALUES
-    (1, 1, 1, 1299.99),
-    (1, 2, 2, 29.99),
-    (2, 3, 1, 199.99),
-    (3, 4, 5, 12.99),
-    (3, 5, 3, 15.99),
-    (4, 2, 1, 29.99),
-    (5, 1, 1, 1299.99)
-ON CONFLICT DO NOTHING;
+-- Create orders table with foreign key relationships
+CREATE TABLE orders (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    product_id INTEGER NOT NULL REFERENCES products(id),
+    quantity INTEGER NOT NULL CHECK (quantity > 0),
+    order_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'shipped', 'delivered', 'cancelled')),
+    total_amount DECIMAL(10,2),
+    shipping_address TEXT,
+    notes TEXT
+);
 
--- Sample queries that will generate various log entries
+-- Create indexes for performance testing
+CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX idx_users_created_at ON users(created_at);
+CREATE INDEX idx_users_active ON users(active);
+CREATE INDEX idx_products_category ON products(category);
+CREATE INDEX idx_products_price ON products(price);
+CREATE INDEX idx_orders_user_id ON orders(user_id);
+CREATE INDEX idx_orders_product_id ON orders(product_id);
+CREATE INDEX idx_orders_order_date ON orders(order_date);
+CREATE INDEX idx_orders_status ON orders(status);
 
--- Simple SELECT queries
-SELECT COUNT(*) as total_users FROM demo_users;
-SELECT COUNT(*) as total_orders FROM demo_orders;
-SELECT COUNT(*) as total_products FROM demo_products;
+-- =============================================================================
+-- SECTION 2: BULK DATA INSERTION
+-- Tests: INSERT operations, bulk loading, constraint validation
+-- =============================================================================
 
--- Aggregation queries
+\echo '=== Inserting Sample Data ==='
+
+-- Insert users (1000 records)
+INSERT INTO users (name, email, created_at, active, user_type, last_login)
 SELECT
-    status,
-    COUNT(*) as order_count,
-    SUM(amount) as total_amount,
-    AVG(amount) as average_amount,
-    MIN(amount) as min_amount,
-    MAX(amount) as max_amount
-FROM demo_orders
-GROUP BY status
-ORDER BY total_amount DESC;
+    'User ' || generate_series,
+    'user' || generate_series || '@example.com',
+    CURRENT_TIMESTAMP - (random() * INTERVAL '365 days'),
+    CASE WHEN random() < 0.9 THEN true ELSE false END,
+    CASE
+        WHEN random() < 0.8 THEN 'regular'
+        WHEN random() < 0.95 THEN 'premium'
+        ELSE 'admin'
+    END,
+    CASE WHEN random() < 0.7 THEN CURRENT_TIMESTAMP - (random() * INTERVAL '30 days') ELSE NULL END
+FROM generate_series(1, 1000);
 
--- JOIN queries
+-- Insert products (500 records)
+INSERT INTO products (name, category, price, stock, description, is_active)
 SELECT
-    u.username,
+    'Product ' || generate_series,
+    CASE (generate_series % 10)
+        WHEN 0 THEN 'Electronics'
+        WHEN 1 THEN 'Clothing'
+        WHEN 2 THEN 'Books'
+        WHEN 3 THEN 'Home & Garden'
+        WHEN 4 THEN 'Sports'
+        WHEN 5 THEN 'Toys'
+        WHEN 6 THEN 'Health'
+        WHEN 7 THEN 'Automotive'
+        WHEN 8 THEN 'Food'
+        ELSE 'Other'
+    END,
+    (random() * 999 + 1)::DECIMAL(10,2),
+    (random() * 100)::INTEGER,
+    'Description for product ' || generate_series,
+    CASE WHEN random() < 0.95 THEN true ELSE false END
+FROM generate_series(1, 500);
+
+-- Insert orders (2000 records)
+INSERT INTO orders (user_id, product_id, quantity, order_date, status, total_amount, shipping_address)
+SELECT
+    (random() * 999 + 1)::INTEGER,
+    (random() * 499 + 1)::INTEGER,
+    (random() * 5 + 1)::INTEGER,
+    CURRENT_TIMESTAMP - (random() * INTERVAL '180 days'),
+    CASE
+        WHEN random() < 0.3 THEN 'delivered'
+        WHEN random() < 0.6 THEN 'shipped'
+        WHEN random() < 0.8 THEN 'processing'
+        WHEN random() < 0.95 THEN 'pending'
+        ELSE 'cancelled'
+    END,
+    (random() * 500 + 10)::DECIMAL(10,2),
+    'Address ' || generate_series || ', City, State'
+FROM generate_series(1, 2000);
+
+-- Update statistics for better query planning
+ANALYZE users;
+ANALYZE products;
+ANALYZE orders;
+
+-- =============================================================================
+-- SECTION 3: FAST SELECT QUERIES
+-- Tests: Simple queries, index usage, various WHERE conditions
+-- =============================================================================
+
+\echo '=== Running Fast SELECT Queries ==='
+
+-- Simple primary key lookups (very fast)
+SELECT * FROM users WHERE id = 1;
+SELECT * FROM users WHERE id = 500;
+SELECT * FROM products WHERE id = 250;
+
+-- Index-based queries (fast)
+SELECT * FROM users WHERE email = 'user100@example.com';
+SELECT * FROM users WHERE active = true LIMIT 10;
+SELECT * FROM products WHERE category = 'Electronics' LIMIT 5;
+SELECT * FROM orders WHERE status = 'delivered' LIMIT 10;
+
+-- Count queries with indexes
+SELECT COUNT(*) FROM users WHERE active = true;
+SELECT COUNT(*) FROM products WHERE is_active = true;
+SELECT COUNT(*) FROM orders WHERE status = 'pending';
+
+-- Date range queries
+SELECT COUNT(*) FROM users WHERE created_at > CURRENT_DATE - INTERVAL '30 days';
+SELECT COUNT(*) FROM orders WHERE order_date > CURRENT_DATE - INTERVAL '7 days';
+
+-- =============================================================================
+-- SECTION 4: SLOW SELECT QUERIES
+-- Tests: Complex joins, aggregations, subqueries, sorting
+-- =============================================================================
+
+\echo '=== Running Slow SELECT Queries ==='
+
+-- Complex join with aggregation (slow)
+SELECT
+    u.name,
     u.email,
+    u.user_type,
     COUNT(o.id) as total_orders,
-    COALESCE(SUM(o.amount), 0) as total_spent,
-    COALESCE(AVG(o.amount), 0) as average_order_value
-FROM demo_users u
-LEFT JOIN demo_orders o ON u.id = o.user_id
-GROUP BY u.id, u.username, u.email
-ORDER BY total_spent DESC;
+    SUM(o.total_amount) as total_spent,
+    AVG(o.total_amount) as avg_order_value,
+    MAX(o.order_date) as last_order_date
+FROM users u
+LEFT JOIN orders o ON u.id = o.user_id
+WHERE u.active = true
+GROUP BY u.id, u.name, u.email, u.user_type
+HAVING COUNT(o.id) > 0
+ORDER BY total_spent DESC
+LIMIT 20;
 
--- Complex JOIN with multiple tables
+-- Multi-table join with filtering (slow)
 SELECT
-    u.username,
-    o.order_number,
-    o.status,
-    o.amount as order_total,
-    COUNT(oi.id) as item_count,
-    STRING_AGG(p.name, ', ') as products
-FROM demo_users u
-JOIN demo_orders o ON u.id = o.user_id
-LEFT JOIN demo_order_items oi ON o.id = oi.order_id
-LEFT JOIN demo_products p ON oi.product_id = p.id
-GROUP BY u.username, o.id, o.order_number, o.status, o.amount
-ORDER BY o.created_at DESC;
+    u.name as customer_name,
+    p.name as product_name,
+    p.category,
+    o.quantity,
+    o.total_amount,
+    o.order_date,
+    o.status
+FROM orders o
+JOIN users u ON o.user_id = u.id
+JOIN products p ON o.product_id = p.id
+WHERE o.order_date > CURRENT_DATE - INTERVAL '30 days'
+    AND p.category IN ('Electronics', 'Books', 'Clothing')
+    AND o.status != 'cancelled'
+ORDER BY o.order_date DESC, o.total_amount DESC
+LIMIT 50;
 
--- Subquery examples
+-- Subquery with aggregation (slow)
 SELECT
-    username,
-    email,
-    (SELECT COUNT(*) FROM demo_orders WHERE user_id = u.id) as order_count,
-    (SELECT COALESCE(SUM(amount), 0) FROM demo_orders WHERE user_id = u.id AND status = 'completed') as completed_amount
-FROM demo_users u
-WHERE id IN (SELECT DISTINCT user_id FROM demo_orders WHERE amount > 100);
+    category,
+    COUNT(*) as product_count,
+    AVG(price) as avg_price,
+    SUM(stock) as total_stock,
+    (SELECT COUNT(*) FROM orders o JOIN products p2 ON o.product_id = p2.id WHERE p2.category = p.category) as orders_count
+FROM products p
+WHERE is_active = true
+GROUP BY category
+ORDER BY orders_count DESC;
 
--- Window functions
+-- Window functions (moderately slow)
 SELECT
-    username,
-    order_number,
-    amount,
-    status,
-    ROW_NUMBER() OVER (PARTITION BY u.id ORDER BY o.created_at DESC) as order_rank,
-    SUM(amount) OVER (PARTITION BY u.id) as user_total_spent,
-    LAG(amount) OVER (PARTITION BY u.id ORDER BY o.created_at) as previous_order_amount
-FROM demo_users u
-JOIN demo_orders o ON u.id = o.user_id
-ORDER BY u.username, o.created_at DESC;
+    name,
+    category,
+    price,
+    ROW_NUMBER() OVER (PARTITION BY category ORDER BY price DESC) as price_rank,
+    AVG(price) OVER (PARTITION BY category) as category_avg_price,
+    price - AVG(price) OVER (PARTITION BY category) as price_diff_from_avg
+FROM products
+WHERE is_active = true
+ORDER BY category, price_rank;
 
--- Date/time queries
+-- Complex aggregation with multiple conditions (slow)
 SELECT
-    DATE_TRUNC('month', order_date) as month,
-    COUNT(*) as orders_count,
-    SUM(amount) as monthly_revenue,
-    AVG(amount) as avg_order_value
-FROM demo_orders
-WHERE order_date >= CURRENT_DATE - INTERVAL '6 months'
-GROUP BY DATE_TRUNC('month', order_date)
+    DATE_TRUNC('month', o.order_date) as month,
+    COUNT(*) as total_orders,
+    COUNT(DISTINCT o.user_id) as unique_customers,
+    SUM(o.total_amount) as revenue,
+    AVG(o.total_amount) as avg_order_value,
+    COUNT(CASE WHEN o.status = 'delivered' THEN 1 END) as delivered_orders,
+    COUNT(CASE WHEN o.status = 'cancelled' THEN 1 END) as cancelled_orders
+FROM orders o
+WHERE o.order_date > CURRENT_DATE - INTERVAL '6 months'
+GROUP BY DATE_TRUNC('month', o.order_date)
 ORDER BY month DESC;
 
--- Product analysis
-SELECT
-    p.category,
-    COUNT(DISTINCT p.id) as product_count,
-    COUNT(oi.id) as times_ordered,
-    SUM(oi.quantity) as total_quantity_sold,
-    SUM(oi.total_price) as total_revenue
-FROM demo_products p
-LEFT JOIN demo_order_items oi ON p.id = oi.product_id
-GROUP BY p.category
-ORDER BY total_revenue DESC NULLS LAST;
+-- =============================================================================
+-- SECTION 5: INSERT/UPDATE/DELETE OPERATIONS
+-- Tests: DML operations, constraint violations, transaction handling
+-- =============================================================================
 
--- Update operations (will generate modification logs)
-UPDATE demo_users
+\echo '=== Running DML Operations ==='
+
+-- Insert new users
+INSERT INTO users (name, email, user_type) VALUES
+    ('Test User 1', 'test1@demo.com', 'regular'),
+    ('Test User 2', 'test2@demo.com', 'premium'),
+    ('Test User 3', 'test3@demo.com', 'admin');
+
+-- Insert new products
+INSERT INTO products (name, category, price, stock) VALUES
+    ('Demo Product A', 'Electronics', 299.99, 50),
+    ('Demo Product B', 'Books', 19.99, 100),
+    ('Demo Product C', 'Clothing', 49.99, 25);
+
+-- Update operations
+UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE user_type = 'admin';
+UPDATE products SET stock = stock - 1 WHERE category = 'Electronics' AND stock > 0;
+UPDATE orders SET status = 'shipped' WHERE status = 'processing' AND order_date < CURRENT_DATE - INTERVAL '2 days';
+
+-- Batch update with join
+UPDATE products
 SET updated_at = CURRENT_TIMESTAMP
-WHERE created_at < CURRENT_TIMESTAMP - INTERVAL '1 day';
+WHERE id IN (
+    SELECT DISTINCT product_id
+    FROM orders
+    WHERE order_date > CURRENT_DATE - INTERVAL '7 days'
+);
 
-UPDATE demo_orders
-SET status = 'completed', updated_at = CURRENT_TIMESTAMP
-WHERE status = 'processing' AND created_at < CURRENT_TIMESTAMP - INTERVAL '1 hour';
+-- Delete operations
+DELETE FROM orders WHERE status = 'cancelled' AND order_date < CURRENT_DATE - INTERVAL '90 days';
+DELETE FROM users WHERE active = false AND last_login < CURRENT_DATE - INTERVAL '365 days';
 
--- Delete operations (will generate deletion logs)
-DELETE FROM demo_order_items
-WHERE order_id IN (SELECT id FROM demo_orders WHERE status = 'cancelled');
+-- =============================================================================
+-- SECTION 6: PARAMETERIZED QUERIES AND VARIATIONS
+-- Tests: Query normalization, parameter patterns
+-- =============================================================================
 
--- Transaction example
+\echo '=== Running Parameterized Query Patterns ==='
+
+-- Simulate parameterized queries with different values
+SELECT * FROM users WHERE id = 1;
+SELECT * FROM users WHERE id = 2;
+SELECT * FROM users WHERE id = 3;
+
+SELECT * FROM products WHERE price > 100.00;
+SELECT * FROM products WHERE price > 50.00;
+SELECT * FROM products WHERE price > 200.00;
+
+SELECT * FROM orders WHERE user_id = 1 AND status = 'delivered';
+SELECT * FROM orders WHERE user_id = 2 AND status = 'delivered';
+SELECT * FROM orders WHERE user_id = 3 AND status = 'pending';
+
+-- IN clause variations
+SELECT * FROM products WHERE category IN ('Electronics');
+SELECT * FROM products WHERE category IN ('Electronics', 'Books');
+SELECT * FROM products WHERE category IN ('Electronics', 'Books', 'Clothing');
+
+-- LIKE patterns
+SELECT * FROM users WHERE name LIKE 'User 1%';
+SELECT * FROM users WHERE name LIKE 'User 2%';
+SELECT * FROM products WHERE name LIKE '%Product A%';
+
+-- =============================================================================
+-- SECTION 7: INTENTIONAL ERRORS
+-- Tests: Error handling, constraint violations, missing objects
+-- =============================================================================
+
+\echo '=== Generating Intentional Errors ==='
+
+-- Table doesn't exist
+SELECT * FROM non_existent_table;
+
+-- Column doesn't exist
+SELECT invalid_column FROM users;
+
+-- Constraint violations
+INSERT INTO users (name, email) VALUES ('Duplicate User', 'user1@example.com'); -- Duplicate email
+
+-- Foreign key violation
+INSERT INTO orders (user_id, product_id, quantity) VALUES (99999, 1, 1); -- Non-existent user
+
+-- Check constraint violation
+INSERT INTO products (name, category, price) VALUES ('Invalid Product', 'Test', -10.00); -- Negative price
+
+-- Division by zero
+SELECT 1/0;
+
+-- Invalid date
+SELECT '2023-13-45'::DATE;
+
+-- Type conversion error
+SELECT 'not_a_number'::INTEGER;
+
+-- =============================================================================
+-- SECTION 8: CONNECTION SIMULATION AND TIMING VARIATIONS
+-- Tests: Connection patterns, session management
+-- =============================================================================
+
+\echo '=== Simulating Connection Patterns ==='
+
+-- Simulate connection pooling by running queries with delays
+SELECT pg_sleep(0.1); -- Short delay
+SELECT COUNT(*) FROM users;
+
+SELECT pg_sleep(0.05);
+SELECT COUNT(*) FROM products;
+
+SELECT pg_sleep(0.2); -- Longer delay
+SELECT COUNT(*) FROM orders;
+
+-- Simulate different session activities
+SET work_mem = '4MB';
+SELECT COUNT(*) FROM orders o JOIN users u ON o.user_id = u.id;
+
+RESET work_mem;
+SELECT COUNT(*) FROM products WHERE price > 100;
+
+-- Transaction simulation
 BEGIN;
-    INSERT INTO demo_users (username, email, first_name, last_name)
-    VALUES ('test_user', 'test@example.com', 'Test', 'User');
-
-    INSERT INTO demo_orders (user_id, order_number, amount, status)
-    VALUES (
-        (SELECT id FROM demo_users WHERE username = 'test_user'),
-        'ORD-TEST-001',
-        99.99,
-        'pending'
-    );
+    INSERT INTO users (name, email) VALUES ('Transaction User', 'tx@demo.com');
+    SELECT * FROM users WHERE email = 'tx@demo.com';
+    UPDATE users SET user_type = 'premium' WHERE email = 'tx@demo.com';
 COMMIT;
 
--- Cleanup test data
-DELETE FROM demo_users WHERE username = 'test_user';
+-- Rollback simulation
+BEGIN;
+    INSERT INTO products (name, category, price) VALUES ('Temp Product', 'Test', 99.99);
+    SELECT * FROM products WHERE name = 'Temp Product';
+ROLLBACK;
 
--- Performance testing queries
-EXPLAIN ANALYZE SELECT * FROM demo_orders WHERE amount > 100;
-EXPLAIN ANALYZE SELECT u.*, o.* FROM demo_users u JOIN demo_orders o ON u.id = o.user_id;
+-- =============================================================================
+-- SECTION 9: PERFORMANCE ANALYSIS QUERIES
+-- Tests: EXPLAIN plans, statistics, system queries
+-- =============================================================================
 
--- Create a view for reporting
-CREATE OR REPLACE VIEW user_order_summary AS
+\echo '=== Running Performance Analysis ==='
+
+-- EXPLAIN queries for plan analysis
+EXPLAIN ANALYZE SELECT * FROM orders WHERE user_id = 1;
+EXPLAIN ANALYZE SELECT COUNT(*) FROM orders o JOIN users u ON o.user_id = u.id;
+EXPLAIN (ANALYZE, BUFFERS) SELECT * FROM products WHERE category = 'Electronics' ORDER BY price DESC;
+
+-- System statistics queries
+SELECT schemaname, tablename, n_tup_ins, n_tup_upd, n_tup_del FROM pg_stat_user_tables;
+SELECT query, calls, total_time, mean_time FROM pg_stat_statements ORDER BY total_time DESC LIMIT 5;
+
+-- Index usage statistics
+SELECT schemaname, tablename, indexname, idx_scan, idx_tup_read, idx_tup_fetch
+FROM pg_stat_user_indexes
+ORDER BY idx_scan DESC;
+
+-- =============================================================================
+-- SECTION 10: CLEANUP AND FINAL OPERATIONS
+-- Tests: Maintenance operations, final statistics
+-- =============================================================================
+
+\echo '=== Running Maintenance Operations ==='
+
+-- Vacuum and analyze
+VACUUM ANALYZE users;
+VACUUM ANALYZE products;
+VACUUM ANALYZE orders;
+
+-- Update table statistics
 SELECT
-    u.id as user_id,
-    u.username,
-    u.email,
-    COUNT(o.id) as total_orders,
-    COALESCE(SUM(CASE WHEN o.status = 'completed' THEN o.amount END), 0) as completed_revenue,
-    COALESCE(AVG(CASE WHEN o.status = 'completed' THEN o.amount END), 0) as avg_completed_order,
-    MAX(o.created_at) as last_order_date,
-    CASE
-        WHEN MAX(o.created_at) > CURRENT_TIMESTAMP - INTERVAL '30 days' THEN 'Active'
-        WHEN MAX(o.created_at) > CURRENT_TIMESTAMP - INTERVAL '90 days' THEN 'Inactive'
-        ELSE 'Dormant'
-    END as customer_status
-FROM demo_users u
-LEFT JOIN demo_orders o ON u.id = o.user_id
-GROUP BY u.id, u.username, u.email;
-
--- Query the view
-SELECT * FROM user_order_summary ORDER BY completed_revenue DESC;
-
--- Drop the view
-DROP VIEW IF EXISTS user_order_summary;
+    schemaname,
+    tablename,
+    n_tup_ins as inserts,
+    n_tup_upd as updates,
+    n_tup_del as deletes,
+    n_live_tup as live_tuples,
+    n_dead_tup as dead_tuples
+FROM pg_stat_user_tables
+ORDER BY tablename;
 
 -- Final summary query
 SELECT
-    'Summary Report' as report_type,
-    (SELECT COUNT(*) FROM demo_users) as total_users,
-    (SELECT COUNT(*) FROM demo_orders) as total_orders,
-    (SELECT COUNT(*) FROM demo_products) as total_products,
-    (SELECT SUM(amount) FROM demo_orders WHERE status = 'completed') as total_revenue,
-    CURRENT_TIMESTAMP as generated_at;
+    'Workload Summary' as report_type,
+    (SELECT COUNT(*) FROM users) as total_users,
+    (SELECT COUNT(*) FROM products) as total_products,
+    (SELECT COUNT(*) FROM orders) as total_orders,
+    (SELECT SUM(total_amount) FROM orders WHERE status != 'cancelled') as total_revenue,
+    CURRENT_TIMESTAMP as completed_at;
 
 -- Disable timing
 \timing off
 
--- End of workload
-SELECT 'Workload completed successfully!' as status;
+\echo '=== Workload Completed Successfully ==='
+\echo 'Generated comprehensive log data for pg-loggrep analysis'
+\echo 'Expected log entries: 200-500'
+\echo 'Runtime: 2-3 minutes'
+\echo 'Coverage: DDL, DML, queries, errors, connections, performance analysis'

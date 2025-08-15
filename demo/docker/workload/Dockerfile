@@ -12,10 +12,9 @@ WORKDIR /app
 
 # Copy workload files
 COPY minimal_workload.sql /app/
-COPY run_workload.sh /app/
 
 # Create an enhanced workload runner script
-RUN cat > /app/run_workload.sh << 'EOF'
+COPY <<'EOF' /app/run_workload.sh
 #!/bin/bash
 set -e
 
@@ -67,48 +66,52 @@ run_intensive_workload() {
         -d "$POSTGRES_DB" \
         -c "
         -- Create additional test data
-        INSERT INTO demo_users (username, email)
+        INSERT INTO users (name, email)
         SELECT
-            'user_' || generate_series(1, 100),
-            'user_' || generate_series(1, 100) || '@test.com';
+            'intensive_user_' || generate_series(1, 100),
+            'intensive_user_' || generate_series(1, 100) || '@test.com'
+        ON CONFLICT (email) DO NOTHING;
 
-        INSERT INTO demo_orders (user_id, amount, status)
+        INSERT INTO products (name, category, price, stock)
         SELECT
-            (random() * 100 + 1)::int,
-            (random() * 1000 + 10)::decimal(10,2),
-            CASE
-                WHEN random() < 0.7 THEN 'completed'
-                WHEN random() < 0.9 THEN 'pending'
-                ELSE 'cancelled'
-            END
-        FROM generate_series(1, 500);
+            'intensive_product_' || generate_series(1, 50),
+            CASE (generate_series % 5)
+                WHEN 0 THEN 'Electronics'
+                WHEN 1 THEN 'Books'
+                WHEN 2 THEN 'Clothing'
+                WHEN 3 THEN 'Sports'
+                ELSE 'Other'
+            END,
+            (random() * 1000 + 10)::DECIMAL(10,2),
+            (random() * 100)::INTEGER
+        FROM generate_series(1, 50);
 
         -- Run complex analytical queries
         SELECT
-            u.username,
+            u.name,
             COUNT(o.id) as total_orders,
-            SUM(CASE WHEN o.status = 'completed' THEN o.amount ELSE 0 END) as completed_amount,
-            AVG(CASE WHEN o.status = 'completed' THEN o.amount END) as avg_order_value
-        FROM demo_users u
-        LEFT JOIN demo_orders o ON u.id = o.user_id
-        GROUP BY u.id, u.username
+            SUM(CASE WHEN o.status = 'delivered' THEN o.total_amount ELSE 0 END) as completed_amount,
+            AVG(CASE WHEN o.status = 'delivered' THEN o.total_amount END) as avg_order_value
+        FROM users u
+        LEFT JOIN orders o ON u.id = o.user_id
+        GROUP BY u.id, u.name
         HAVING COUNT(o.id) > 0
         ORDER BY completed_amount DESC
         LIMIT 20;
 
         -- Simulate some slow queries
         SELECT pg_sleep(0.1);
-        SELECT COUNT(*) FROM demo_orders WHERE amount > (SELECT AVG(amount) FROM demo_orders);
+        SELECT COUNT(*) FROM orders WHERE total_amount > (SELECT AVG(total_amount) FROM orders);
 
         -- Create and drop temporary tables
         CREATE TEMP TABLE temp_analysis AS
         SELECT
-            DATE_TRUNC('day', created_at) as day,
+            DATE_TRUNC('day', order_date) as day,
             status,
             COUNT(*) as order_count,
-            SUM(amount) as total_amount
-        FROM demo_orders
-        GROUP BY DATE_TRUNC('day', created_at), status;
+            SUM(total_amount) as total_amount
+        FROM orders
+        GROUP BY DATE_TRUNC('day', order_date), status;
 
         SELECT * FROM temp_analysis ORDER BY day, status;
         DROP TABLE temp_analysis;
@@ -126,9 +129,10 @@ run_error_workload() {
         -c "
         -- These queries will generate various types of errors and warnings
         SELECT * FROM non_existent_table;
-        INSERT INTO demo_users (id, username) VALUES (1, 'duplicate_user');
+        INSERT INTO users (id, name, email) VALUES (1, 'duplicate_user', 'user1@example.com');
         SELECT 1/0;
-        SELECT * FROM demo_orders WHERE invalid_column = 'test';
+        SELECT * FROM orders WHERE invalid_column = 'test';
+        INSERT INTO products (name, category, price) VALUES ('test', 'test', -100);
         " || true  # Continue even if queries fail
 }
 
@@ -175,7 +179,7 @@ EOF
 RUN chmod +x /app/run_workload.sh
 
 # Create a simple monitoring script
-RUN cat > /app/monitor_logs.sh << 'EOF'
+COPY <<'EOF' /app/monitor_logs.sh
 #!/bin/bash
 echo "Monitoring PostgreSQL logs..."
 echo "Log files available:"
