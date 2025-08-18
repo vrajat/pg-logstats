@@ -208,7 +208,7 @@ run_workload_duration() {
     print_verbose "Calculated iterations for duration: $calculated_iterations"
 
     # Start workload in background
-    docker-compose run --rm \
+    docker-compose run --rm -T \
         -e WORKLOAD_TYPE="$WORKLOAD_TYPE" \
         -e WORKLOAD_ITERATIONS="$calculated_iterations" \
         -e WORKLOAD_DELAY="$WORKLOAD_DELAY" \

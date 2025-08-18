@@ -289,9 +289,9 @@ analyze_logs() {
 
     local analysis_args=""
     if [ "$OUTPUT_FORMAT" = "json" ]; then
-        analysis_args="--output $output_file --extension json"
+        analysis_args="--out-file $output_file --output-format json"
     else
-        analysis_args="--output $output_file"
+        analysis_args="--out-file $output_file"
     fi
 
     if [ "$VERBOSE" = "true" ]; then

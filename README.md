@@ -246,7 +246,7 @@ For detailed architecture documentation, see [docs/architecture.md](docs/archite
 
 ## 🤝 Contributing
 
-We welcome contributions! Here's how to get started:
+Here's how to get started:
 
 ### Development Setup
 
@@ -332,13 +332,3 @@ cargo run -- examples/sample.log
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🙏 Acknowledgments
-
-- **PostgreSQL Community**: For excellent logging capabilities
-- **Rust Community**: For amazing tools and libraries
-- **Contributors**: Everyone who helps improve this project
-
----
-
-**Made with ❤️ and ⚡ by the pg-loggrep team**
