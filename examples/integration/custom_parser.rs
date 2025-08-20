@@ -1,9 +1,9 @@
 //! Custom parser implementation example
 //!
-//! This example demonstrates how to create a custom log parser for pg-loggrep
+//! This example demonstrates how to create a custom log parser for pg-logstats
 //! to handle different PostgreSQL log formats or custom log structures.
 
-use pg_loggrep::{LogEntry, LogLevel, PgLoggrepError};
+use pg_logstats::{LogEntry, LogLevel, PgLogstatsError};
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use std::collections::HashMap;
@@ -39,7 +39,7 @@ impl CsvLogParser {
     ///
     /// Expected CSV format:
     /// timestamp,user,database,pid,connection_from,session_id,session_line_num,command_tag,session_start_time,virtual_transaction_id,transaction_id,error_severity,sql_state_code,message,detail,hint,internal_query,internal_query_pos,context,query,query_pos,location,application_name
-    pub fn parse_line(&self, line: &str) -> Result<Option<LogEntry>, PgLoggrepError> {
+    pub fn parse_line(&self, line: &str) -> Result<Option<LogEntry>, PgLogstatsError> {
         if line.trim().is_empty() || line.starts_with('#') {
             return Ok(None);
         }
@@ -47,7 +47,7 @@ impl CsvLogParser {
         let fields = self.parse_csv_line(line)?;
 
         if fields.len() < 14 {
-            return Err(PgLoggrepError::Parse(format!("Invalid CSV format: expected at least 14 fields, got {}", fields.len())));
+            return Err(PgLogstatsError::Parse(format!("Invalid CSV format: expected at least 14 fields, got {}", fields.len())));
         }
 
         // Extract fields based on PostgreSQL CSV log format
@@ -87,7 +87,7 @@ impl CsvLogParser {
     }
 
     /// Parse CSV line handling quoted fields and escaped quotes
-    fn parse_csv_line(&self, line: &str) -> Result<Vec<String>, PgLoggrepError> {
+    fn parse_csv_line(&self, line: &str) -> Result<Vec<String>, PgLogstatsError> {
         let mut fields = Vec::new();
         let mut current_field = String::new();
         let mut in_quotes = false;
@@ -125,7 +125,7 @@ impl CsvLogParser {
     }
 
     /// Parse timestamp from CSV format
-    fn parse_timestamp(&self, timestamp_str: &str) -> Result<DateTime<Utc>, PgLoggrepError> {
+    fn parse_timestamp(&self, timestamp_str: &str) -> Result<DateTime<Utc>, PgLogstatsError> {
         // Handle various timestamp formats
         let formats = [
             "%Y-%m-%d %H:%M:%S%.3f %Z",
@@ -140,7 +140,7 @@ impl CsvLogParser {
             }
         }
 
-        Err(PgLoggrepError::Parse(format!("Unable to parse timestamp: {}", timestamp_str)))
+        Err(PgLogstatsError::Parse(format!("Unable to parse timestamp: {}", timestamp_str)))
     }
 
     /// Extract duration from message text
@@ -177,22 +177,22 @@ impl JsonLogParser {
     }
 
     /// Parse a JSON log line
-    pub fn parse_line(&self, line: &str) -> Result<Option<LogEntry>, PgLoggrepError> {
+    pub fn parse_line(&self, line: &str) -> Result<Option<LogEntry>, PgLogstatsError> {
         if line.trim().is_empty() {
             return Ok(None);
         }
 
         // Parse JSON
         let json_value: serde_json::Value = serde_json::from_str(line)
-            .map_err(|e| PgLoggrepError::Parse(format!("Invalid JSON: {}", e)))?;
+            .map_err(|e| PgLogstatsError::Parse(format!("Invalid JSON: {}", e)))?;
 
         let obj = json_value.as_object()
-            .ok_or_else(|| PgLoggrepError::Parse("Expected JSON object".to_string()))?;
+            .ok_or_else(|| PgLogstatsError::Parse("Expected JSON object".to_string()))?;
 
         // Extract fields
         let timestamp_str = obj.get("timestamp")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| PgLoggrepError::Parse("Missing timestamp field".to_string()))?;
+            .ok_or_else(|| PgLogstatsError::Parse("Missing timestamp field".to_string()))?;
 
         let level_str = obj.get("level")
             .and_then(|v| v.as_str())
@@ -224,7 +224,7 @@ impl JsonLogParser {
 
         // Parse timestamp
         let timestamp = DateTime::parse_from_rfc3339(timestamp_str)
-            .map_err(|e| PgLoggrepError::Parse(format!("Invalid timestamp: {}", e)))?
+            .map_err(|e| PgLogstatsError::Parse(format!("Invalid timestamp: {}", e)))?
             .with_timezone(&Utc);
 
         // Parse log level
@@ -247,12 +247,12 @@ impl JsonLogParser {
 
 /// Trait for implementing custom parsers
 pub trait LogParser {
-    fn parse_line(&self, line: &str) -> Result<Option<LogEntry>, PgLoggrepError>;
+    fn parse_line(&self, line: &str) -> Result<Option<LogEntry>, PgLogstatsError>;
     fn supports_format(&self, sample: &str) -> bool;
 }
 
 impl LogParser for CsvLogParser {
-    fn parse_line(&self, line: &str) -> Result<Option<LogEntry>, PgLoggrepError> {
+    fn parse_line(&self, line: &str) -> Result<Option<LogEntry>, PgLogstatsError> {
         self.parse_line(line)
     }
 
@@ -264,7 +264,7 @@ impl LogParser for CsvLogParser {
 }
 
 impl LogParser for JsonLogParser {
-    fn parse_line(&self, line: &str) -> Result<Option<LogEntry>, PgLoggrepError> {
+    fn parse_line(&self, line: &str) -> Result<Option<LogEntry>, PgLogstatsError> {
         self.parse_line(line)
     }
 
@@ -304,9 +304,9 @@ impl ParserRegistry {
         None
     }
 
-    pub fn parse_with_best_parser(&self, lines: &[&str]) -> Result<Vec<LogEntry>, PgLoggrepError> {
+    pub fn parse_with_best_parser(&self, lines: &[&str]) -> Result<Vec<LogEntry>, PgLogstatsError> {
         let parser = self.detect_format(lines)
-            .ok_or_else(|| PgLoggrepError::Parse("No suitable parser found".to_string()))?;
+            .ok_or_else(|| PgLogstatsError::Parse("No suitable parser found".to_string()))?;
 
         let mut entries = Vec::new();
         for line in lines {

@@ -1,6 +1,6 @@
-# pg-loggrep Examples
+# pg-logstats Examples
 
-This directory contains practical examples, sample log files, and common usage patterns for pg-loggrep.
+This directory contains practical examples, sample log files, and common usage patterns for pg-logstats.
 
 ## Directory Structure
 
@@ -26,31 +26,31 @@ examples/
 ### Basic Analysis
 ```bash
 # Analyze a single log file
-pg-loggrep --log-dir examples/logs --output-format text
+pg-logstats --log-dir examples/logs --output-format text
 
 # Get quick summary only
-pg-loggrep --log-dir examples/logs --quick
+pg-logstats --log-dir examples/logs --quick
 
 # JSON output for further processing
-pg-loggrep --log-dir examples/logs --output-format json > analysis.json
+pg-logstats --log-dir examples/logs --output-format json > analysis.json
 ```
 
 ### Performance Analysis
 ```bash
 # Focus on slow queries
-pg-loggrep --log-dir examples/logs --output-format json | jq '.slow_queries[]'
+pg-logstats --log-dir examples/logs --output-format json | jq '.slow_queries[]'
 
 # Sample large files for faster analysis
-pg-loggrep --log-dir /var/log/postgresql --sample-size 10000
+pg-logstats --log-dir /var/log/postgresql --sample-size 10000
 ```
 
 ### Error Investigation
 ```bash
 # Analyze error patterns
-pg-loggrep --log-dir examples/logs --output-format json | jq '.error_summary'
+pg-logstats --log-dir examples/logs --output-format json | jq '.error_summary'
 
 # Verbose output for debugging
-pg-loggrep --log-dir examples/logs --verbose
+pg-logstats --log-dir examples/logs --verbose
 ```
 
 ## Sample Log Files
@@ -77,11 +77,11 @@ When adding new examples:
 
 1. **Log Files**: Use realistic but anonymized data
 2. **Documentation**: Include clear descriptions and expected outputs
-3. **Testing**: Ensure examples work with current pg-loggrep version
+3. **Testing**: Ensure examples work with current pg-logstats version
 4. **Variety**: Cover different use cases and scenarios
 
 ## Getting Help
 
 - Check the main [README.md](../README.md) for basic usage
 - See [docs/architecture.md](../docs/architecture.md) for technical details
-- Run `pg-loggrep --help` for current CLI options
+- Run `pg-logstats --help` for current CLI options

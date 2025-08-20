@@ -1,4 +1,4 @@
--- Comprehensive PostgreSQL Workload for pg-loggrep Demo
+-- Comprehensive PostgreSQL Workload for pg-logstats Demo
 -- This workload generates diverse log patterns for realistic analysis
 -- Expected runtime: 2-3 minutes, ~200-500 log entries
 
@@ -433,7 +433,7 @@ SELECT
 \timing off
 
 \echo '=== Workload Completed Successfully ==='
-\echo 'Generated comprehensive log data for pg-loggrep analysis'
+\echo 'Generated comprehensive log data for pg-logstats analysis'
 \echo 'Expected log entries: 200-500'
 \echo 'Runtime: 2-3 minutes'
 \echo 'Coverage: DDL, DML, queries, errors, connections, performance analysis'

@@ -2,13 +2,13 @@
 //!
 //! Handles PostgreSQL 17 stderr logs with standard log_line_prefix = '%m [%p] %q%u@%d %a: '
 
-use crate::{LogEntry, LogLevel, PgLoggrepError, Result, timestamp_error};
+use crate::{timestamp_error, LogEntry, LogLevel, PgLogstatsError, Result};
 use chrono::{DateTime, Utc};
 use regex::Regex;
 
 /// Parser for PostgreSQL stderr log format
 pub struct StderrParser {
-    // Regex patterns for parsing PostgreSQL 17 stderr format
+    pub // Regex patterns for parsing PostgreSQL 17 stderr format
     log_line_regex: Regex,
     duration_regex: Regex,
     parameter_regex: Regex,
@@ -102,7 +102,7 @@ impl StderrParser {
         }
 
         if !errors.is_empty() {
-            return Err(PgLoggrepError::Parse {
+            return Err(PgLogstatsError::Parse {
                 message: format!("Failed to parse {} lines: {}", errors.len(), errors.join("; ")),
                 line_number: None,
                 line_content: None,
@@ -323,7 +323,6 @@ impl Default for StderrParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-
 
     #[test]
     fn test_parse_simple_statement() {

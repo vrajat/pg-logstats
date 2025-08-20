@@ -1,12 +1,12 @@
-# pg-loggrep Documentation
+# pg-logstats Documentation
 
-This directory contains documentation for the pg-loggrep project.
+This directory contains documentation for the pg-logstats project.
 
 ## Documentation Files
 
 ### API.md
 
-Complete API documentation for the pg-loggrep library, including:
+Complete API documentation for the pg-logstats library, including:
 - Module overview
 - Data structures
 - Method documentation
@@ -28,7 +28,7 @@ This will generate HTML documentation and open it in your default browser. The g
 
 ## Contributing to Documentation
 
-When adding new features to pg-loggrep:
+When adding new features to pg-logstats:
 
 1. Update the relevant module documentation in the source code
 2. Update this API.md file if new public APIs are added

@@ -1,27 +1,26 @@
-# pg-loggrep
+# pg-logstats
 
 A fast, modern PostgreSQL log analysis tool written in Rust. Analyze PostgreSQL logs with powerful query classification, performance metrics, and flexible output formats.
 
-[![Rust](https://github.com/yourusername/pg-loggrep/workflows/Rust/badge.svg)](https://github.com/yourusername/pg-loggrep/actions)
+[![Rust](https://github.com/vrajat/pg-logstats/workflows/Rust/badge.svg)](https://github.com/vrajat/pg-logstats/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Crates.io](https://img.shields.io/crates/v/pg-loggrep.svg)](https://crates.io/crates/pg-loggrep)
 
 ## 🚀 Quick Start
 
 ```bash
 # Install from source
-git clone https://github.com/yourusername/pg-loggrep.git
-cd pg-loggrep
+git clone https://github.com/yourusername/pg-logstats.git
+cd pg-logstats
 cargo install --path .
 
 # Analyze a single log file
-pg-loggrep /var/log/postgresql/postgresql.log
+pg-logstats /var/log/postgresql/postgresql.log
 
 # Analyze all logs in a directory with JSON output
-pg-loggrep --log-dir /var/log/postgresql --output-format json
+pg-logstats --log-dir /var/log/postgresql --output-format json
 
 # Quick summary of large files
-pg-loggrep --log-dir /var/log/postgresql --quick --sample-size 10000
+pg-logstats --log-dir /var/log/postgresql --quick --sample-size 10000
 ```
 
 ## 📋 Table of Contents
@@ -58,14 +57,14 @@ pg-loggrep --log-dir /var/log/postgresql --quick --sample-size 10000
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/pg-loggrep.git
-cd pg-loggrep
+git clone https://github.com/yourusername/pg-logstats.git
+cd pg-logstats
 
 # Build and install
 cargo install --path .
 
 # Verify installation
-pg-loggrep --version
+pg-logstats --version
 ```
 
 ### Prerequisites
@@ -85,39 +84,39 @@ pg-loggrep --version
 
 ```bash
 # Analyze a single log file
-pg-loggrep postgresql.log
+pg-logstats postgresql.log
 
 # Analyze multiple files
-pg-loggrep file1.log file2.log file3.log
+pg-logstats file1.log file2.log file3.log
 
 # Analyze all logs in a directory
-pg-loggrep --log-dir /var/log/postgresql/
+pg-logstats --log-dir /var/log/postgresql/
 
 # Limit analysis to first 1000 lines of each file
-pg-loggrep --sample-size 1000 large-file.log
+pg-logstats --sample-size 1000 large-file.log
 
 # Get quick summary without detailed queries
-pg-loggrep --quick postgresql.log
+pg-logstats --quick postgresql.log
 
 # Output as JSON for further processing
-pg-loggrep --output-format json postgresql.log | jq '.summary'
+pg-logstats --output-format json postgresql.log | jq '.summary'
 ```
 
 ### Advanced Usage
 
 ```bash
 # Combine multiple options
-pg-loggrep \
+pg-logstats \
   --log-dir /var/log/postgresql/ \
   --output-format json \
   --sample-size 5000 \
   --quick
 
 # Process with verbose logging
-RUST_LOG=debug pg-loggrep --verbose postgresql.log
+RUST_LOG=debug pg-logstats --verbose postgresql.log
 
 # Save output to file
-pg-loggrep --output-format json postgresql.log > analysis.json
+pg-logstats --output-format json postgresql.log > analysis.json
 ```
 
 ### Command Line Options
@@ -137,7 +136,7 @@ pg-loggrep --output-format json postgresql.log > analysis.json
 ### Example 1: Basic Analysis
 
 ```bash
-$ pg-loggrep sample.log
+$ pg-logstats sample.log
 Query Analysis Report
 ===================
 Total Queries: 1,234
@@ -172,7 +171,7 @@ Most Frequent Queries:
 ### Example 2: JSON Output for Processing
 
 ```bash
-$ pg-loggrep --output-format json sample.log | jq '.summary'
+$ pg-logstats --output-format json sample.log | jq '.summary'
 {
   "total_queries": 1234,
   "total_duration_ms": 45678.9,
@@ -185,7 +184,7 @@ $ pg-loggrep --output-format json sample.log | jq '.summary'
 ### Example 3: Large File Processing
 
 ```bash
-$ pg-loggrep --sample-size 10000 --quick large-production.log
+$ pg-logstats --sample-size 10000 --quick large-production.log
 Processing large-production.log...
 [████████████████████████████████████████] 10000/10000 lines
 
@@ -220,7 +219,7 @@ See [demo/README.md](demo/README.md) for detailed demo instructions.
 
 ## 🏗️ Architecture
 
-pg-loggrep is built with a modular architecture:
+pg-logstats is built with a modular architecture:
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
@@ -252,8 +251,8 @@ Here's how to get started:
 
 ```bash
 # Clone and setup
-git clone https://github.com/yourusername/pg-loggrep.git
-cd pg-loggrep
+git clone https://github.com/yourusername/pg-logstats.git
+cd pg-logstats
 
 # Install development dependencies
 cargo build
@@ -299,7 +298,7 @@ cargo run -- examples/sample.log
 ## 📚 Documentation
 
 - **[Architecture Guide](docs/architecture.md)**: System design and module overview
-- **[API Documentation](https://docs.rs/pg-loggrep)**: Generated API docs
+- **[API Documentation](https://docs.rs/pg-logstats)**: Generated API docs
 - **[Examples](examples/)**: Sample code and usage patterns
 - **[Demo Guide](demo/README.md)**: Step-by-step demo walkthrough
 - **[Testing Guide](tests/README.md)**: Running and writing tests
@@ -325,8 +324,8 @@ cargo run -- examples/sample.log
 
 ### Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/yourusername/pg-loggrep/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/yourusername/pg-loggrep/discussions)
+- **Issues**: [GitHub Issues](https://github.com/vrajat/pg-logstats/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/vrajat/pg-logstats/discussions)
 - **Documentation**: Check [docs/](docs/) directory
 
 ## 📄 License

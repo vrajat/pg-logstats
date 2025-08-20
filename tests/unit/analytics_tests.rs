@@ -2,8 +2,8 @@
 //!
 //! Tests query analysis, classification, normalization, and performance metrics
 
-use pg_loggrep::analytics::queries::{QueryAnalyzer, QueryType, QueryMetrics};
-use pg_loggrep::{LogEntry, LogLevel, AnalysisResult};
+use pg_logstats::analytics::queries::{QueryAnalyzer, QueryType, QueryMetrics};
+use pg_logstats::{LogEntry, LogLevel, AnalysisResult};
 use chrono::{DateTime, Utc, TimeZone};
 use std::collections::HashMap;
 

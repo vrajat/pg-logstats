@@ -1,6 +1,6 @@
-# Analysis Recipes for pg-loggrep
+# Analysis Recipes for pg-logstats
 
-This document provides step-by-step workflows for common PostgreSQL log analysis scenarios using pg-loggrep.
+This document provides step-by-step workflows for common PostgreSQL log analysis scenarios using pg-logstats.
 
 ## Table of Contents
 
@@ -21,7 +21,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
 **Steps**:
 1. Generate detailed analysis:
    ```bash
-   pg-loggrep --log-dir /var/log/postgresql --output-format json > perf_analysis.json
+   pg-logstats --log-dir /var/log/postgresql --output-format json > perf_analysis.json
    ```
 
 2. Extract slow queries:
@@ -63,7 +63,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
 **Steps**:
 1. Get query type distribution:
    ```bash
-   pg-loggrep --log-dir /var/log/postgresql --output-format json | \
+   pg-logstats --log-dir /var/log/postgresql --output-format json | \
    jq '.query_analysis.by_type | to_entries | map({
      type: .key,
      count: .value,
@@ -73,7 +73,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
 
 2. Identify read vs write patterns:
    ```bash
-   pg-loggrep --log-dir /var/log/postgresql --output-format json | \
+   pg-logstats --log-dir /var/log/postgresql --output-format json | \
    jq '{
      read_queries: (.query_analysis.by_type.SELECT // 0),
      write_queries: ((.query_analysis.by_type.INSERT // 0) + (.query_analysis.by_type.UPDATE // 0) + (.query_analysis.by_type.DELETE // 0)),
@@ -94,19 +94,19 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
 **Steps**:
 1. Quick error overview:
    ```bash
-   pg-loggrep --log-dir /var/log/postgresql --output-format text | grep -A 5 -B 5 "Error Count:"
+   pg-logstats --log-dir /var/log/postgresql --output-format text | grep -A 5 -B 5 "Error Count:"
    ```
 
 2. Detailed error analysis (when error analysis is implemented):
    ```bash
-   pg-loggrep --log-dir /var/log/postgresql --output-format json | \
+   pg-logstats --log-dir /var/log/postgresql --output-format json | \
    jq 'if has("error_summary") then .error_summary else "Error analysis not available in current version" end'
    ```
 
 3. Find queries that might be causing errors:
    ```bash
    # Look for common error patterns in query text
-   pg-loggrep --log-dir /var/log/postgresql --output-format json | \
+   pg-logstats --log-dir /var/log/postgresql --output-format json | \
    jq '.query_analysis.most_frequent[] |
    select(.query | test("\\$[0-9]+|\\?|--|/\\*|;.*--|UNION.*SELECT"; "i")) |
    {query: .query, count: .count, risk: "potential_sql_injection_or_syntax_error"}'
@@ -119,7 +119,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
 **Steps**:
 1. Analyze connection patterns:
    ```bash
-   pg-loggrep --log-dir /var/log/postgresql --output-format json | \
+   pg-logstats --log-dir /var/log/postgresql --output-format json | \
    jq '.summary.connection_count'
    ```
 
@@ -139,7 +139,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
 **Steps**:
 1. Analyze query volume and timing:
    ```bash
-   pg-loggrep --log-dir /var/log/postgresql --output-format json | \
+   pg-logstats --log-dir /var/log/postgresql --output-format json | \
    jq '{
      total_queries: .summary.total_queries,
      avg_duration: .summary.avg_duration_ms,
@@ -155,7 +155,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
 
 2. Resource utilization estimation:
    ```bash
-   pg-loggrep --log-dir /var/log/postgresql --output-format json | \
+   pg-logstats --log-dir /var/log/postgresql --output-format json | \
    jq '{
      peak_concurrent_estimate: (.summary.total_queries / 3600),
      memory_pressure_indicators: [.query_analysis.most_frequent[] | select(.query | test("ORDER BY|GROUP BY|JOIN"; "i"))] | length,
@@ -172,7 +172,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
 **Steps**:
 1. Detect potential SQL injection patterns:
    ```bash
-   pg-loggrep --log-dir /var/log/postgresql --output-format json | \
+   pg-logstats --log-dir /var/log/postgresql --output-format json | \
    jq '.query_analysis.most_frequent[] |
    select(.query | test("(\\$[0-9]+.*\\$[0-9]+|--|/\\*.*\\*/|UNION.*SELECT|OR.*1.*=.*1)"; "i")) |
    {
@@ -185,7 +185,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
 
 2. Find queries with dynamic content:
    ```bash
-   pg-loggrep --log-dir /var/log/postgresql --output-format json | \
+   pg-logstats --log-dir /var/log/postgresql --output-format json | \
    jq '.query_analysis.most_frequent[] |
    select(.query | test("(LIKE.*%|IN.*\\(.*,.*\\)|BETWEEN.*AND)"; "i")) |
    {query: .query, count: .count, note: "dynamic_content_detected"}'
@@ -200,7 +200,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
 **Steps**:
 1. Find queries with WHERE clauses that might need indexes:
    ```bash
-   pg-loggrep --log-dir /var/log/postgresql --output-format json | \
+   pg-logstats --log-dir /var/log/postgresql --output-format json | \
    jq '.query_analysis.most_frequent[] |
    select(.count > 10 and (.query | test("WHERE.*="; "i"))) |
    {
@@ -213,7 +213,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
 
 2. Identify JOIN optimization opportunities:
    ```bash
-   pg-loggrep --log-dir /var/log/postgresql --output-format json | \
+   pg-logstats --log-dir /var/log/postgresql --output-format json | \
    jq '.query_analysis.most_frequent[] |
    select(.avg_duration_ms > 50 and (.query | test("JOIN"; "i"))) |
    {
@@ -232,7 +232,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
 **Steps**:
 1. Group similar query patterns:
    ```bash
-   pg-loggrep --log-dir /var/log/postgresql --output-format json | \
+   pg-logstats --log-dir /var/log/postgresql --output-format json | \
    jq '.query_analysis.most_frequent |
    group_by(.query | gsub("[0-9]+"; "N") | gsub("'"'"'[^'"'"']*'"'"'"; "S")) |
    map(select(length > 1) | {
@@ -254,7 +254,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
    ```bash
    #!/bin/bash
    # baseline.sh
-   pg-loggrep --log-dir /var/log/postgresql --output-format json > baseline_$(date +%Y%m%d).json
+   pg-logstats --log-dir /var/log/postgresql --output-format json > baseline_$(date +%Y%m%d).json
 
    # Extract key metrics
    jq '{
@@ -270,7 +270,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
    ```bash
    #!/bin/bash
    # alert.sh
-   CURRENT=$(pg-loggrep --log-dir /var/log/postgresql --output-format json --quick)
+   CURRENT=$(pg-logstats --log-dir /var/log/postgresql --output-format json --quick)
    AVG_DURATION=$(echo "$CURRENT" | jq '.summary.avg_duration_ms')
    ERROR_RATE=$(echo "$CURRENT" | jq '(.summary.error_count / .summary.total_queries * 100)')
 
@@ -293,7 +293,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
    #!/bin/bash
    # daily_metrics.sh
    DATE=$(date +%Y-%m-%d)
-   pg-loggrep --log-dir /var/log/postgresql --output-format json | \
+   pg-logstats --log-dir /var/log/postgresql --output-format json | \
    jq --arg date "$DATE" '{
      date: $date,
      metrics: {
@@ -340,7 +340,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
      date_dir="/var/log/postgresql/$(date -d "$day days ago" +%Y-%m-%d)"
      if [ -d "$date_dir" ]; then
        echo "Processing $date_dir..."
-       pg-loggrep --log-dir "$date_dir" --output-format json > "analysis_$(date -d "$day days ago" +%Y%m%d).json"
+       pg-logstats --log-dir "$date_dir" --output-format json > "analysis_$(date -d "$day days ago" +%Y%m%d).json"
      fi
    done
    ```
@@ -370,7 +370,7 @@ This document provides step-by-step workflows for common PostgreSQL log analysis
    echo "" >> "$REPORT_FILE"
 
    # Generate analysis
-   ANALYSIS=$(pg-loggrep --log-dir /var/log/postgresql --output-format json)
+   ANALYSIS=$(pg-logstats --log-dir /var/log/postgresql --output-format json)
 
    # Summary section
    echo "## Summary" >> "$REPORT_FILE"

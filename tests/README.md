@@ -1,6 +1,6 @@
-# Testing Guide for pg-loggrep
+# Testing Guide for pg-logstats
 
-This document provides comprehensive instructions for running tests in various configurations for the pg-loggrep PostgreSQL log analysis tool.
+This document provides comprehensive instructions for running tests in various configurations for the pg-logstats PostgreSQL log analysis tool.
 
 ## Test Structure
 

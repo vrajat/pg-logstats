@@ -1,6 +1,6 @@
-# pg-loggrep Architecture
+# pg-logstats Architecture
 
-This document provides a comprehensive overview of the pg-loggrep system architecture, module responsibilities, data flow, and extension points for future development.
+This document provides a comprehensive overview of the pg-logstats system architecture, module responsibilities, data flow, and extension points for future development.
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@ This document provides a comprehensive overview of the pg-loggrep system archite
 
 ## System Overview
 
-pg-loggrep is designed as a modular, extensible PostgreSQL log analysis tool built in Rust. The architecture follows a pipeline pattern where data flows through distinct stages: discovery → parsing → analysis → output.
+pg-logstats is designed as a modular, extensible PostgreSQL log analysis tool built in Rust. The architecture follows a pipeline pattern where data flows through distinct stages: discovery → parsing → analysis → output.
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
@@ -63,7 +63,7 @@ src/
 - **Key Types**:
   - `LogEntry`: Represents a parsed log entry
   - `AnalysisResult`: Contains analysis results and metrics
-  - `PgLoggrepError`: Unified error type for the entire system
+  - `PgLogstatsError`: Unified error type for the entire system
   - `LogLevel`: PostgreSQL log levels (DEBUG, INFO, NOTICE, WARNING, ERROR, FATAL, PANIC)
 - **Responsibilities**:
   - Public API surface
@@ -89,7 +89,7 @@ src/
 - **Architecture**:
   ```rust
   pub trait LogParser {
-      fn parse_line(&self, line: &str) -> Result<Option<LogEntry>, PgLoggrepError>;
+      fn parse_line(&self, line: &str) -> Result<Option<LogEntry>, PgLogstatsError>;
       fn supports_format(&self, sample: &str) -> bool;
   }
   ```
@@ -118,7 +118,7 @@ src/
 - **Architecture**:
   ```rust
   pub trait OutputFormatter {
-      fn format(&self, result: &AnalysisResult) -> Result<String, PgLoggrepError>;
+      fn format(&self, result: &AnalysisResult) -> Result<String, PgLogstatsError>;
       fn supports_quick_mode(&self) -> bool;
   }
   ```
@@ -206,7 +206,7 @@ pub struct AnalysisResult {
 ### Error Handling
 ```rust
 #[derive(Error, Debug)]
-pub enum PgLoggrepError {
+pub enum PgLogstatsError {
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
@@ -230,7 +230,7 @@ pub enum PgLoggrepError {
    pub struct CustomParser;
 
    impl LogParser for CustomParser {
-       fn parse_line(&self, line: &str) -> Result<Option<LogEntry>, PgLoggrepError> {
+       fn parse_line(&self, line: &str) -> Result<Option<LogEntry>, PgLogstatsError> {
            // Custom parsing logic
        }
 
@@ -275,7 +275,7 @@ pub enum PgLoggrepError {
    pub struct CustomFormatter;
 
    impl OutputFormatter for CustomFormatter {
-       fn format(&self, result: &AnalysisResult) -> Result<String, PgLoggrepError> {
+       fn format(&self, result: &AnalysisResult) -> Result<String, PgLogstatsError> {
            // Custom formatting logic
        }
 

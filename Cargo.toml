@@ -1,11 +1,11 @@
 [package]
-name = "pg-loggrep"
+name = "pg-logstats"
 version = "0.1.0"
 edition = "2021"
 authors = ["Rajat Venkatesh <your.email@example.com>"]
 description = "A fast PostgreSQL log analysis tool written in Rust"
 license = "MIT"
-repository = "https://github.com/yourusername/pg-loggrep"
+repository = "https://github.com/vrajat/pg-logstats"
 keywords = ["postgresql", "logs", "analysis", "database", "performance"]
 categories = ["command-line-utilities", "database", "development-tools"]
 readme = "README.md"

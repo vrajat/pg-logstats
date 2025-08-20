@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Docker Demo Script for pg-loggrep
+# Docker Demo Script for pg-logstats
 # This script helps users quickly set up and test the Docker environment
 
 set -e
@@ -125,12 +125,12 @@ extract_logs() {
     fi
 }
 
-# Function to analyze logs with pg-loggrep
+# Function to analyze logs with pg-logstats
 analyze_logs() {
     local log_dir=${1:-./logs}
     local output_file=${2:-analysis.json}
 
-    print_status "Analyzing logs with pg-loggrep..."
+    print_status "Analyzing logs with pg-logstats..."
 
     if [ ! -d "$log_dir" ] || [ -z "$(ls -A "$log_dir" 2>/dev/null)" ]; then
         print_error "Log directory $log_dir is empty or doesn't exist. Run extract_logs first."
@@ -139,14 +139,14 @@ analyze_logs() {
 
     cd "$PROJECT_ROOT"
 
-    # Build pg-loggrep if needed
-    if [ ! -f "target/release/pg-loggrep" ] && [ ! -f "target/debug/pg-loggrep" ]; then
-        print_status "Building pg-loggrep..."
+    # Build pg-logstats if needed
+    if [ ! -f "target/release/pg-logstats" ] && [ ! -f "target/debug/pg-logstats" ]; then
+        print_status "Building pg-logstats..."
         cargo build --release
     fi
 
     # Run analysis
-    print_status "Running pg-loggrep analysis..."
+    print_status "Running pg-logstats analysis..."
     cargo run --release -- \
         --input "$log_dir"/postgresql-*.log \
         --output "$output_file" \
@@ -191,7 +191,7 @@ connect_db() {
 # Function to show help
 show_help() {
     cat << EOF
-PostgreSQL Docker Demo Script for pg-loggrep
+PostgreSQL Docker Demo Script for pg-logstats
 
 Usage: $0 <command> [options]
 
@@ -199,7 +199,7 @@ Commands:
     start                           Start PostgreSQL environment
     workload [type] [iter] [delay]  Run workload (type: basic|intensive|errors|mixed)
     extract [output_dir]            Extract logs from Docker volume
-    analyze [log_dir] [output_file] Analyze logs with pg-loggrep
+    analyze [log_dir] [output_file] Analyze logs with pg-logstats
     full-demo                       Run complete demo (start + workload + extract + analyze)
     logs [service]                  Show service logs (postgres|workload)
     connect                         Connect to PostgreSQL database
@@ -224,7 +224,7 @@ EOF
 
 # Function to run full demo
 full_demo() {
-    print_status "Running full pg-loggrep Docker demonstration..."
+    print_status "Running full pg-logstats Docker demonstration..."
 
     # Start environment
     start_environment

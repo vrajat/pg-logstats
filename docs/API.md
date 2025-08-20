@@ -1,8 +1,8 @@
-# pg-loggrep API Documentation
+# pg-logstats API Documentation
 
 ## Overview
 
-pg-loggrep is a Rust library for parsing and analyzing PostgreSQL log files. It provides modules for parsing different log formats, analyzing query patterns and performance metrics, and formatting results in various output formats.
+pg-logstats is a Rust library for parsing and analyzing PostgreSQL log files. It provides modules for parsing different log formats, analyzing query patterns and performance metrics, and formatting results in various output formats.
 
 ## Modules
 
@@ -13,7 +13,7 @@ The parsers module contains implementations for different PostgreSQL log formats
 #### StderrParser
 
 ```rust
-use pg_loggrep::{StderrParser, Result};
+use pg_logstats::{StderrParser, Result};
 
 let parser = StderrParser::new();
 let entries = parser.parse_lines(&log_lines)?;
@@ -31,7 +31,7 @@ The analytics module provides tools for analyzing parsed log data.
 #### QueryAnalyzer
 
 ```rust
-use pg_loggrep::{QueryAnalyzer, Result};
+use pg_logstats::{QueryAnalyzer, Result};
 
 let analyzer = QueryAnalyzer::new();
 let analysis = analyzer.analyze_queries(&entries)?;
@@ -45,7 +45,7 @@ let analysis = analyzer.analyze_queries(&entries)?;
 #### TimingAnalyzer
 
 ```rust
-use pg_loggrep::{TimingAnalyzer, Result};
+use pg_logstats::{TimingAnalyzer, Result};
 
 let analyzer = TimingAnalyzer::new();
 let analysis = analyzer.analyze_timing(&entries)?;
@@ -64,7 +64,7 @@ The output module provides formatters for different output formats.
 #### JsonFormatter
 
 ```rust
-use pg_loggrep::JsonFormatter;
+use pg_logstats::JsonFormatter;
 
 let formatter = JsonFormatter::new();
 let json_output = formatter.format_query_analysis(&analysis)?;
@@ -79,7 +79,7 @@ let json_output = formatter.format_query_analysis(&analysis)?;
 #### TextFormatter
 
 ```rust
-use pg_loggrep::TextFormatter;
+use pg_logstats::TextFormatter;
 
 let formatter = TextFormatter::new();
 let text_output = formatter.format_query_analysis(&analysis)?;
@@ -147,10 +147,10 @@ pub struct TimingAnalysis {
 The library uses a unified error type:
 
 ```rust
-use pg_loggrep::{PgLoggrepError, Result};
+use pg_logstats::{PgLogstatsError, Result};
 ```
 
-Most public methods return `Result<T>` where errors are `PgLoggrepError` variants, including `Io`, `Parse`, `TimestampParse`, `Configuration`, `Analytics`, `Serialization`, and `Unexpected`.
+Most public methods return `Result<T>` where errors are `PgLogstatsError` variants, including `Io`, `Parse`, `TimestampParse`, `Configuration`, `Analytics`, `Serialization`, and `Unexpected`.
 
 ## Examples
 

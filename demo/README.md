@@ -1,6 +1,6 @@
-# pg-loggrep Demo
+# pg-logstats Demo
 
-This directory contains a complete demonstration environment for pg-loggrep, including Docker-based PostgreSQL setup, sample workloads, and step-by-step tutorials.
+This directory contains a complete demonstration environment for pg-logstats, including Docker-based PostgreSQL setup, sample workloads, and step-by-step tutorials.
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@ This directory contains a complete demonstration environment for pg-loggrep, inc
 
 ## Quick Start
 
-Get up and running with pg-loggrep in under 5 minutes:
+Get up and running with pg-logstats in under 5 minutes:
 
 ```bash
 # 1. Start the demo environment
@@ -57,7 +57,7 @@ demo/
 
 - **Containerized Environment**: Complete PostgreSQL setup with Docker
 - **Realistic Workloads**: Mixed OLTP and analytical query patterns
-- **Automated Analysis**: Scripts for running pg-loggrep analysis
+- **Automated Analysis**: Scripts for running pg-logstats analysis
 - **Multiple Output Formats**: Text, JSON, and custom reports
 - **Performance Monitoring**: Real-time log analysis examples
 
@@ -70,16 +70,16 @@ demo/
    # Ensure required tools are installed
    docker --version
    docker-compose --version
-   cargo --version  # For building pg-loggrep
+   cargo --version  # For building pg-logstats
    ```
 
-2. **Build pg-loggrep**
+2. **Build pg-logstats**
    ```bash
    # From the project root
    cargo build --release
 
    # Verify installation
-   ./target/release/pg-loggrep --version
+   ./target/release/pg-logstats --version
    ```
 
 3. **Setup Demo Environment**
@@ -126,14 +126,14 @@ demo/
 1. **Simple Analysis**
    ```bash
    # Analyze generated logs
-   ./target/release/pg-loggrep \
+   ./target/release/pg-logstats \
      --log-dir ./demo/logs \
      --output-format text
    ```
 
 2. **JSON Output for Processing**
    ```bash
-   ./target/release/pg-loggrep \
+   ./target/release/pg-logstats \
      --log-dir ./demo/logs \
      --output-format json \
      > analysis_output/basic_analysis.json
@@ -141,7 +141,7 @@ demo/
 
 3. **Quick Summary Mode**
    ```bash
-   ./target/release/pg-loggrep \
+   ./target/release/pg-logstats \
      --log-dir ./demo/logs \
      --quick
    ```
@@ -151,7 +151,7 @@ demo/
 1. **Performance Focus**
    ```bash
    # Analyze with performance focus
-   ./target/release/pg-loggrep \
+   ./target/release/pg-logstats \
      --log-dir ./demo/logs \
      --output-format json | \
      jq '.query_analysis.slowest_queries[]'
@@ -160,7 +160,7 @@ demo/
 2. **Error Analysis**
    ```bash
    # Focus on errors and warnings
-   ./target/release/pg-loggrep \
+   ./target/release/pg-logstats \
      --log-dir ./demo/logs \
      --output-format json | \
      jq 'select(.summary.error_count > 0)'
@@ -169,7 +169,7 @@ demo/
 3. **Query Pattern Analysis**
    ```bash
    # Analyze query patterns
-   ./target/release/pg-loggrep \
+   ./target/release/pg-logstats \
      --log-dir ./demo/logs \
      --output-format json | \
      jq '.query_analysis.by_type'
@@ -300,7 +300,7 @@ Features:
 
 ```bash
 # Generate daily report
-./target/release/pg-loggrep \
+./target/release/pg-logstats \
   --log-dir ./demo/logs \
   --output-format json | \
   jq '{
@@ -315,7 +315,7 @@ Features:
 
 ```bash
 # Find and analyze errors
-./target/release/pg-loggrep \
+./target/release/pg-logstats \
   --log-dir ./demo/logs \
   --output-format json | \
   jq 'select(.summary.error_count > 0) | {
@@ -329,7 +329,7 @@ Features:
 
 ```bash
 # Identify optimization opportunities
-./target/release/pg-loggrep \
+./target/release/pg-logstats \
   --log-dir ./demo/logs \
   --output-format json | \
   jq '.query_analysis.most_frequent[] |
@@ -361,7 +361,7 @@ docker-compose -f docker/docker-compose.yml logs postgres
 
 #### 2. No Log Files Generated
 
-**Problem**: pg-loggrep finds no log files
+**Problem**: pg-logstats finds no log files
 ```bash
 ls -la demo/logs/
 ```
@@ -374,9 +374,9 @@ ls -la demo/logs/
 
 #### 3. Analysis Shows No Queries
 
-**Problem**: pg-loggrep reports zero queries
+**Problem**: pg-logstats reports zero queries
 ```bash
-./target/release/pg-loggrep --log-dir ./demo/logs --verbose
+./target/release/pg-logstats --log-dir ./demo/logs --verbose
 ```
 
 **Solutions**:
@@ -390,7 +390,7 @@ ls -la demo/logs/
 **Problem**: Analysis takes too long
 ```bash
 # Use sampling for large files
-./target/release/pg-loggrep \
+./target/release/pg-logstats \
   --log-dir ./demo/logs \
   --sample-size 10000
 ```
@@ -407,12 +407,12 @@ Enable detailed logging for troubleshooting:
 
 ```bash
 # Enable debug logging
-RUST_LOG=debug ./target/release/pg-loggrep \
+RUST_LOG=debug ./target/release/pg-logstats \
   --log-dir ./demo/logs \
   --verbose
 
-# Check pg-loggrep version and features
-./target/release/pg-loggrep --version
+# Check pg-logstats version and features
+./target/release/pg-logstats --version
 ```
 
 ### Log Validation
@@ -457,7 +457,7 @@ Extend the analysis with custom jq patterns:
 # Create custom analysis script
 cat > custom_analysis.sh << 'EOF'
 #!/bin/bash
-./target/release/pg-loggrep \
+./target/release/pg-logstats \
   --log-dir ./demo/logs \
   --output-format json | \
   jq '{
@@ -500,19 +500,19 @@ Customize the demo environment:
    Create custom analysis profiles:
    ```bash
    # Performance-focused analysis
-   alias pg-perf='./target/release/pg-loggrep --output-format json | jq ".query_analysis.slowest_queries"'
+   alias pg-perf='./target/release/pg-logstats --output-format json | jq ".query_analysis.slowest_queries"'
 
    # Error-focused analysis
-   alias pg-errors='./target/release/pg-loggrep --output-format json | jq "select(.summary.error_count > 0)"'
+   alias pg-errors='./target/release/pg-logstats --output-format json | jq "select(.summary.error_count > 0)"'
    ```
 
 ### Integration with Monitoring
 
-Connect pg-loggrep with monitoring systems:
+Connect pg-logstats with monitoring systems:
 
 ```bash
 # Prometheus metrics export
-./target/release/pg-loggrep \
+./target/release/pg-logstats \
   --log-dir ./demo/logs \
   --output-format json | \
   jq -r '
@@ -525,4 +525,4 @@ Connect pg-loggrep with monitoring systems:
   '
 ```
 
-This comprehensive demo provides everything needed to understand and evaluate pg-loggrep's capabilities in a realistic PostgreSQL environment.
+This comprehensive demo provides everything needed to understand and evaluate pg-logstats's capabilities in a realistic PostgreSQL environment.

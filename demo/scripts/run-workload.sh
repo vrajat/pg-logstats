@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Run workload script for pg-loggrep demo
+# Run workload script for pg-logstats demo
 # This script executes the PostgreSQL workload with configurable parameters
 
 set -e
@@ -57,9 +57,9 @@ print_progress() {
 # Function to show help
 show_help() {
     cat << EOF
-pg-loggrep Workload Runner Script
+pg-logstats Workload Runner Script
 
-This script executes PostgreSQL workloads to generate log data for pg-loggrep analysis.
+This script executes PostgreSQL workloads to generate log data for pg-logstats analysis.
 It supports different workload types and provides configurable execution parameters.
 
 Usage: $0 [OPTIONS]
@@ -263,7 +263,7 @@ show_results() {
     echo "1. Extract logs for analysis:"
     echo "   ./scripts/docker-demo.sh extract ./logs"
     echo ""
-    echo "2. Analyze logs with pg-loggrep:"
+    echo "2. Analyze logs with pg-logstats:"
     echo "   cargo run -- ./logs/*.log"
     echo ""
     echo "3. Or run full analysis:"
@@ -327,7 +327,7 @@ done
 
 # Main execution
 main() {
-    print_status "Starting pg-loggrep workload execution..."
+    print_status "Starting pg-logstats workload execution..."
 
     # Validate parameters
     validate_workload_type

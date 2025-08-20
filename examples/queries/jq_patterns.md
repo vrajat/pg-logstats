@@ -1,12 +1,12 @@
-# jq Query Patterns for pg-loggrep JSON Output
+# jq Query Patterns for pg-logstats JSON Output
 
-This document provides common jq patterns for analyzing pg-loggrep JSON output. These patterns help extract specific insights from the analysis results.
+This document provides common jq patterns for analyzing pg-logstats JSON output. These patterns help extract specific insights from the analysis results.
 
 ## Basic Usage
 
-First, generate JSON output from pg-loggrep:
+First, generate JSON output from pg-logstats:
 ```bash
-pg-loggrep --log-dir /path/to/logs --output-format json > analysis.json
+pg-logstats --log-dir /path/to/logs --output-format json > analysis.json
 ```
 
 Then use jq to query the results:
@@ -257,4 +257,4 @@ jq '.query_analysis.most_frequent[:10]' analysis.json
 jq --stream '. as [$path, $value] | select($path[0] == "summary")' analysis.json
 ```
 
-This guide covers the most common patterns for analyzing pg-loggrep JSON output. Combine these patterns to create custom analysis workflows that fit your specific monitoring and optimization needs.
+This guide covers the most common patterns for analyzing pg-logstats JSON output. Combine these patterns to create custom analysis workflows that fit your specific monitoring and optimization needs.

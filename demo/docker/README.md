@@ -1,6 +1,6 @@
-# PostgreSQL Docker Demo Environment for pg-loggrep
+# PostgreSQL Docker Demo Environment for pg-logstats
 
-This directory contains a complete Docker development environment for testing and demonstrating pg-loggrep with PostgreSQL 17. The environment includes a PostgreSQL server with comprehensive logging enabled and a configurable workload generator.
+This directory contains a complete Docker development environment for testing and demonstrating pg-logstats with PostgreSQL 17. The environment includes a PostgreSQL server with comprehensive logging enabled and a configurable workload generator.
 
 ## Quick Start
 
@@ -133,7 +133,7 @@ docker-compose run --rm \
   workload
 ```
 
-### Using with pg-loggrep
+### Using with pg-logstats
 
 1. **Start the environment and generate logs**:
    ```bash
@@ -145,11 +145,11 @@ docker-compose run --rm \
    ```bash
    # Logs are stored in the postgres_logs Docker volume
    # Copy logs to local directory for analysis
-   docker run --rm -v pg-loggrep_postgres_logs:/logs -v $(pwd):/output alpine \
+   docker run --rm -v pg-logstats_postgres_logs:/logs -v $(pwd):/output alpine \
      cp -r /logs /output/
    ```
 
-3. **Analyze with pg-loggrep**:
+3. **Analyze with pg-logstats**:
    ```bash
    # Assuming you've copied logs to ./logs/
    cargo run -- --input ./logs/postgresql-*.log --output analysis.json --extension json
@@ -189,7 +189,7 @@ demo/docker/
 
 ## Networking
 
-- `pg-loggrep-network`: Bridge network for service communication
+- `pg-logstats-network`: Bridge network for service communication
 - PostgreSQL port 5432 exposed to host for external connections
 
 ## Health Checks
@@ -225,10 +225,10 @@ docker-compose run --rm workload env | grep POSTGRES
 ### Log Access Issues
 ```bash
 # Check log volume
-docker volume inspect pg-loggrep_postgres_logs
+docker volume inspect pg-logstats_postgres_logs
 
 # List log files
-docker run --rm -v pg-loggrep_postgres_logs:/logs alpine ls -la /logs
+docker run --rm -v pg-logstats_postgres_logs:/logs alpine ls -la /logs
 ```
 
 ### Performance Issues
@@ -268,13 +268,13 @@ This environment can be used in automated testing:
 
 ```yaml
 # Example GitHub Actions step
-- name: Test pg-loggrep with Docker
+- name: Test pg-logstats with Docker
   run: |
     cd demo/docker
     docker-compose up -d postgres
     docker-compose run --rm -e WORKLOAD_ITERATIONS=5 workload
-    # Copy logs and run pg-loggrep tests
-    docker run --rm -v pg-loggrep_postgres_logs:/logs -v $(pwd):/output alpine cp -r /logs /output/
+    # Copy logs and run pg-logstats tests
+    docker run --rm -v pg-logstats_postgres_logs:/logs -v $(pwd):/output alpine cp -r /logs /output/
     cargo test
 ```
 

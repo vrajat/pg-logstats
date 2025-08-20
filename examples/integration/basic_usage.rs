@@ -1,18 +1,18 @@
-//! Basic usage examples for the pg-loggrep library
+//! Basic usage examples for the pg-logstats library
 //!
-//! This example demonstrates how to use pg-loggrep as a library in your Rust applications.
+//! This example demonstrates how to use pg-logstats as a library in your Rust applications.
 
-use pg_loggrep::{
+use pg_logstats::{
     parsers::stderr::StderrParser,
     analytics::{queries::analyze_queries, timing::analyze_timing},
     output::{json::JsonFormatter, text::TextFormatter},
-    LogEntry, AnalysisResult, PgLoggrepError,
+    LogEntry, AnalysisResult, PgLogstatsError,
 };
 use std::fs;
 use std::path::Path;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("pg-loggrep Library Usage Examples");
+    println!("pg-logstats Library Usage Examples");
     println!("=================================\n");
 
     // Example 1: Basic log parsing
@@ -31,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Example 1: Basic log parsing from individual lines
-fn basic_parsing_example() -> Result<(), PgLoggrepError> {
+fn basic_parsing_example() -> Result<(), PgLogstatsError> {
     println!("1. Basic Log Parsing");
     println!("-------------------");
 
@@ -205,7 +205,7 @@ fn create_sample_entries() -> Vec<LogEntry> {
     vec![
         LogEntry {
             timestamp: "2024-01-15T10:30:15.123Z".parse::<DateTime<Utc>>().unwrap(),
-            level: pg_loggrep::LogLevel::Info,
+            level: pg_logstats::LogLevel::Info,
             message: "statement: SELECT * FROM users WHERE id = 1;".to_string(),
             query: Some("SELECT * FROM users WHERE id = 1;".to_string()),
             duration: Some(0.123),
@@ -215,7 +215,7 @@ fn create_sample_entries() -> Vec<LogEntry> {
         },
         LogEntry {
             timestamp: "2024-01-15T10:30:16.205Z".parse::<DateTime<Utc>>().unwrap(),
-            level: pg_loggrep::LogLevel::Info,
+            level: pg_logstats::LogLevel::Info,
             message: "statement: INSERT INTO orders (customer_id, total) VALUES (123, 99.99);".to_string(),
             query: Some("INSERT INTO orders (customer_id, total) VALUES (123, 99.99);".to_string()),
             duration: Some(2.456),
@@ -225,7 +225,7 @@ fn create_sample_entries() -> Vec<LogEntry> {
         },
         LogEntry {
             timestamp: "2024-01-15T10:30:17.305Z".parse::<DateTime<Utc>>().unwrap(),
-            level: pg_loggrep::LogLevel::Info,
+            level: pg_logstats::LogLevel::Info,
             message: "statement: SELECT COUNT(*) FROM user_sessions WHERE created_at >= '2024-01-01';".to_string(),
             query: Some("SELECT COUNT(*) FROM user_sessions WHERE created_at >= '2024-01-01';".to_string()),
             duration: Some(6.789),
@@ -235,7 +235,7 @@ fn create_sample_entries() -> Vec<LogEntry> {
         },
         LogEntry {
             timestamp: "2024-01-15T10:30:18.405Z".parse::<DateTime<Utc>>().unwrap(),
-            level: pg_loggrep::LogLevel::Info,
+            level: pg_logstats::LogLevel::Info,
             message: "statement: UPDATE users SET last_login = NOW() WHERE id = 123;".to_string(),
             query: Some("UPDATE users SET last_login = NOW() WHERE id = 123;".to_string()),
             duration: Some(1.234),

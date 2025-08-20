@@ -1,6 +1,6 @@
-//! JSON output formatter for pg-loggrep results
+//! JSON output formatter for pg-logstats results
 
-use crate::{AnalysisResult, TimingAnalysis, PgLoggrepError, Result};
+use crate::{AnalysisResult, PgLogstatsError, Result, TimingAnalysis};
 use chrono::Utc;
 use serde_json::json;
 use std::collections::HashMap;
@@ -64,7 +64,7 @@ impl JsonFormatter {
 		});
 
 		let by_type = serde_json::to_value(&analysis.query_types)
-			.map_err(PgLoggrepError::Serialization)?;
+			.map_err(PgLogstatsError::Serialization)?;
 
 		// Build a map from query -> count to enrich slowest queries
 		let mut freq_map: HashMap<String, u64> = HashMap::new();
@@ -108,16 +108,16 @@ impl JsonFormatter {
 		});
 
 		if self.pretty {
-			serde_json::to_string_pretty(&root).map_err(PgLoggrepError::Serialization)
+			serde_json::to_string_pretty(&root).map_err(PgLogstatsError::Serialization)
 		} else {
-			serde_json::to_string(&root).map_err(PgLoggrepError::Serialization)
+			serde_json::to_string(&root).map_err(PgLogstatsError::Serialization)
 		}
 	}
 
 	/// Format with timing analysis included
 	pub fn format_with_timing(&self, analysis: &AnalysisResult, timing: &TimingAnalysis) -> Result<String> {
 		let mut base: serde_json::Value = serde_json::from_str(&self.format(analysis)?)
-			.map_err(PgLoggrepError::Serialization)?;
+			.map_err(PgLogstatsError::Serialization)?;
 
 		// Build temporal analysis section from TimingAnalysis
 		let hourly_stats = timing
@@ -143,9 +143,9 @@ impl JsonFormatter {
 		}
 
 		if self.pretty {
-			serde_json::to_string_pretty(&base).map_err(PgLoggrepError::Serialization)
+			serde_json::to_string_pretty(&base).map_err(PgLogstatsError::Serialization)
 		} else {
-			serde_json::to_string(&base).map_err(PgLoggrepError::Serialization)
+			serde_json::to_string(&base).map_err(PgLogstatsError::Serialization)
 		}
 	}
 }

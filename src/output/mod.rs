@@ -1,4 +1,4 @@
-//! Output formatters for pg-loggrep analysis results
+//! Output formatters for pg-logstats analysis results
 
 pub mod json;
 pub mod text;

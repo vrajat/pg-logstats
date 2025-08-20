@@ -1,4 +1,4 @@
-//! Integration tests for pg-loggrep Phase 1 implementation
+//! Integration tests for pg-logstats Phase 1 implementation
 //!
 //! These tests verify the complete workflow from CLI arguments to output generation.
 
@@ -45,7 +45,7 @@ fn large_log_content(num_entries: usize) -> String {
 
 #[test]
 fn test_cli_help() {
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg("--help")
         .assert()
         .success()
@@ -58,11 +58,11 @@ fn test_cli_help() {
 
 #[test]
 fn test_cli_version() {
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg("--version")
         .assert()
         .success()
-        .stdout(predicate::str::contains("pg-loggrep"));
+        .stdout(predicate::str::contains("pg-logstats"));
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn test_single_log_file_text_output() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg(log_file.to_str().unwrap())
         .arg("--output-format")
         .arg("text")
@@ -90,7 +90,7 @@ fn test_single_log_file_json_output() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg(log_file.to_str().unwrap())
         .arg("--output-format")
         .arg("json")
@@ -110,7 +110,7 @@ fn test_log_directory_processing() {
     create_test_log_file(temp_dir.path(), "postgres.log", sample_log_content());
     create_test_log_file(temp_dir.path(), "queries.log", sample_log_content());
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg("--log-dir")
         .arg(temp_dir.path().to_str().unwrap())
         .arg("--quiet")
@@ -124,7 +124,7 @@ fn test_sample_size_limiting() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg(log_file.to_str().unwrap())
         .arg("--sample-size")
         .arg("5")
@@ -140,7 +140,7 @@ fn test_output_to_file() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
     let output_file = temp_dir.path().join("results.json");
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg(log_file.to_str().unwrap())
         .arg("--output-format")
         .arg("json")
@@ -162,7 +162,7 @@ fn test_empty_log_file() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "empty.log", "");
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg(log_file.to_str().unwrap())
         .arg("--quiet")
         .assert()
@@ -171,7 +171,7 @@ fn test_empty_log_file() {
 
 #[test]
 fn test_nonexistent_log_file() {
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg("nonexistent.log")
         .arg("--quiet")
         .assert()
@@ -180,7 +180,7 @@ fn test_nonexistent_log_file() {
 
 #[test]
 fn test_nonexistent_log_directory() {
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg("--log-dir")
         .arg("/nonexistent/directory")
         .arg("--quiet")
@@ -194,7 +194,7 @@ fn test_invalid_sample_size() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg(log_file.to_str().unwrap())
         .arg("--sample-size")
         .arg("0")
@@ -209,7 +209,7 @@ fn test_malformed_log_lines() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "malformed.log", malformed_log_content());
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg(log_file.to_str().unwrap())
         .arg("--quiet")
         .assert()
@@ -222,7 +222,7 @@ fn test_progress_bar_disabled_in_quiet_mode() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg(log_file.to_str().unwrap())
         .arg("--quiet")
         .assert()
@@ -235,7 +235,7 @@ fn test_progress_bar_enabled_by_default() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg(log_file.to_str().unwrap())
         .timeout(std::time::Duration::from_secs(10))
         .assert()
@@ -250,7 +250,7 @@ fn test_large_file_processing() {
     let large_content = large_log_content(1000); // 1000 log entries
     let log_file = create_test_log_file(temp_dir.path(), "large.log", &large_content);
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg(log_file.to_str().unwrap())
         .arg("--quiet")
         .timeout(std::time::Duration::from_secs(30))
@@ -265,7 +265,7 @@ fn test_multiple_log_files() {
     let log_file1 = create_test_log_file(temp_dir.path(), "test1.log", sample_log_content());
     let log_file2 = create_test_log_file(temp_dir.path(), "test2.log", sample_log_content());
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg(log_file1.to_str().unwrap())
         .arg(log_file2.to_str().unwrap())
         .arg("--quiet")
@@ -280,7 +280,7 @@ fn test_mixed_valid_invalid_files() {
     let valid_file = create_test_log_file(temp_dir.path(), "valid.log", sample_log_content());
     let invalid_file = temp_dir.path().join("nonexistent.log");
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg(valid_file.to_str().unwrap())
         .arg(invalid_file.to_str().unwrap())
         .arg("--quiet")
@@ -294,7 +294,7 @@ fn test_verbose_logging() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.env("RUST_LOG", "debug")
         .arg(log_file.to_str().unwrap())
         .arg("--quiet")
@@ -309,7 +309,7 @@ fn test_json_output_structure() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     let output = cmd
         .arg(log_file.to_str().unwrap())
         .arg("--output-format")
@@ -341,7 +341,7 @@ fn test_performance_with_sample_size() {
 
     let start = std::time::Instant::now();
 
-    let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg(log_file.to_str().unwrap())
         .arg("--sample-size")
         .arg("100") // Limit to first 100 lines
@@ -357,8 +357,6 @@ fn test_performance_with_sample_size() {
 
 #[cfg(test)]
 mod docker_tests {
-    use super::*;
-
     /// Test that requires Docker to be available
     /// This test is ignored by default and can be run with: cargo test -- --ignored
     #[test]
@@ -383,7 +381,7 @@ mod benchmark_tests {
 
         let start = Instant::now();
 
-        let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+        let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
         cmd.arg(log_file.to_str().unwrap())
             .arg("--quiet")
             .timeout(std::time::Duration::from_secs(30))
@@ -404,7 +402,7 @@ mod benchmark_tests {
         let log_file = create_test_log_file(temp_dir.path(), "memory_test.log", &content);
 
         // This is a basic test - in production you'd use more sophisticated memory profiling
-        let mut cmd = Command::cargo_bin("pg-loggrep").unwrap();
+        let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
         cmd.arg(log_file.to_str().unwrap())
             .arg("--quiet")
             .timeout(std::time::Duration::from_secs(15))

@@ -172,7 +172,7 @@ for i in $(seq 1 $WORKLOAD_ITERATIONS); do
 done
 
 echo "Workload generation completed!"
-echo "Check PostgreSQL logs in /var/log/postgresql/ for analysis with pg-loggrep"
+echo "Check PostgreSQL logs in /var/log/postgresql/ for analysis with pg-logstats"
 EOF
 
 # Make scripts executable

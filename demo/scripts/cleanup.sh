@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Cleanup script for pg-loggrep demo environment
+# Cleanup script for pg-logstats demo environment
 
 set -e
 
-echo "Cleaning up pg-loggrep demo environment..."
+echo "Cleaning up pg-logstats demo environment..."
 
 # Change to docker directory
 cd demo/docker

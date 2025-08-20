@@ -5,7 +5,7 @@ services:
     build:
       context: ./postgres
       dockerfile: Dockerfile
-    container_name: pg-loggrep-postgres
+    container_name: pg-logstats-postgres
     environment:
       POSTGRES_DB: testdb
       POSTGRES_USER: testuser
@@ -17,7 +17,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - postgres_logs:/var/log/postgresql
     networks:
-      - pg-loggrep-network
+      - pg-logstats-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U testuser -d testdb"]
       interval: 10s
@@ -29,7 +29,7 @@ services:
     build:
       context: ./workload
       dockerfile: Dockerfile
-    container_name: pg-loggrep-workload
+    container_name: pg-logstats-workload
     depends_on:
       postgres:
         condition: service_healthy
@@ -44,7 +44,7 @@ services:
     volumes:
       - postgres_logs:/var/log/postgresql:ro
     networks:
-      - pg-loggrep-network
+      - pg-logstats-network
     profiles:
       - workload
     restart: "no"
@@ -56,5 +56,5 @@ volumes:
     driver: local
 
 networks:
-  pg-loggrep-network:
+  pg-logstats-network:
     driver: bridge

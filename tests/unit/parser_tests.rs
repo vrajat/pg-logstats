@@ -2,8 +2,8 @@
 //!
 //! Tests various log line formats, edge cases, and parser functionality in isolation
 
-use pg_loggrep::parsers::stderr::StderrParser;
-use pg_loggrep::{LogEntry, LogLevel};
+use pg_logstats::parsers::stderr::StderrParser;
+use pg_logstats::{LogEntry, LogLevel};
 use chrono::{DateTime, Utc};
 
 /// Helper function to create test log lines with various formats

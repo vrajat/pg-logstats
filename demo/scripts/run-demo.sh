@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Full end-to-end demo script for pg-loggrep
+# Full end-to-end demo script for pg-logstats
 # This script orchestrates the complete demonstration workflow
 
 set -e
@@ -51,12 +51,12 @@ print_verbose() {
 # Function to show help
 show_help() {
     cat << EOF
-pg-loggrep Full End-to-End Demo Script
+pg-logstats Full End-to-End Demo Script
 
-This script runs a complete demonstration of pg-loggrep, including:
+This script runs a complete demonstration of pg-logstats, including:
 - Setting up the PostgreSQL environment
 - Running workloads to generate log data
-- Extracting and analyzing logs with pg-loggrep
+- Extracting and analyzing logs with pg-logstats
 - Displaying results with pretty formatting
 - Showing example jq queries for analysis
 
@@ -262,15 +262,15 @@ analyze_logs() {
         return 0
     fi
 
-    print_status "Analyzing logs with pg-loggrep..."
+    print_status "Analyzing logs with pg-logstats..."
 
     local log_dir="$PROJECT_ROOT/demo/output/logs"
     local output_file="$PROJECT_ROOT/demo/output/analysis.$OUTPUT_FORMAT"
 
-    # Build pg-loggrep if needed
+    # Build pg-logstats if needed
     cd "$PROJECT_ROOT"
-    if [ ! -f "target/release/pg-loggrep" ] && [ ! -f "target/debug/pg-loggrep" ]; then
-        print_status "Building pg-loggrep..."
+    if [ ! -f "target/release/pg-logstats" ] && [ ! -f "target/debug/pg-logstats" ]; then
+        print_status "Building pg-logstats..."
         if [ "$VERBOSE" = "true" ]; then
             cargo build --release
         else
@@ -279,7 +279,7 @@ analyze_logs() {
     fi
 
     # Run analysis
-    print_status "Running pg-loggrep analysis..."
+    print_status "Running pg-logstats analysis..."
     local log_files=$(find "$log_dir" -name "*.log" -type f)
 
     if [ -z "$log_files" ]; then
@@ -320,7 +320,7 @@ display_results() {
     print_status "Displaying analysis results..."
     echo ""
     echo "=========================================="
-    echo "         pg-loggrep Analysis Results"
+    echo "         pg-logstats Analysis Results"
     echo "=========================================="
     echo ""
 
@@ -482,7 +482,7 @@ done
 
 # Main execution
 main() {
-    print_status "Starting pg-loggrep full end-to-end demonstration..."
+    print_status "Starting pg-logstats full end-to-end demonstration..."
     print_status "Configuration: ${WORKLOAD_TYPE} workload, ${WORKLOAD_DURATION}s duration, ${OUTPUT_FORMAT} output"
 
     # Validate parameters

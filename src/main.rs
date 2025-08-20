@@ -1,14 +1,14 @@
 use clap::{Parser, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
-use pg_loggrep::{StderrParser, QueryAnalyzer, TimingAnalyzer, JsonFormatter, TextFormatter, Result, PgLoggrepError};
+use pg_loggrep::{StderrParser, QueryAnalyzer, TimingAnalyzer, JsonFormatter, TextFormatter, Result, PgLogstatsError};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time::Instant;
 
 #[derive(Debug, Parser)]
-#[clap(name="pg-loggrep", version, about = "A fast PostgreSQL log analysis tool")]
+#[clap(name="pg-logstats", version, about = "A fast PostgreSQL log analysis tool")]
 struct Arguments {
     /// Log files or directory to analyze (supports glob patterns)
     #[clap(value_name = "LOG_FILES")]
@@ -470,14 +470,14 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
     // Check if log directory exists and is readable
     if let Some(log_dir) = &args.log_dir {
         if !log_dir.exists() {
-            return Err(PgLoggrepError::Configuration {
+            return Err(PgLogstatsError::Configuration {
                 message: format!("Log directory does not exist: {}", log_dir.display()),
                 field: Some("log_dir".to_string()),
             });
         }
 
         if !log_dir.is_dir() {
-            return Err(PgLoggrepError::Configuration {
+            return Err(PgLogstatsError::Configuration {
                 message: format!("Log directory path is not a directory: {}", log_dir.display()),
                 field: Some("log_dir".to_string()),
             });
@@ -485,9 +485,9 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
 
         // Test readability
         match fs::read_dir(log_dir) {
-            Ok(_) => {},
+            Ok(_) => {}
             Err(e) => {
-                return Err(PgLoggrepError::Configuration {
+                return Err(PgLogstatsError::Configuration {
                     message: format!("Cannot read log directory {}: {}", log_dir.display(), e),
                     field: Some("log_dir".to_string()),
                 });
@@ -498,7 +498,7 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
     // Validate sample size
     if let Some(sample_size) = args.sample_size {
         if sample_size == 0 {
-            return Err(PgLoggrepError::Configuration {
+            return Err(PgLogstatsError::Configuration {
                 message: "Sample size must be greater than 0".to_string(),
                 field: Some("sample_size".to_string()),
             });
@@ -509,7 +509,7 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
     if let Some(outdir) = &args.outdir {
         let outdir_path = Path::new(outdir);
         if outdir_path.exists() && !outdir_path.is_dir() {
-            return Err(PgLoggrepError::Configuration {
+            return Err(PgLogstatsError::Configuration {
                 message: format!("Output directory path exists but is not a directory: {}", outdir),
                 field: Some("outdir".to_string()),
             });
@@ -544,8 +544,7 @@ fn discover_log_files(args: &Arguments) -> Result<Vec<PathBuf>> {
 
     // If logfile_list is specified, read file list
     if let Some(logfile_list) = &args.logfile_list {
-        let list_content = fs::read_to_string(logfile_list)
-            .map_err(|e| PgLoggrepError::Io(e))?;
+        let list_content = fs::read_to_string(logfile_list).map_err(|e| PgLogstatsError::Io(e))?;
 
         for line in list_content.lines() {
             let line = line.trim();
@@ -620,7 +619,7 @@ fn process_log_file(
     log_file: &Path,
     parser: &StderrParser,
     args: &Arguments,
-) -> Result<Vec<pg_loggrep::LogEntry>> {
+) -> Result<Vec<pg_logstats::LogEntry>> {
     let content = fs::read_to_string(log_file)?;
     let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
 
@@ -640,9 +639,9 @@ fn process_log_file(
 }
 
 fn run_analytics(
-    entries: &[pg_loggrep::LogEntry],
+    entries: &[pg_logstats::LogEntry],
     _args: &Arguments,
-) -> Result<pg_loggrep::AnalysisResult> {
+) -> Result<pg_logstats::AnalysisResult> {
     info!("Running analytics on {} entries", entries.len());
 
     let query_analyzer = QueryAnalyzer::new();
@@ -658,9 +657,9 @@ fn run_analytics(
 }
 
 fn output_results(
-    analytics_result: &pg_loggrep::AnalysisResult,
+    analytics_result: &pg_logstats::AnalysisResult,
     args: &Arguments,
-    entries: &[pg_loggrep::LogEntry],
+    entries: &[pg_logstats::LogEntry],
 ) -> Result<()> {
     match args.output_format {
         OutputFormat::Json => {

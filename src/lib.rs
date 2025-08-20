@@ -1,4 +1,4 @@
-//! pg-loggrep - PostgreSQL log analysis tool
+//! pg-logstats - PostgreSQL log analysis tool
 //!
 //! This library provides tools for parsing and analyzing PostgreSQL log files.
 //! It includes robust error handling, comprehensive data structures, and
@@ -18,9 +18,9 @@ pub use parsers::StderrParser;
 pub use analytics::{QueryAnalyzer, TimingAnalyzer, TimingAnalysis};
 pub use output::{JsonFormatter, TextFormatter};
 
-/// Main error type for pg-loggrep operations
+/// Main error type for pg-logstats operations
 #[derive(Error, Debug)]
-pub enum PgLoggrepError {
+pub enum PgLogstatsError {
     /// I/O errors when reading files or writing output
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
@@ -312,11 +312,11 @@ impl Default for AnalysisResult {
 }
 
 /// Result type alias for pg-loggrep operations
-pub type Result<T> = std::result::Result<T, PgLoggrepError>;
+pub type Result<T> = std::result::Result<T, PgLogstatsError>;
 
 /// Helper function to create parse errors with context
-pub fn parse_error(message: &str, line_number: Option<usize>, line_content: Option<&str>) -> PgLoggrepError {
-    PgLoggrepError::Parse {
+pub fn parse_error(message: &str, line_number: Option<usize>, line_content: Option<&str>) -> PgLogstatsError {
+    PgLogstatsError::Parse {
         message: message.to_string(),
         line_number,
         line_content: line_content.map(|s| s.to_string()),
@@ -324,24 +324,24 @@ pub fn parse_error(message: &str, line_number: Option<usize>, line_content: Opti
 }
 
 /// Helper function to create timestamp parse errors
-pub fn timestamp_error(message: &str, timestamp_string: &str) -> PgLoggrepError {
-    PgLoggrepError::TimestampParse {
+pub fn timestamp_error(message: &str, timestamp_string: &str) -> PgLogstatsError {
+    PgLogstatsError::TimestampParse {
         message: message.to_string(),
         timestamp_string: timestamp_string.to_string(),
     }
 }
 
 /// Helper function to create configuration errors
-pub fn config_error(message: &str, field: Option<&str>) -> PgLoggrepError {
-    PgLoggrepError::Configuration {
+pub fn config_error(message: &str, field: Option<&str>) -> PgLogstatsError {
+    PgLogstatsError::Configuration {
         message: message.to_string(),
         field: field.map(|s| s.to_string()),
     }
 }
 
 /// Helper function to create analytics errors
-pub fn analytics_error(message: &str, operation: &str) -> PgLoggrepError {
-    PgLoggrepError::Analytics {
+pub fn analytics_error(message: &str, operation: &str) -> PgLogstatsError {
+    PgLogstatsError::Analytics {
         message: message.to_string(),
         operation: operation.to_string(),
     }

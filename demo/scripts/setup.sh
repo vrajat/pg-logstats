@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Setup script for pg-loggrep demo environment
+# Setup script for pg-logstats demo environment
 # This script checks for required tools, builds containers, and prepares the environment
 
 set -e
@@ -47,9 +47,9 @@ print_verbose() {
 # Function to show help
 show_help() {
     cat << EOF
-pg-loggrep Demo Setup Script
+pg-logstats Demo Setup Script
 
-This script sets up the complete demo environment for pg-loggrep, including:
+This script sets up the complete demo environment for pg-logstats, including:
 - Checking for required tools (Docker, Docker Compose)
 - Building PostgreSQL and workload containers
 - Creating necessary directories and permissions
@@ -221,7 +221,7 @@ show_next_steps() {
     echo "2. Generate workload data:"
     echo "   ./scripts/run-workload.sh"
     echo ""
-    echo "3. Analyze logs with pg-loggrep:"
+    echo "3. Analyze logs with pg-logstats:"
     echo "   cargo run -- demo/logs/*.log"
     echo ""
     echo "4. Clean up when done:"
@@ -261,7 +261,7 @@ done
 
 # Main execution
 main() {
-    print_status "Starting pg-loggrep demo environment setup..."
+    print_status "Starting pg-logstats demo environment setup..."
 
     # Run setup steps
     check_docker

@@ -1,15 +1,14 @@
-//! Basic usage example for pg-loggrep
+//! Basic usage example for pg-logstats
 //!
-//! This example demonstrates how to use the pg-loggrep library to parse
+//! This example demonstrates how to use the pg-logstats library to parse
 //! and analyze PostgreSQL log files.
 
-use pg_loggrep::{
-    StderrParser, QueryAnalyzer, TimingAnalyzer,
-    JsonFormatter, TextFormatter, Result
+use pg_logstats::{
+    JsonFormatter, QueryAnalyzer, Result, StderrParser, TextFormatter, TimingAnalyzer,
 };
 
 fn main() -> Result<()> {
-    println!("pg-loggrep Basic Usage Example");
+    println!("pg-logstats Basic Usage Example");
     println!("==============================");
 
     // Initialize parsers and analyzers

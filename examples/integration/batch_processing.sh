@@ -1,10 +1,10 @@
 #!/bin/bash
 
-# Batch Processing Examples for pg-loggrep
+# Batch Processing Examples for pg-logstats
 # ========================================
 #
 # This script demonstrates various batch processing workflows for analyzing
-# PostgreSQL logs at scale using pg-loggrep.
+# PostgreSQL logs at scale using pg-logstats.
 
 set -euo pipefail
 
@@ -12,7 +12,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_BASE_DIR="${LOG_BASE_DIR:-/var/log/postgresql}"
 OUTPUT_DIR="${OUTPUT_DIR:-./analysis_output}"
-TEMP_DIR="${TEMP_DIR:-/tmp/pg-loggrep-batch}"
+TEMP_DIR="${TEMP_DIR:-/tmp/pg-logstats-batch}"
 PARALLEL_JOBS="${PARALLEL_JOBS:-4}"
 
 # Colors for output
@@ -42,7 +42,7 @@ log_error() {
 # Help function
 show_help() {
     cat << EOF
-Batch Processing Examples for pg-loggrep
+Batch Processing Examples for pg-logstats
 
 Usage: $0 [COMMAND] [OPTIONS]
 
@@ -88,9 +88,9 @@ setup_environment() {
     mkdir -p "$OUTPUT_DIR"
     mkdir -p "$TEMP_DIR"
 
-    # Check if pg-loggrep is available
-    if ! command -v pg-loggrep &> /dev/null; then
-        log_error "pg-loggrep command not found. Please ensure it's installed and in PATH."
+    # Check if pg-logstats is available
+    if ! command -v pg-logstats &> /dev/null; then
+        log_error "pg-logstats command not found. Please ensure it's installed and in PATH."
         exit 1
     fi
 
@@ -120,7 +120,7 @@ daily_analysis() {
         return 1
     fi
 
-    local cmd="pg-loggrep --log-dir '$log_dir' --output-format '$format'"
+    local cmd="pg-logstats --log-dir '$log_dir' --output-format '$format'"
 
     if [[ "$quick_mode" == "true" ]]; then
         cmd="$cmd --quick"

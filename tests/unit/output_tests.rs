@@ -2,9 +2,9 @@
 //!
 //! Tests text and JSON output formatting with various edge cases
 
-use pg_loggrep::output::text::TextFormatter;
-use pg_loggrep::output::json::JsonFormatter;
-use pg_loggrep::{AnalysisResult, TimingAnalysis, LogEntry, LogLevel};
+use pg_logstats::output::text::TextFormatter;
+use pg_logstats::output::json::JsonFormatter;
+use pg_logstats::{AnalysisResult, TimingAnalysis, LogEntry, LogLevel};
 use chrono::{DateTime, Utc, TimeZone, Duration};
 use std::collections::HashMap;
 
@@ -291,13 +291,13 @@ mod text_formatter_tests {
 
     #[test]
     fn test_bold_function_no_color() {
-        let result = pg_loggrep::output::text::bold("test", Some("red"), false);
+        let result = pg_logstats::output::text::bold("test", Some("red"), false);
         assert_eq!(result, "test");
     }
 
     #[test]
     fn test_bold_function_with_color() {
-        let result = pg_loggrep::output::text::bold("test", Some("red"), true);
+        let result = pg_logstats::output::text::bold("test", Some("red"), true);
         assert!(result.contains("\x1b[31;1m"));
         assert!(result.contains("test"));
         assert!(result.contains("\x1b[0m"));
@@ -317,7 +317,7 @@ mod text_formatter_tests {
         ];
 
         for (color, expected_code) in colors {
-            let result = pg_loggrep::output::text::bold("test", Some(color), true);
+            let result = pg_logstats::output::text::bold("test", Some(color), true);
             assert!(result.contains(expected_code));
         }
     }
