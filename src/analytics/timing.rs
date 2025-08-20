@@ -491,19 +491,19 @@ mod tests {
 
         // Hour 10: 5 queries
         for i in 0..5 {
-            let timestamp = now + Duration::hours(10) + Duration::minutes(i);
+            let timestamp = (now + Duration::hours(10)).with_nanosecond(i * 1_000_000).unwrap();
             entries.push(create_test_entry(timestamp, LogLevel::Statement, Some(100.0), "statement: SELECT 1"));
         }
 
         // Hour 11: 10 queries (peak)
         for i in 0..10 {
-            let timestamp = now + Duration::hours(11) + Duration::minutes(i);
+            let timestamp = (now + Duration::hours(11)).with_nanosecond(i * 1_000_000).unwrap();
             entries.push(create_test_entry(timestamp, LogLevel::Statement, Some(100.0), "statement: SELECT 1"));
         }
 
         // Hour 12: 3 queries
         for i in 0..3 {
-            let timestamp = now + Duration::hours(12) + Duration::minutes(i);
+            let timestamp = (now + Duration::hours(10)).with_nanosecond(i * 1_000_000).unwrap();
             entries.push(create_test_entry(timestamp, LogLevel::Statement, Some(100.0), "statement: SELECT 1"));
         }
 

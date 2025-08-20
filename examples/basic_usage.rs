@@ -46,7 +46,7 @@ fn main() -> Result<()> {
     println!("{}", timing_text);
 
     // Format results as JSON
-    let json_output = json_formatter.format_query_analysis(&query_analysis)?;
+    let json_output = json_formatter.format(&query_analysis)?;
     println!("\nQuery Analysis (JSON):");
     println!("{}", json_output);
 

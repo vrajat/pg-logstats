@@ -1,7 +1,7 @@
 use clap::{Parser, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
-use pg_loggrep::{StderrParser, QueryAnalyzer, TimingAnalyzer, JsonFormatter, TextFormatter, Result, PgLogstatsError};
+use pg_logstats::{StderrParser, QueryAnalyzer, TimingAnalyzer, JsonFormatter, TextFormatter, Result, PgLogstatsError};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;

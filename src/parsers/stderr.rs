@@ -270,8 +270,8 @@ impl StderrParser {
         }
     }
 
-    /// Parse timestamp string into DateTime<Utc>
-    fn parse_timestamp(&self, timestamp_str: &str, _timezone: &str) -> Result<DateTime<Utc>> {
+    /// Parse timestamp string into DateTime<Utc> (public for testing)
+    pub fn parse_timestamp(&self, timestamp_str: &str, _timezone: &str) -> Result<DateTime<Utc>> {
         // Try parsing with milliseconds
         if let Ok(dt) = DateTime::parse_from_str(&format!("{} UTC", timestamp_str), "%Y-%m-%d %H:%M:%S%.f %Z") {
             return Ok(dt.with_timezone(&Utc));
@@ -294,15 +294,15 @@ impl StderrParser {
         Err(timestamp_error("Failed to parse timestamp", timestamp_str))
     }
 
-    /// Extract duration from duration message
-    fn extract_duration(&self, message: &str) -> Option<f64> {
+    /// Extract duration from duration message (public for testing)
+    pub fn extract_duration(&self, message: &str) -> Option<f64> {
         self.duration_regex.captures(message)
             .and_then(|captures| captures.get(1))
             .and_then(|m| m.as_str().parse::<f64>().ok())
     }
 
-    /// Normalize SQL query by replacing parameters with placeholders
-    fn normalize_query(&self, query: &str) -> String {
+    /// Normalize SQL query by replacing parameters with placeholders (public for testing)
+    pub fn normalize_query(&self, query: &str) -> String {
         // Replace parameter placeholders like $1, $2 with ?
         let normalized = self.parameter_regex.replace_all(query, "?");
 
@@ -312,6 +312,17 @@ impl StderrParser {
             .collect::<Vec<_>>()
             .join(" ")
     }
+
+    /// Get the duration regex for testing
+    pub fn duration_regex(&self) -> &Regex {
+        &self.duration_regex
+    }
+
+    /// Get the parameter regex for testing
+    pub fn parameter_regex(&self) -> &Regex {
+        &self.parameter_regex
+    }
+
 }
 
 impl Default for StderrParser {

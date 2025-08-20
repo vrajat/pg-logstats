@@ -129,6 +129,21 @@ impl QueryAnalyzer {
         }
     }
 
+    /// Get the slow query threshold (public for testing)
+    pub fn slow_query_threshold(&self) -> f64 {
+        self.slow_query_threshold
+    }
+
+    /// Get the maximum number of slow queries to track (public for testing)
+    pub fn max_slow_queries(&self) -> usize {
+        self.max_slow_queries
+    }
+
+    /// Get the maximum number of frequent queries to track (public for testing)
+    pub fn max_frequent_queries(&self) -> usize {
+        self.max_frequent_queries
+    }
+
     /// Analyze queries from log entries
     pub fn analyze(&self, entries: &[LogEntry]) -> Result<AnalysisResult> {
         if entries.is_empty() {
@@ -265,8 +280,8 @@ impl QueryAnalyzer {
         }
     }
 
-    /// Calculate performance metrics from durations
-    fn calculate_metrics(&self, durations: &[f64]) -> QueryMetrics {
+    /// Calculate performance metrics from durations (public for testing)
+    pub fn calculate_metrics(&self, durations: &[f64]) -> QueryMetrics {
         if durations.is_empty() {
             return QueryMetrics::default();
         }

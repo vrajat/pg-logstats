@@ -122,6 +122,8 @@ impl From<&str> for LogLevel {
             "LOG" => LogLevel::Log,
             "STATEMENT" => LogLevel::Statement,
             "DURATION" => LogLevel::Duration,
+            "FATAL" => LogLevel::Fatal,
+            "PANIC" => LogLevel::Panic,
             _ => LogLevel::Unknown(s.to_string()),
         }
     }

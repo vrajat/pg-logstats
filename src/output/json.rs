@@ -44,7 +44,28 @@ impl JsonFormatter {
 		self
 	}
 
-	fn metadata_object(&self) -> serde_json::Value {
+	/// Get whether pretty printing is enabled
+	pub fn is_pretty(&self) -> bool {
+		self.pretty
+	}
+
+	/// Get the tool version
+	pub fn tool_version(&self) -> &str {
+		&self.tool_version
+	}
+
+	/// Get the log files processed
+	pub fn log_files_processed(&self) -> &[String] {
+		&self.log_files_processed
+	}
+
+	/// Get the total log entries count
+	pub fn total_log_entries(&self) -> usize {
+		self.total_log_entries
+	}
+
+	/// Get metadata object (made public for testing)
+	pub fn metadata_object(&self) -> serde_json::Value {
 		json!({
 			"analysis_timestamp": Utc::now().to_rfc3339(),
 			"tool_version": self.tool_version,

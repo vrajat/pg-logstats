@@ -38,6 +38,11 @@ impl TextFormatter {
 		self
 	}
 
+	/// Get whether color output is enabled
+	pub fn is_color_enabled(&self) -> bool {
+		self.enable_color
+	}
+
 	/// Format query analysis results as text
 	pub fn format_query_analysis(&self, analysis: &AnalysisResult) -> Result<String> {
 		let mut output = String::new();

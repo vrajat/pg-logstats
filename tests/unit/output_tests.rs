@@ -5,7 +5,7 @@
 use pg_logstats::output::text::TextFormatter;
 use pg_logstats::output::json::JsonFormatter;
 use pg_logstats::{AnalysisResult, TimingAnalysis, LogEntry, LogLevel};
-use chrono::{DateTime, Utc, TimeZone, Duration};
+use chrono::{Utc, TimeZone, Duration};
 use std::collections::HashMap;
 
 /// Helper function to create a test AnalysisResult
@@ -52,11 +52,26 @@ fn create_test_timing_analysis() -> TimingAnalysis {
     hourly_patterns.insert(14, 3200.0);
     hourly_patterns.insert(15, 2100.0);
 
+    let mut daily_patterns = HashMap::new();
+    daily_patterns.insert(0, 5000.0); // Monday
+    daily_patterns.insert(1, 4500.0); // Tuesday
+    daily_patterns.insert(2, 4800.0); // Wednesday
+
+    let mut connection_patterns = HashMap::new();
+    connection_patterns.insert(9, 10);
+    connection_patterns.insert(10, 25);
+    connection_patterns.insert(11, 18);
+
     TimingAnalysis {
         average_response_time: Duration::milliseconds(450),
         p95_response_time: Duration::milliseconds(1800),
         p99_response_time: Duration::milliseconds(2300),
         hourly_patterns,
+        daily_patterns,
+        connection_patterns,
+        peak_hours: vec![10, 14, 15],
+        total_queries: 100,
+        total_duration: 45000.0,
     }
 }
 
@@ -111,16 +126,16 @@ mod text_formatter_tests {
     #[test]
     fn test_text_formatter_new() {
         let formatter = TextFormatter::new();
-        assert!(!formatter.enable_color); // Default should be no color
+        assert!(!formatter.is_color_enabled()); // Default should be no color
     }
 
     #[test]
     fn test_text_formatter_with_color() {
         let formatter = TextFormatter::new().with_color(true);
-        assert!(formatter.enable_color);
+        assert!(formatter.is_color_enabled());
 
         let formatter = TextFormatter::new().with_color(false);
-        assert!(!formatter.enable_color);
+        assert!(!formatter.is_color_enabled());
     }
 
     #[test]
@@ -269,9 +284,9 @@ mod text_formatter_tests {
 
         // Check log entries formatting
         assert!(output.contains("Log Entries (3 total)"));
-        assert!(output.contains("[1] 2024-08-15 10:30:00 Statement:"));
-        assert!(output.contains("[2] 2024-08-15 10:30:01 Error:"));
-        assert!(output.contains("[3] 2024-08-15 10:30:02 Duration:"));
+        assert!(output.contains("[1] 2024-08-15 10:30:00 STATEMENT:"));
+        assert!(output.contains("[2] 2024-08-15 10:30:01 ERROR:"));
+        assert!(output.contains("[3] 2024-08-15 10:30:02 DURATION:"));
         assert!(output.contains("SELECT * FROM users WHERE active = true"));
         assert!(output.contains("relation \"missing_table\" does not exist"));
         assert!(output.contains("duration: 45.123 ms"));
@@ -330,19 +345,19 @@ mod json_formatter_tests {
     #[test]
     fn test_json_formatter_new() {
         let formatter = JsonFormatter::new();
-        assert!(!formatter.pretty); // Default should be compact
-        assert_eq!(formatter.tool_version, env!("CARGO_PKG_VERSION"));
-        assert!(formatter.log_files_processed.is_empty());
-        assert_eq!(formatter.total_log_entries, 0);
+        assert!(!formatter.is_pretty()); // Default should be compact
+        assert_eq!(formatter.tool_version(), env!("CARGO_PKG_VERSION"));
+        assert!(formatter.log_files_processed().is_empty());
+        assert_eq!(formatter.total_log_entries(), 0);
     }
 
     #[test]
     fn test_json_formatter_with_pretty() {
         let formatter = JsonFormatter::new().with_pretty(true);
-        assert!(formatter.pretty);
+        assert!(formatter.is_pretty());
 
         let formatter = JsonFormatter::new().with_pretty(false);
-        assert!(!formatter.pretty);
+        assert!(!formatter.is_pretty());
     }
 
     #[test]
@@ -351,9 +366,9 @@ mod json_formatter_tests {
         let formatter = JsonFormatter::new()
             .with_metadata("1.0.0", files.clone(), 1000);
 
-        assert_eq!(formatter.tool_version, "1.0.0");
-        assert_eq!(formatter.log_files_processed, files);
-        assert_eq!(formatter.total_log_entries, 1000);
+        assert_eq!(formatter.tool_version(), "1.0.0");
+        assert_eq!(formatter.log_files_processed(), files);
+        assert_eq!(formatter.total_log_entries(), 1000);
     }
 
     #[test]
@@ -735,7 +750,7 @@ mod output_edge_cases_tests {
         let output = result.unwrap();
         assert!(output.contains("Total Queries: 1000000"));
         assert!(output.contains("Total Duration: 999999.99 ms"));
-        assert!(output.contains("Average Duration: 999.999 ms"));
+        assert!(output.contains("Average Duration: 1000.00 ms"));
     }
 
     #[test]
