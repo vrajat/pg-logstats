@@ -5,6 +5,9 @@
 use crate::{timestamp_error, LogEntry, LogLevel, PgLogstatsError, Result};
 use chrono::{DateTime, Utc};
 use regex::Regex;
+use sqlparser::parser::Parser;
+use sqlparser::dialect::PostgreSqlDialect;
+use sqlparser::ast::{VisitMut, VisitorMut, Expr, Value};
 
 /// Parser for PostgreSQL stderr log format
 pub struct StderrParser {
@@ -195,7 +198,13 @@ impl StderrParser {
 
         // For now, always create a statement entry
         // Multi-line handling will be done by continuation lines
-        let normalized_query = self.normalize_query(query);
+        let normalized_query = match self.normalize_query(query) {
+            Ok(q) => Some(q),
+            Err(e) => {
+            eprintln!("Failed to normalize query: {}", e);
+            None
+            }
+        };
         let entry = LogEntry {
             timestamp,
             process_id: process_id.to_string(),
@@ -205,7 +214,7 @@ impl StderrParser {
             application_name: Some(app_name.to_string()),
             message_type: LogLevel::Statement,
             message: format!("statement: {}", query),
-            query: Some(normalized_query),
+            query: normalized_query,
             duration: None,
         };
         Ok(Some(entry))
@@ -302,15 +311,37 @@ impl StderrParser {
     }
 
     /// Normalize SQL query by replacing parameters with placeholders (public for testing)
-    pub fn normalize_query(&self, query: &str) -> String {
-        // Replace parameter placeholders like $1, $2 with ?
-        let normalized = self.parameter_regex.replace_all(query, "?");
+    pub fn normalize_query(&self, query: &str) -> Result<String> {
+        let dialect = PostgreSqlDialect {};
 
-        // Basic normalization: trim whitespace and normalize spacing
-        normalized
-            .split_whitespace()
+        // Parse the SQL query
+        let mut ast = Parser::parse_sql(&dialect, query)
+            .map_err(|e| PgLogstatsError::Parse {
+                message: format!("Failed to parse SQL: {}", e),
+                line_number: None,
+                line_content: Some(query.to_string()),
+            })?;
+
+        if ast.is_empty() {
+            return Ok(query.to_string());
+        }
+
+        // Create visitor to normalize literals
+        let mut normalizer = LiteralNormalizer;
+
+        // Apply normalization to all statements
+        for stmt in &mut ast {
+            let _ = stmt.visit(&mut normalizer);
+        }
+
+        // Convert back to SQL string
+        let normalized_sql = ast
+            .iter()
+            .map(|stmt| stmt.to_string())
             .collect::<Vec<_>>()
-            .join(" ")
+            .join("; ");
+
+        Ok(normalized_sql)
     }
 
     /// Get the duration regex for testing
@@ -323,6 +354,41 @@ impl StderrParser {
         &self.parameter_regex
     }
 
+}
+
+/// Visitor that replaces literal values with placeholders
+struct LiteralNormalizer;
+
+impl VisitorMut for LiteralNormalizer {
+    type Break = ();
+
+    fn pre_visit_expr(&mut self, _expr: &mut Expr) -> std::ops::ControlFlow<Self::Break> {
+        // Always continue traversal to visit nested expressions
+        std::ops::ControlFlow::Continue(())
+    }
+
+    fn post_visit_expr(&mut self, expr: &mut Expr) -> std::ops::ControlFlow<Self::Break> {
+        match expr {
+            // Replace literal constants with placeholders
+            Expr::Value(Value::Number(_, _)) |
+            Expr::Value(Value::SingleQuotedString(_)) |
+            Expr::Value(Value::DoubleQuotedString(_)) |
+            Expr::Value(Value::Boolean(_)) |
+            Expr::Value(Value::Null) => {
+                *expr = Expr::Value(Value::Placeholder("?".to_string()));
+            }
+
+            // Normalize existing parameters to standard format
+            Expr::Value(Value::Placeholder(_)) => {
+                *expr = Expr::Value(Value::Placeholder("?".to_string()));
+            }
+
+            // Continue traversing for all other expressions
+            _ => {}
+        }
+
+        std::ops::ControlFlow::Continue(())
+    }
 }
 
 impl Default for StderrParser {
@@ -350,7 +416,7 @@ mod tests {
         assert_eq!(entry.application_name, Some("psql".to_string()));
         assert_eq!(entry.message_type, LogLevel::Statement);
         assert!(entry.query.is_some());
-        assert_eq!(entry.query.unwrap(), "SELECT * FROM users WHERE active = true;");
+        assert_eq!(entry.query.unwrap(), "SELECT * FROM users WHERE active = ?");
     }
 
     #[test]
@@ -455,13 +521,39 @@ mod tests {
 
         // Test parameter replacement
         let query = "UPDATE users SET name = $1, email = $2 WHERE id = $3";
-        let normalized = parser.normalize_query(query);
+        let normalized = parser.normalize_query(query).unwrap();
         assert_eq!(normalized, "UPDATE users SET name = ?, email = ? WHERE id = ?");
 
         // Test whitespace normalization
         let query = "SELECT   *   FROM    users   WHERE   id=1";
-        let normalized = parser.normalize_query(query);
-        assert_eq!(normalized, "SELECT * FROM users WHERE id=1");
+        let normalized = parser.normalize_query(query).unwrap();
+        assert_eq!(normalized, "SELECT * FROM users WHERE id = ?");
+    }
+
+    #[test]
+    fn test_normalize_simple_query() {
+        let parser = StderrParser::new();
+
+        let input = "SELECT * FROM users WHERE name = 'John' AND city = 'New York'";
+        let result = parser.normalize_query(input).unwrap();
+
+        // Should be: "SELECT * FROM users WHERE name = ? AND city = ?"
+        assert!(result.contains("name = ?"));
+        assert!(result.contains("city = ?"));
+        assert!(!result.contains("'John'"));
+        assert!(!result.contains("'New York'"));
+    }
+
+    #[test]
+    fn test_normalize_complex_query() {
+        let parser = StderrParser::new();
+
+        let input = "SELECT * FROM users WHERE (age > 25 AND name = 'John') OR id IN (1, 2, 3)";
+        let result = parser.normalize_query(input).unwrap();
+
+        assert!(result.contains("age > ?"));
+        assert!(result.contains("name = ?"));
+        assert!(result.contains("IN (?, ?, ?)"));
     }
 
     #[test]

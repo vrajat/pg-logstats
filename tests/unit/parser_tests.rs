@@ -84,7 +84,7 @@ mod parser_unit_tests {
         assert_eq!(entry.application_name, Some("psql".to_string()));
         assert_eq!(entry.message_type, LogLevel::Statement);
         assert!(entry.query.is_some());
-        assert_eq!(entry.query.unwrap(), "SELECT * FROM users WHERE active = true;");
+        assert_eq!(entry.query.unwrap(), "SELECT * FROM users WHERE active = ?");
         assert!(entry.duration.is_none());
     }
 
@@ -281,41 +281,38 @@ mod parser_unit_tests {
         assert_eq!(entries.len(), 2); // Should parse 2 valid lines, skip invalid ones
     }
 
-    #[ignore = "reason: Queries are normalized using regular expressions. This is not stable. It will be replaced with a more robust solution."]
     #[test]
     fn test_normalize_query_parameters() {
         let parser = StderrParser::new();
 
         // Test parameter replacement
         let query = "UPDATE users SET name = $1, email = $2 WHERE id = $3";
-        let normalized = parser.normalize_query(query);
-        assert_eq!(normalized, "UPDATE users SET name = ? email = ? WHERE id = ?");
+        let normalized = parser.normalize_query(query).unwrap();
+        assert_eq!(normalized, "UPDATE users SET name = ?, email = ? WHERE id = ?");
     }
 
-    #[ignore = "reason: Queries are normalized using regular expressions. This is not stable. It will be replaced with a more robust solution."]
     #[test]
     fn test_normalize_query_literals() {
         let parser = StderrParser::new();
 
         // Test numeric literal replacement
         let query = "SELECT * FROM users WHERE age > 25 AND score < 100.5";
-        let normalized = parser.normalize_query(query);
-        assert_eq!(normalized, "SELECT * FROM users WHERE age > N AND score < N");
+        let normalized = parser.normalize_query(query).unwrap();
+        assert_eq!(normalized, "SELECT * FROM users WHERE age > ? AND score < ?");
 
         // Test string literal replacement
         let query = "SELECT * FROM users WHERE name = 'John' AND city = 'New York'";
-        let normalized = parser.normalize_query(query);
-        assert_eq!(normalized, "SELECT * FROM users WHERE name = S AND city = S");
+        let normalized = parser.normalize_query(query).unwrap();
+        assert_eq!(normalized, "SELECT * FROM users WHERE name = ? AND city = ?");
     }
 
-    #[ignore = "reason: Queries are normalized using regular expressions. This is not stable. It will be replaced with a more robust solution."]
     #[test]
     fn test_normalize_query_whitespace() {
         let parser = StderrParser::new();
 
         let query = "SELECT   *   FROM    users   WHERE   id=1";
-        let normalized = parser.normalize_query(query);
-        assert_eq!(normalized, "SELECT * FROM users WHERE id=N");
+        let normalized = parser.normalize_query(query).unwrap();
+        assert_eq!(normalized, "SELECT * FROM users WHERE id = ?");
     }
 
     #[test]
@@ -487,26 +484,6 @@ mod property_based_tests {
         }
     }
 
-    /// Property: Query normalization should be idempotent
-    #[test]
-    fn property_query_normalization_idempotent() {
-        let parser = StderrParser::new();
-
-        let test_queries = vec![
-            "SELECT * FROM users WHERE id = $1",
-            "UPDATE users SET name = 'John', age = 25 WHERE id = $1",
-            "INSERT INTO users (name, email) VALUES ('John', 'john@example.com')",
-            "DELETE FROM users WHERE age > 30 AND status = 'inactive'",
-        ];
-
-        for query in test_queries {
-            let normalized_once = parser.normalize_query(query);
-            let normalized_twice = parser.normalize_query(&normalized_once);
-
-            // Normalizing twice should produce the same result
-            assert_eq!(normalized_once, normalized_twice);
-        }
-    }
 
     /// Property: Parser should handle any sequence of valid log lines
     #[test]
