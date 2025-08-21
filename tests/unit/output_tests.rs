@@ -2,10 +2,10 @@
 //!
 //! Tests text and JSON output formatting with various edge cases
 
-use pg_logstats::output::text::TextFormatter;
+use chrono::{Duration, TimeZone, Utc};
 use pg_logstats::output::json::JsonFormatter;
-use pg_logstats::{AnalysisResult, TimingAnalysis, LogEntry, LogLevel};
-use chrono::{Utc, TimeZone, Duration};
+use pg_logstats::output::text::TextFormatter;
+use pg_logstats::{AnalysisResult, LogEntry, LogLevel, TimingAnalysis};
 use std::collections::HashMap;
 
 /// Helper function to create a test AnalysisResult
@@ -17,16 +17,31 @@ fn create_test_analysis_result() -> AnalysisResult {
     query_types.insert("DELETE".to_string(), 1);
 
     let slowest_queries = vec![
-        ("SELECT * FROM large_table WHERE complex_condition = ?".to_string(), 2500.0),
-        ("UPDATE users SET last_login = NOW() WHERE id = ?".to_string(), 1200.0),
-        ("INSERT INTO audit_log (action, timestamp) VALUES (?, ?)".to_string(), 800.0),
+        (
+            "SELECT * FROM large_table WHERE complex_condition = ?".to_string(),
+            2500.0,
+        ),
+        (
+            "UPDATE users SET last_login = NOW() WHERE id = ?".to_string(),
+            1200.0,
+        ),
+        (
+            "INSERT INTO audit_log (action, timestamp) VALUES (?, ?)".to_string(),
+            800.0,
+        ),
     ];
 
     let most_frequent_queries = vec![
         ("SELECT * FROM users WHERE active = ?".to_string(), 15),
         ("SELECT COUNT(*) FROM orders".to_string(), 8),
-        ("INSERT INTO sessions (user_id, token) VALUES (?, ?)".to_string(), 6),
-        ("UPDATE users SET last_seen = NOW() WHERE id = ?".to_string(), 4),
+        (
+            "INSERT INTO sessions (user_id, token) VALUES (?, ?)".to_string(),
+            6,
+        ),
+        (
+            "UPDATE users SET last_seen = NOW() WHERE id = ?".to_string(),
+            4,
+        ),
     ];
 
     AnalysisResult {
@@ -363,8 +378,7 @@ mod json_formatter_tests {
     #[test]
     fn test_json_formatter_with_metadata() {
         let files = vec!["file1.log".to_string(), "file2.log".to_string()];
-        let formatter = JsonFormatter::new()
-            .with_metadata("1.0.0", files.clone(), 1000);
+        let formatter = JsonFormatter::new().with_metadata("1.0.0", files.clone(), 1000);
 
         assert_eq!(formatter.tool_version(), "1.0.0");
         assert_eq!(formatter.log_files_processed(), files);
@@ -419,7 +433,10 @@ mod json_formatter_tests {
 
         // Check first slowest query
         let first = &slowest[0];
-        assert!(first["query"].as_str().unwrap().contains("SELECT * FROM large_table"));
+        assert!(first["query"]
+            .as_str()
+            .unwrap()
+            .contains("SELECT * FROM large_table"));
         assert_eq!(first["duration_ms"], 2500.0);
         assert_eq!(first["count"], 1); // Default count
     }
@@ -441,7 +458,10 @@ mod json_formatter_tests {
 
         // Check first most frequent query
         let first = &frequent[0];
-        assert!(first["query"].as_str().unwrap().contains("SELECT * FROM users WHERE active"));
+        assert!(first["query"]
+            .as_str()
+            .unwrap()
+            .contains("SELECT * FROM users WHERE active"));
         assert_eq!(first["count"], 15);
         assert_eq!(first["avg_duration_ms"], 500.0); // Overall average
     }
@@ -519,16 +539,24 @@ mod json_formatter_tests {
         assert_eq!(json["summary"]["connection_count"], 0);
 
         // Empty arrays for queries
-        assert!(json["query_analysis"]["slowest_queries"].as_array().unwrap().is_empty());
-        assert!(json["query_analysis"]["most_frequent"].as_array().unwrap().is_empty());
-        assert!(json["query_analysis"]["by_type"].as_object().unwrap().is_empty());
+        assert!(json["query_analysis"]["slowest_queries"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(json["query_analysis"]["most_frequent"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        assert!(json["query_analysis"]["by_type"]
+            .as_object()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
     fn test_metadata_object() {
         let files = vec!["test1.log".to_string(), "test2.log".to_string()];
-        let formatter = JsonFormatter::new()
-            .with_metadata("2.0.0", files.clone(), 500);
+        let formatter = JsonFormatter::new().with_metadata("2.0.0", files.clone(), 500);
 
         let metadata = formatter.metadata_object();
 
@@ -590,12 +618,14 @@ mod output_edge_cases_tests {
 
         let mut analysis = AnalysisResult::new();
         analysis.total_queries = 1;
-        analysis.slowest_queries = vec![
-            ("SELECT * FROM \"table-with-dashes\" WHERE name = 'O''Reilly'".to_string(), 100.0),
-        ];
-        analysis.most_frequent_queries = vec![
-            ("INSERT INTO logs (message) VALUES ('Error: \"Connection failed\"')".to_string(), 5),
-        ];
+        analysis.slowest_queries = vec![(
+            "SELECT * FROM \"table-with-dashes\" WHERE name = 'O''Reilly'".to_string(),
+            100.0,
+        )];
+        analysis.most_frequent_queries = vec![(
+            "INSERT INTO logs (message) VALUES ('Error: \"Connection failed\"')".to_string(),
+            5,
+        )];
 
         let result = formatter.format_query_analysis(&analysis);
         assert!(result.is_ok());
@@ -612,9 +642,10 @@ mod output_edge_cases_tests {
 
         let mut analysis = AnalysisResult::new();
         analysis.total_queries = 1;
-        analysis.slowest_queries = vec![
-            ("SELECT * FROM \"table-with-dashes\" WHERE name = 'O''Reilly'".to_string(), 100.0),
-        ];
+        analysis.slowest_queries = vec![(
+            "SELECT * FROM \"table-with-dashes\" WHERE name = 'O''Reilly'".to_string(),
+            100.0,
+        )];
 
         let result = formatter.format(&analysis);
         assert!(result.is_ok());
@@ -623,7 +654,9 @@ mod output_edge_cases_tests {
         let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
 
         // JSON should properly escape special characters
-        let query = json["query_analysis"]["slowest_queries"][0]["query"].as_str().unwrap();
+        let query = json["query_analysis"]["slowest_queries"][0]["query"]
+            .as_str()
+            .unwrap();
         assert!(query.contains("table-with-dashes"));
         assert!(query.contains("O''Reilly"));
     }
@@ -659,7 +692,9 @@ mod output_edge_cases_tests {
         let json_str = result.unwrap();
         let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
 
-        let query = json["query_analysis"]["slowest_queries"][0]["query"].as_str().unwrap();
+        let query = json["query_analysis"]["slowest_queries"][0]["query"]
+            .as_str()
+            .unwrap();
         assert_eq!(query, long_query);
     }
 
@@ -669,9 +704,10 @@ mod output_edge_cases_tests {
 
         let mut analysis = AnalysisResult::new();
         analysis.total_queries = 1;
-        analysis.slowest_queries = vec![
-            ("SELECT * FROM users WHERE name = '测试用户'".to_string(), 100.0),
-        ];
+        analysis.slowest_queries = vec![(
+            "SELECT * FROM users WHERE name = '测试用户'".to_string(),
+            100.0,
+        )];
 
         let result = formatter.format_query_analysis(&analysis);
         assert!(result.is_ok());
@@ -686,9 +722,10 @@ mod output_edge_cases_tests {
 
         let mut analysis = AnalysisResult::new();
         analysis.total_queries = 1;
-        analysis.slowest_queries = vec![
-            ("SELECT * FROM users WHERE name = '测试用户'".to_string(), 100.0),
-        ];
+        analysis.slowest_queries = vec![(
+            "SELECT * FROM users WHERE name = '测试用户'".to_string(),
+            100.0,
+        )];
 
         let result = formatter.format(&analysis);
         assert!(result.is_ok());
@@ -696,7 +733,9 @@ mod output_edge_cases_tests {
         let json_str = result.unwrap();
         let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
 
-        let query = json["query_analysis"]["slowest_queries"][0]["query"].as_str().unwrap();
+        let query = json["query_analysis"]["slowest_queries"][0]["query"]
+            .as_str()
+            .unwrap();
         assert!(query.contains("测试用户"));
     }
 
@@ -807,7 +846,11 @@ mod output_performance_tests {
         let duration = start.elapsed();
 
         assert!(result.is_ok());
-        assert!(duration.as_millis() < 1000, "Text formatting took too long: {:?}", duration);
+        assert!(
+            duration.as_millis() < 1000,
+            "Text formatting took too long: {:?}",
+            duration
+        );
     }
 
     #[test]
@@ -839,7 +882,11 @@ mod output_performance_tests {
         let duration = start.elapsed();
 
         assert!(result.is_ok());
-        assert!(duration.as_millis() < 1000, "JSON formatting took too long: {:?}", duration);
+        assert!(
+            duration.as_millis() < 1000,
+            "JSON formatting took too long: {:?}",
+            duration
+        );
 
         // Verify the JSON is still valid
         let json_str = result.unwrap();
@@ -855,7 +902,10 @@ mod output_performance_tests {
         let mut analysis = AnalysisResult::new();
         analysis.total_queries = 100;
 
-        let very_long_query = format!("SELECT {} FROM users", "very_long_column_name, ".repeat(1000));
+        let very_long_query = format!(
+            "SELECT {} FROM users",
+            "very_long_column_name, ".repeat(1000)
+        );
         for i in 0..100 {
             analysis.slowest_queries.push((
                 format!("{} WHERE id = {}", very_long_query, i),
@@ -880,7 +930,10 @@ mod output_performance_tests {
         let mut analysis = AnalysisResult::new();
         analysis.total_queries = 100;
 
-        let very_long_query = format!("SELECT {} FROM users", "very_long_column_name, ".repeat(1000));
+        let very_long_query = format!(
+            "SELECT {} FROM users",
+            "very_long_column_name, ".repeat(1000)
+        );
         for i in 0..100 {
             analysis.slowest_queries.push((
                 format!("{} WHERE id = {}", very_long_query, i),
@@ -897,7 +950,9 @@ mod output_performance_tests {
         assert_eq!(json["summary"]["total_queries"], 100);
 
         // Verify one of the long queries is properly serialized
-        let first_query = json["query_analysis"]["slowest_queries"][0]["query"].as_str().unwrap();
+        let first_query = json["query_analysis"]["slowest_queries"][0]["query"]
+            .as_str()
+            .unwrap();
         assert!(first_query.contains("very_long_column_name"));
     }
 }

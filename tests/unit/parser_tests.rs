@@ -2,9 +2,9 @@
 //!
 //! Tests various log line formats, edge cases, and parser functionality in isolation
 
+use chrono::DateTime;
 use pg_logstats::parsers::stderr::StderrParser;
-use pg_logstats::{LogLevel};
-use chrono::{DateTime};
+use pg_logstats::LogLevel;
 
 /// Helper function to create test log lines with various formats
 fn create_test_lines() -> Vec<String> {
@@ -91,7 +91,8 @@ mod parser_unit_tests {
     #[test]
     fn test_parse_duration_log() {
         let mut parser = StderrParser::new();
-        let line = "2024-08-15 10:30:15.456 UTC [12345] postgres@testdb psql: LOG:  duration: 45.123 ms";
+        let line =
+            "2024-08-15 10:30:15.456 UTC [12345] postgres@testdb psql: LOG:  duration: 45.123 ms";
 
         let result = parser.parse_line(line).unwrap();
         assert!(result.is_some());
@@ -115,7 +116,9 @@ mod parser_unit_tests {
         assert_eq!(entry.user, Some("admin".to_string()));
         assert_eq!(entry.database, Some("analytics".to_string()));
         assert_eq!(entry.application_name, Some("pgbench".to_string()));
-        assert!(entry.message.contains("relation \"missing_table\" does not exist"));
+        assert!(entry
+            .message
+            .contains("relation \"missing_table\" does not exist"));
         assert!(entry.query.is_none());
         assert!(entry.duration.is_none());
     }
@@ -130,7 +133,9 @@ mod parser_unit_tests {
 
         let entry = result.unwrap();
         assert_eq!(entry.message_type, LogLevel::Warning);
-        assert!(entry.message.contains("there is no transaction in progress"));
+        assert!(entry
+            .message
+            .contains("there is no transaction in progress"));
     }
 
     #[test]
@@ -144,7 +149,10 @@ mod parser_unit_tests {
         let entry = result.unwrap();
         assert_eq!(entry.message_type, LogLevel::Statement);
         // Query should be normalized with parameters replaced
-        assert_eq!(entry.query, Some("UPDATE products SET price = ? WHERE id = ?".to_string()));
+        assert_eq!(
+            entry.query,
+            Some("UPDATE products SET price = ? WHERE id = ?".to_string())
+        );
     }
 
     #[test]
@@ -173,7 +181,11 @@ mod parser_unit_tests {
         assert_eq!(duration_entry.duration, Some(12.345));
 
         // Multi-line query should be properly assembled
-        assert!(statement_entry.query.as_ref().unwrap().contains("SELECT u.name, p.title"));
+        assert!(statement_entry
+            .query
+            .as_ref()
+            .unwrap()
+            .contains("SELECT u.name, p.title"));
     }
 
     #[test]
@@ -186,7 +198,9 @@ mod parser_unit_tests {
     #[test]
     fn test_parse_unparseable_line() {
         let mut parser = StderrParser::new();
-        let result = parser.parse_line("This is not a PostgreSQL log line").unwrap();
+        let result = parser
+            .parse_line("This is not a PostgreSQL log line")
+            .unwrap();
         assert!(result.is_none());
     }
 
@@ -202,12 +216,14 @@ mod parser_unit_tests {
         let mut parser = StderrParser::new();
 
         // With milliseconds
-        let line1 = "2024-08-15 10:30:15.123 UTC [12345] postgres@testdb psql: LOG:  statement: SELECT 1;";
+        let line1 =
+            "2024-08-15 10:30:15.123 UTC [12345] postgres@testdb psql: LOG:  statement: SELECT 1;";
         let result1 = parser.parse_line(line1).unwrap();
         assert!(result1.is_some());
 
         // Without milliseconds
-        let line2 = "2024-08-15 10:30:20 UTC [12350] postgres@testdb psql: LOG:  statement: SELECT 2;";
+        let line2 =
+            "2024-08-15 10:30:20 UTC [12350] postgres@testdb psql: LOG:  statement: SELECT 2;";
         let result2 = parser.parse_line(line2).unwrap();
         assert!(result2.is_some());
     }
@@ -226,7 +242,10 @@ mod parser_unit_tests {
         ];
 
         for (level_str, expected_level) in test_cases {
-            let line = format!("2024-08-15 10:30:15.123 UTC [12345] postgres@testdb psql: {}:  test message", level_str);
+            let line = format!(
+                "2024-08-15 10:30:15.123 UTC [12345] postgres@testdb psql: {}:  test message",
+                level_str
+            );
             let result = parser.parse_line(&line).unwrap();
             assert!(result.is_some());
 
@@ -288,7 +307,10 @@ mod parser_unit_tests {
         // Test parameter replacement
         let query = "UPDATE users SET name = $1, email = $2 WHERE id = $3";
         let normalized = parser.normalize_query(query).unwrap();
-        assert_eq!(normalized, "UPDATE users SET name = ?, email = ? WHERE id = ?");
+        assert_eq!(
+            normalized,
+            "UPDATE users SET name = ?, email = ? WHERE id = ?"
+        );
     }
 
     #[test]
@@ -298,12 +320,18 @@ mod parser_unit_tests {
         // Test numeric literal replacement
         let query = "SELECT * FROM users WHERE age > 25 AND score < 100.5";
         let normalized = parser.normalize_query(query).unwrap();
-        assert_eq!(normalized, "SELECT * FROM users WHERE age > ? AND score < ?");
+        assert_eq!(
+            normalized,
+            "SELECT * FROM users WHERE age > ? AND score < ?"
+        );
 
         // Test string literal replacement
         let query = "SELECT * FROM users WHERE name = 'John' AND city = 'New York'";
         let normalized = parser.normalize_query(query).unwrap();
-        assert_eq!(normalized, "SELECT * FROM users WHERE name = ? AND city = ?");
+        assert_eq!(
+            normalized,
+            "SELECT * FROM users WHERE name = ? AND city = ?"
+        );
     }
 
     #[test]
@@ -340,7 +368,11 @@ mod parser_unit_tests {
 
         for (timestamp_str, timezone) in test_cases {
             let result = parser.parse_timestamp(timestamp_str, timezone);
-            assert!(result.is_ok(), "Failed to parse timestamp: {}", timestamp_str);
+            assert!(
+                result.is_ok(),
+                "Failed to parse timestamp: {}",
+                timestamp_str
+            );
         }
     }
 
@@ -357,7 +389,11 @@ mod parser_unit_tests {
 
         for timestamp_str in invalid_timestamps {
             let result = parser.parse_timestamp(timestamp_str, "UTC");
-            assert!(result.is_err(), "Should fail to parse invalid timestamp: {}", timestamp_str);
+            assert!(
+                result.is_err(),
+                "Should fail to parse invalid timestamp: {}",
+                timestamp_str
+            );
         }
     }
 
@@ -378,8 +414,12 @@ mod parser_unit_tests {
         assert!(!parser.duration_regex().is_match("no duration here"));
 
         // Test parameter regex
-        assert!(parser.parameter_regex().is_match("SELECT * FROM users WHERE id = $1"));
-        assert!(parser.parameter_regex().is_match("UPDATE users SET name = $1, email = $2"));
+        assert!(parser
+            .parameter_regex()
+            .is_match("SELECT * FROM users WHERE id = $1"));
+        assert!(parser
+            .parameter_regex()
+            .is_match("UPDATE users SET name = $1, email = $2"));
         assert!(!parser.parameter_regex().is_match("SELECT * FROM users"));
     }
 
@@ -430,7 +470,11 @@ mod parser_unit_tests {
         assert_eq!(entries.len(), 1000);
 
         // Should complete within reasonable time (adjust threshold as needed)
-        assert!(duration.as_millis() < 1000, "Parsing took too long: {:?}", duration);
+        assert!(
+            duration.as_millis() < 1000,
+            "Parsing took too long: {:?}",
+            duration
+        );
     }
 
     #[test]
@@ -439,7 +483,10 @@ mod parser_unit_tests {
 
         // Create a very long query
         let long_query = format!("SELECT {} FROM users;", "column_name, ".repeat(10000));
-        let line = format!("2024-08-15 10:30:15.123 UTC [12345] postgres@testdb psql: LOG:  statement: {}", long_query);
+        let line = format!(
+            "2024-08-15 10:30:15.123 UTC [12345] postgres@testdb psql: LOG:  statement: {}",
+            long_query
+        );
 
         let result = parser.parse_line(&line).unwrap();
         assert!(result.is_some());
@@ -484,7 +531,6 @@ mod property_based_tests {
         }
     }
 
-
     /// Property: Parser should handle any sequence of valid log lines
     #[test]
     fn property_parser_handles_any_valid_sequence() {
@@ -495,12 +541,7 @@ mod property_based_tests {
         ];
 
         // Test different permutations
-        let permutations = vec![
-            vec![0, 1, 2],
-            vec![2, 0, 1],
-            vec![1, 2, 0],
-            vec![0, 2, 1],
-        ];
+        let permutations = vec![vec![0, 1, 2], vec![2, 0, 1], vec![1, 2, 0], vec![0, 2, 1]];
 
         for perm in permutations {
             let lines: Vec<String> = perm.iter().map(|&i| base_lines[i].to_string()).collect();
@@ -534,7 +575,11 @@ mod property_based_tests {
 
         // All process IDs should be numeric strings
         for pid in process_ids {
-            assert!(pid.parse::<u32>().is_ok(), "Process ID should be numeric: {}", pid);
+            assert!(
+                pid.parse::<u32>().is_ok(),
+                "Process ID should be numeric: {}",
+                pid
+            );
         }
     }
 }

@@ -5,14 +5,13 @@
 use crate::{timestamp_error, LogEntry, LogLevel, PgLogstatsError, Result};
 use chrono::{DateTime, Utc};
 use regex::Regex;
-use sqlparser::parser::Parser;
+use sqlparser::ast::{Expr, Value, VisitMut, VisitorMut};
 use sqlparser::dialect::PostgreSqlDialect;
-use sqlparser::ast::{VisitMut, VisitorMut, Expr, Value};
+use sqlparser::parser::Parser;
 
 /// Parser for PostgreSQL stderr log format
 pub struct StderrParser {
-    pub // Regex patterns for parsing PostgreSQL 17 stderr format
-    log_line_regex: Regex,
+    pub log_line_regex: Regex,
     duration_regex: Regex,
     parameter_regex: Regex,
     // State for handling multi-line statements
@@ -106,7 +105,11 @@ impl StderrParser {
 
         if !errors.is_empty() {
             return Err(PgLogstatsError::Parse {
-                message: format!("Failed to parse {} lines: {}", errors.len(), errors.join("; ")),
+                message: format!(
+                    "Failed to parse {} lines: {}",
+                    errors.len(),
+                    errors.join("; ")
+                ),
                 line_number: None,
                 line_content: None,
             });
@@ -116,7 +119,11 @@ impl StderrParser {
     }
 
     /// Parse standard PostgreSQL log format
-    fn parse_standard_format(&mut self, captures: &regex::Captures, _original_line: &str) -> Result<Option<LogEntry>> {
+    fn parse_standard_format(
+        &mut self,
+        captures: &regex::Captures,
+        _original_line: &str,
+    ) -> Result<Option<LogEntry>> {
         let timestamp_str = captures.get(1).unwrap().as_str();
         let timezone = captures.get(2).unwrap().as_str();
         let process_id = captures.get(3).unwrap().as_str();
@@ -140,26 +147,10 @@ impl StderrParser {
 
         // Handle different message types
         match actual_message_type {
-            LogLevel::Statement => {
-                self.handle_statement_message(
-                    timestamp,
-                    process_id,
-                    user,
-                    database,
-                    app_name,
-                    message,
-                )
-            }
-            LogLevel::Duration => {
-                self.handle_duration_message(
-                    timestamp,
-                    process_id,
-                    user,
-                    database,
-                    app_name,
-                    message,
-                )
-            }
+            LogLevel::Statement => self
+                .handle_statement_message(timestamp, process_id, user, database, app_name, message),
+            LogLevel::Duration => self
+                .handle_duration_message(timestamp, process_id, user, database, app_name, message),
             _ => {
                 // Handle other log levels (ERROR, WARNING, etc.)
                 let entry = LogEntry {
@@ -201,8 +192,8 @@ impl StderrParser {
         let normalized_query = match self.normalize_query(query) {
             Ok(q) => Some(q),
             Err(e) => {
-            eprintln!("Failed to normalize query: {}", e);
-            None
+                eprintln!("Failed to normalize query: {}", e);
+                None
             }
         };
         let entry = LogEntry {
@@ -282,21 +273,29 @@ impl StderrParser {
     /// Parse timestamp string into DateTime<Utc> (public for testing)
     pub fn parse_timestamp(&self, timestamp_str: &str, _timezone: &str) -> Result<DateTime<Utc>> {
         // Try parsing with milliseconds
-        if let Ok(dt) = DateTime::parse_from_str(&format!("{} UTC", timestamp_str), "%Y-%m-%d %H:%M:%S%.f %Z") {
+        if let Ok(dt) =
+            DateTime::parse_from_str(&format!("{} UTC", timestamp_str), "%Y-%m-%d %H:%M:%S%.f %Z")
+        {
             return Ok(dt.with_timezone(&Utc));
         }
 
         // Try parsing without milliseconds
-        if let Ok(dt) = DateTime::parse_from_str(&format!("{} UTC", timestamp_str), "%Y-%m-%d %H:%M:%S %Z") {
+        if let Ok(dt) =
+            DateTime::parse_from_str(&format!("{} UTC", timestamp_str), "%Y-%m-%d %H:%M:%S %Z")
+        {
             return Ok(dt.with_timezone(&Utc));
         }
 
         // Try parsing with NaiveDateTime and converting
-        if let Ok(naive_dt) = chrono::NaiveDateTime::parse_from_str(timestamp_str, "%Y-%m-%d %H:%M:%S%.f") {
+        if let Ok(naive_dt) =
+            chrono::NaiveDateTime::parse_from_str(timestamp_str, "%Y-%m-%d %H:%M:%S%.f")
+        {
             return Ok(DateTime::from_naive_utc_and_offset(naive_dt, Utc));
         }
 
-        if let Ok(naive_dt) = chrono::NaiveDateTime::parse_from_str(timestamp_str, "%Y-%m-%d %H:%M:%S") {
+        if let Ok(naive_dt) =
+            chrono::NaiveDateTime::parse_from_str(timestamp_str, "%Y-%m-%d %H:%M:%S")
+        {
             return Ok(DateTime::from_naive_utc_and_offset(naive_dt, Utc));
         }
 
@@ -305,7 +304,8 @@ impl StderrParser {
 
     /// Extract duration from duration message (public for testing)
     pub fn extract_duration(&self, message: &str) -> Option<f64> {
-        self.duration_regex.captures(message)
+        self.duration_regex
+            .captures(message)
             .and_then(|captures| captures.get(1))
             .and_then(|m| m.as_str().parse::<f64>().ok())
     }
@@ -315,12 +315,11 @@ impl StderrParser {
         let dialect = PostgreSqlDialect {};
 
         // Parse the SQL query
-        let mut ast = Parser::parse_sql(&dialect, query)
-            .map_err(|e| PgLogstatsError::Parse {
-                message: format!("Failed to parse SQL: {}", e),
-                line_number: None,
-                line_content: Some(query.to_string()),
-            })?;
+        let mut ast = Parser::parse_sql(&dialect, query).map_err(|e| PgLogstatsError::Parse {
+            message: format!("Failed to parse SQL: {}", e),
+            line_number: None,
+            line_content: Some(query.to_string()),
+        })?;
 
         if ast.is_empty() {
             return Ok(query.to_string());
@@ -353,7 +352,6 @@ impl StderrParser {
     pub fn parameter_regex(&self) -> &Regex {
         &self.parameter_regex
     }
-
 }
 
 /// Visitor that replaces literal values with placeholders
@@ -370,11 +368,11 @@ impl VisitorMut for LiteralNormalizer {
     fn post_visit_expr(&mut self, expr: &mut Expr) -> std::ops::ControlFlow<Self::Break> {
         match expr {
             // Replace literal constants with placeholders
-            Expr::Value(Value::Number(_, _)) |
-            Expr::Value(Value::SingleQuotedString(_)) |
-            Expr::Value(Value::DoubleQuotedString(_)) |
-            Expr::Value(Value::Boolean(_)) |
-            Expr::Value(Value::Null) => {
+            Expr::Value(Value::Number(_, _))
+            | Expr::Value(Value::SingleQuotedString(_))
+            | Expr::Value(Value::DoubleQuotedString(_))
+            | Expr::Value(Value::Boolean(_))
+            | Expr::Value(Value::Null) => {
                 *expr = Expr::Value(Value::Placeholder("?".to_string()));
             }
 
@@ -422,7 +420,8 @@ mod tests {
     #[test]
     fn test_parse_duration() {
         let mut parser = StderrParser::new();
-        let line = "2024-08-14 10:30:15.456 UTC [12345] postgres@testdb psql: LOG:  duration: 45.123 ms";
+        let line =
+            "2024-08-14 10:30:15.456 UTC [12345] postgres@testdb psql: LOG:  duration: 45.123 ms";
 
         let result = parser.parse_line(line).unwrap();
         assert!(result.is_some());
@@ -445,7 +444,9 @@ mod tests {
         assert_eq!(entry.user, Some("admin".to_string()));
         assert_eq!(entry.database, Some("analytics".to_string()));
         assert_eq!(entry.application_name, Some("pgbench".to_string()));
-        assert!(entry.message.contains("relation \"missing_table\" does not exist"));
+        assert!(entry
+            .message
+            .contains("relation \"missing_table\" does not exist"));
     }
 
     #[test]
@@ -457,7 +458,10 @@ mod tests {
         assert!(result.is_some());
 
         let entry = result.unwrap();
-        assert_eq!(entry.query, Some("UPDATE products SET price = ? WHERE id = ?".to_string()));
+        assert_eq!(
+            entry.query,
+            Some("UPDATE products SET price = ? WHERE id = ?".to_string())
+        );
     }
 
     #[test]
@@ -482,7 +486,11 @@ mod tests {
         assert_eq!(statement_entry.message_type, LogLevel::Statement);
         assert_eq!(duration_entry.message_type, LogLevel::Duration);
         assert_eq!(duration_entry.duration, Some(12.345));
-        assert!(statement_entry.query.as_ref().unwrap().contains("SELECT u.name, p.title"));
+        assert!(statement_entry
+            .query
+            .as_ref()
+            .unwrap()
+            .contains("SELECT u.name, p.title"));
     }
 
     #[test]
@@ -495,7 +503,9 @@ mod tests {
     #[test]
     fn test_parse_unparseable_line() {
         let mut parser = StderrParser::new();
-        let result = parser.parse_line("This is not a PostgreSQL log line").unwrap();
+        let result = parser
+            .parse_line("This is not a PostgreSQL log line")
+            .unwrap();
         assert!(result.is_none());
     }
 
@@ -522,7 +532,10 @@ mod tests {
         // Test parameter replacement
         let query = "UPDATE users SET name = $1, email = $2 WHERE id = $3";
         let normalized = parser.normalize_query(query).unwrap();
-        assert_eq!(normalized, "UPDATE users SET name = ?, email = ? WHERE id = ?");
+        assert_eq!(
+            normalized,
+            "UPDATE users SET name = ?, email = ? WHERE id = ?"
+        );
 
         // Test whitespace normalization
         let query = "SELECT   *   FROM    users   WHERE   id=1";

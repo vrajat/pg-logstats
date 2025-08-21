@@ -9,14 +9,14 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
 
-pub mod parsers;
 pub mod analytics;
 pub mod output;
+pub mod parsers;
 
 // Re-export commonly used items
-pub use parsers::StderrParser;
-pub use analytics::{QueryAnalyzer, TimingAnalyzer, TimingAnalysis};
+pub use analytics::{QueryAnalyzer, TimingAnalysis, TimingAnalyzer};
 pub use output::{JsonFormatter, TextFormatter};
+pub use parsers::StderrParser;
 
 /// Main error type for pg-logstats operations
 #[derive(Error, Debug)]
@@ -49,10 +49,7 @@ pub enum PgLogstatsError {
 
     /// Errors during analytics computation
     #[error("Analytics error: {message}")]
-    Analytics {
-        message: String,
-        operation: String,
-    },
+    Analytics { message: String, operation: String },
 
     /// Errors serializing/deserializing data
     #[error("Serialization error: {0}")]
@@ -282,7 +279,10 @@ impl AnalysisResult {
             "DROP".to_string()
         } else if query_upper.starts_with("ALTER") {
             "ALTER".to_string()
-        } else if query_upper.starts_with("BEGIN") || query_upper.starts_with("COMMIT") || query_upper.starts_with("ROLLBACK") {
+        } else if query_upper.starts_with("BEGIN")
+            || query_upper.starts_with("COMMIT")
+            || query_upper.starts_with("ROLLBACK")
+        {
             "TRANSACTION".to_string()
         } else {
             "OTHER".to_string()
@@ -317,7 +317,11 @@ impl Default for AnalysisResult {
 pub type Result<T> = std::result::Result<T, PgLogstatsError>;
 
 /// Helper function to create parse errors with context
-pub fn parse_error(message: &str, line_number: Option<usize>, line_content: Option<&str>) -> PgLogstatsError {
+pub fn parse_error(
+    message: &str,
+    line_number: Option<usize>,
+    line_content: Option<&str>,
+) -> PgLogstatsError {
     PgLogstatsError::Parse {
         message: message.to_string(),
         line_number,

@@ -1,14 +1,21 @@
 use clap::{Parser, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
-use pg_logstats::{StderrParser, QueryAnalyzer, TimingAnalyzer, JsonFormatter, TextFormatter, Result, PgLogstatsError};
+use pg_logstats::{
+    JsonFormatter, PgLogstatsError, QueryAnalyzer, Result, StderrParser, TextFormatter,
+    TimingAnalyzer,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
 use std::time::Instant;
 
 #[derive(Debug, Parser)]
-#[clap(name="pg-logstats", version, about = "A fast PostgreSQL log analysis tool")]
+#[clap(
+    name = "pg-logstats",
+    version,
+    about = "A fast PostgreSQL log analysis tool"
+)]
 struct Arguments {
     /// Log files or directory to analyze (supports glob patterns)
     #[clap(value_name = "LOG_FILES")]
@@ -431,7 +438,11 @@ fn main() -> Result<()> {
 
         match process_log_file(log_file, &parser, &args) {
             Ok(mut entries) => {
-                info!("Processed {} entries from {}", entries.len(), log_file.display());
+                info!(
+                    "Processed {} entries from {}",
+                    entries.len(),
+                    log_file.display()
+                );
                 all_entries.append(&mut entries);
             }
             Err(e) => {
@@ -478,7 +489,10 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
 
         if !log_dir.is_dir() {
             return Err(PgLogstatsError::Configuration {
-                message: format!("Log directory path is not a directory: {}", log_dir.display()),
+                message: format!(
+                    "Log directory path is not a directory: {}",
+                    log_dir.display()
+                ),
                 field: Some("log_dir".to_string()),
             });
         }
@@ -510,7 +524,10 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
         let outdir_path = Path::new(outdir);
         if outdir_path.exists() && !outdir_path.is_dir() {
             return Err(PgLogstatsError::Configuration {
-                message: format!("Output directory path exists but is not a directory: {}", outdir),
+                message: format!(
+                    "Output directory path exists but is not a directory: {}",
+                    outdir
+                ),
                 field: Some("outdir".to_string()),
             });
         }
@@ -562,20 +579,18 @@ fn discover_log_files(args: &Arguments) -> Result<Vec<PathBuf>> {
     log_files.dedup();
 
     // Warn about empty files
-    log_files.retain(|path| {
-        match fs::metadata(path) {
-            Ok(metadata) => {
-                if metadata.len() == 0 {
-                    warn!("Skipping empty log file: {}", path.display());
-                    false
-                } else {
-                    true
-                }
-            }
-            Err(e) => {
-                warn!("Cannot read metadata for {}: {}", path.display(), e);
+    log_files.retain(|path| match fs::metadata(path) {
+        Ok(metadata) => {
+            if metadata.len() == 0 {
+                warn!("Skipping empty log file: {}", path.display());
                 false
+            } else {
+                true
             }
+        }
+        Err(e) => {
+            warn!("Cannot read metadata for {}: {}", path.display(), e);
+            false
         }
     });
 
@@ -626,7 +641,11 @@ fn process_log_file(
     // Apply sample size limit if specified
     let lines_to_process = if let Some(sample_size) = args.sample_size {
         if lines.len() > sample_size {
-            info!("Limiting analysis to first {} lines of {}", sample_size, log_file.display());
+            info!(
+                "Limiting analysis to first {} lines of {}",
+                sample_size,
+                log_file.display()
+            );
             &lines[..sample_size]
         } else {
             &lines
@@ -663,9 +682,11 @@ fn output_results(
 ) -> Result<()> {
     match args.output_format {
         OutputFormat::Json => {
-            let formatter = JsonFormatter::new()
-                .with_pretty(true)
-                .with_metadata(env!("CARGO_PKG_VERSION"), vec![], entries.len());
+            let formatter = JsonFormatter::new().with_pretty(true).with_metadata(
+                env!("CARGO_PKG_VERSION"),
+                vec![],
+                entries.len(),
+            );
 
             let output = formatter.format(analytics_result)?;
 

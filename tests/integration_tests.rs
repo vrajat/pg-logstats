@@ -49,7 +49,9 @@ fn test_cli_help() {
     cmd.arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("A fast PostgreSQL log analysis tool"))
+        .stdout(predicate::str::contains(
+            "A fast PostgreSQL log analysis tool",
+        ))
         .stdout(predicate::str::contains("--log-dir"))
         .stdout(predicate::str::contains("--output-format"))
         .stdout(predicate::str::contains("--quick"))
@@ -172,10 +174,7 @@ fn test_empty_log_file() {
 #[test]
 fn test_nonexistent_log_file() {
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg("nonexistent.log")
-        .arg("--quiet")
-        .assert()
-        .failure(); // Should exit with error code
+    cmd.arg("nonexistent.log").arg("--quiet").assert().failure(); // Should exit with error code
 }
 
 #[test]
@@ -201,7 +200,9 @@ fn test_invalid_sample_size() {
         .arg("--quiet")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("Sample size must be greater than 0"));
+        .stderr(predicate::str::contains(
+            "Sample size must be greater than 0",
+        ));
 }
 
 #[test]

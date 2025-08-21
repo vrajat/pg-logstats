@@ -1,10 +1,10 @@
 //! Query analysis functionality for PostgreSQL logs
 
-use crate::{LogEntry, AnalysisResult, Result};
-use std::collections::HashMap;
-use chrono::{DateTime, Utc, Timelike};
+use crate::{AnalysisResult, LogEntry, Result};
+use chrono::{DateTime, Timelike, Utc};
 use regex::Regex;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Query type classification
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -250,10 +250,7 @@ impl QueryAnalyzer {
         normalized = self.string_regex.replace_all(&normalized, "S").to_string();
 
         // Normalize whitespace
-        normalized
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
+        normalized.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 
     /// Classify query type based on SQL content
@@ -269,11 +266,12 @@ impl QueryAnalyzer {
         } else if sql_upper.starts_with("DELETE") {
             QueryType::Delete
         } else if sql_upper.starts_with("CREATE")
-               || sql_upper.starts_with("DROP")
-               || sql_upper.starts_with("ALTER")
-               || sql_upper.starts_with("TRUNCATE")
-               || sql_upper.starts_with("GRANT")
-               || sql_upper.starts_with("REVOKE") {
+            || sql_upper.starts_with("DROP")
+            || sql_upper.starts_with("ALTER")
+            || sql_upper.starts_with("TRUNCATE")
+            || sql_upper.starts_with("GRANT")
+            || sql_upper.starts_with("REVOKE")
+        {
             QueryType::DDL
         } else {
             QueryType::Other
@@ -315,14 +313,21 @@ impl QueryAnalyzer {
     }
 
     /// Calculate queries per second for hourly buckets
-    fn calculate_queries_per_second(&self, hourly_stats: &mut HashMap<u32, HourlyStats>, entries: &[LogEntry]) {
+    fn calculate_queries_per_second(
+        &self,
+        hourly_stats: &mut HashMap<u32, HourlyStats>,
+        entries: &[LogEntry],
+    ) {
         // Group entries by hour to calculate time spans
         let mut hourly_entries: HashMap<u32, Vec<DateTime<Utc>>> = HashMap::new();
 
         for entry in entries {
             if entry.is_query() {
                 let hour = entry.timestamp.hour();
-                hourly_entries.entry(hour).or_default().push(entry.timestamp);
+                hourly_entries
+                    .entry(hour)
+                    .or_default()
+                    .push(entry.timestamp);
             }
         }
 
@@ -346,7 +351,11 @@ impl QueryAnalyzer {
     }
 
     /// Find slow queries above a threshold
-    pub fn find_slow_queries(&self, entries: &[LogEntry], threshold_ms: f64) -> Result<Vec<LogEntry>> {
+    pub fn find_slow_queries(
+        &self,
+        entries: &[LogEntry],
+        threshold_ms: f64,
+    ) -> Result<Vec<LogEntry>> {
         let slow_queries: Vec<_> = entries
             .iter()
             .filter(|e| e.is_query() && e.duration.unwrap_or(0.0) > threshold_ms)
@@ -409,7 +418,9 @@ mod tests {
             client_host: None,
             application_name: Some("psql".to_string()),
             message_type,
-            message: query.as_ref().map_or("test message".to_string(), |q| format!("statement: {}", q)),
+            message: query
+                .as_ref()
+                .map_or("test message".to_string(), |q| format!("statement: {}", q)),
             query,
             duration,
         }
@@ -427,12 +438,18 @@ mod tests {
         // Test numeric literal replacement
         let query = "SELECT * FROM users WHERE age > 25 AND score < 100.5";
         let normalized = analyzer.normalize_query(query);
-        assert_eq!(normalized, "SELECT * FROM users WHERE age > N AND score < N");
+        assert_eq!(
+            normalized,
+            "SELECT * FROM users WHERE age > N AND score < N"
+        );
 
         // Test string literal replacement
         let query = "SELECT * FROM users WHERE name = 'John' AND city = 'New York'";
         let normalized = analyzer.normalize_query(query);
-        assert_eq!(normalized, "SELECT * FROM users WHERE name = S AND city = S");
+        assert_eq!(
+            normalized,
+            "SELECT * FROM users WHERE name = S AND city = S"
+        );
 
         // Test whitespace normalization
         let query = "SELECT   *   FROM    users   WHERE   id=1";
@@ -444,11 +461,26 @@ mod tests {
     fn test_classify_query() {
         let analyzer = QueryAnalyzer::new();
 
-        assert_eq!(analyzer.classify_query("SELECT * FROM users"), QueryType::Select);
-        assert_eq!(analyzer.classify_query("INSERT INTO users VALUES (1, 'John')"), QueryType::Insert);
-        assert_eq!(analyzer.classify_query("UPDATE users SET name = 'Jane'"), QueryType::Update);
-        assert_eq!(analyzer.classify_query("DELETE FROM users WHERE id = 1"), QueryType::Delete);
-        assert_eq!(analyzer.classify_query("CREATE TABLE users (id INT)"), QueryType::DDL);
+        assert_eq!(
+            analyzer.classify_query("SELECT * FROM users"),
+            QueryType::Select
+        );
+        assert_eq!(
+            analyzer.classify_query("INSERT INTO users VALUES (1, 'John')"),
+            QueryType::Insert
+        );
+        assert_eq!(
+            analyzer.classify_query("UPDATE users SET name = 'Jane'"),
+            QueryType::Update
+        );
+        assert_eq!(
+            analyzer.classify_query("DELETE FROM users WHERE id = 1"),
+            QueryType::Delete
+        );
+        assert_eq!(
+            analyzer.classify_query("CREATE TABLE users (id INT)"),
+            QueryType::DDL
+        );
         assert_eq!(analyzer.classify_query("DROP TABLE users"), QueryType::DDL);
         assert_eq!(analyzer.classify_query("BEGIN"), QueryType::Other);
         assert_eq!(analyzer.classify_query("COMMIT"), QueryType::Other);
@@ -471,9 +503,24 @@ mod tests {
         let now = Utc::now();
 
         let entries = vec![
-            create_test_entry(now, LogLevel::Statement, Some("SELECT * FROM users".to_string()), Some(100.0)),
-            create_test_entry(now, LogLevel::Statement, Some("SELECT * FROM users".to_string()), Some(200.0)),
-            create_test_entry(now, LogLevel::Statement, Some("INSERT INTO users VALUES (1)".to_string()), Some(50.0)),
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("SELECT * FROM users".to_string()),
+                Some(100.0),
+            ),
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("SELECT * FROM users".to_string()),
+                Some(200.0),
+            ),
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("INSERT INTO users VALUES (1)".to_string()),
+                Some(50.0),
+            ),
             create_test_entry(now, LogLevel::Error, None, None),
         ];
 
@@ -496,9 +543,24 @@ mod tests {
         let now = Utc::now();
 
         let entries = vec![
-            create_test_entry(now, LogLevel::Statement, Some("SELECT * FROM users".to_string()), Some(50.0)),
-            create_test_entry(now, LogLevel::Statement, Some("SELECT * FROM posts".to_string()), Some(150.0)),
-            create_test_entry(now, LogLevel::Statement, Some("SELECT * FROM comments".to_string()), Some(250.0)),
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("SELECT * FROM users".to_string()),
+                Some(50.0),
+            ),
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("SELECT * FROM posts".to_string()),
+                Some(150.0),
+            ),
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("SELECT * FROM comments".to_string()),
+                Some(250.0),
+            ),
         ];
 
         let result = analyzer.analyze(&entries).unwrap();
@@ -514,9 +576,19 @@ mod tests {
         let now = Utc::now();
 
         let entries = vec![
-            create_test_entry(now, LogLevel::Statement, Some("SELECT * FROM users".to_string()), Some(100.0)),
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("SELECT * FROM users".to_string()),
+                Some(100.0),
+            ),
             create_test_entry(now, LogLevel::Error, None, None),
-            create_test_entry(now, LogLevel::Statement, Some("SELECT * FROM posts".to_string()), Some(200.0)),
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("SELECT * FROM posts".to_string()),
+                Some(200.0),
+            ),
             create_test_entry(now, LogLevel::Error, None, None),
         ];
 
@@ -530,10 +602,30 @@ mod tests {
         let now = Utc::now();
 
         let entries = vec![
-            create_test_entry(now, LogLevel::Statement, Some("SELECT * FROM users".to_string()), Some(100.0)),
-            create_test_entry(now, LogLevel::Statement, Some("SELECT * FROM posts".to_string()), Some(200.0)),
-            create_test_entry(now, LogLevel::Statement, Some("INSERT INTO users VALUES (1)".to_string()), Some(50.0)),
-            create_test_entry(now, LogLevel::Statement, Some("UPDATE users SET name = 'John'".to_string()), Some(75.0)),
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("SELECT * FROM users".to_string()),
+                Some(100.0),
+            ),
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("SELECT * FROM posts".to_string()),
+                Some(200.0),
+            ),
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("INSERT INTO users VALUES (1)".to_string()),
+                Some(50.0),
+            ),
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("UPDATE users SET name = 'John'".to_string()),
+                Some(75.0),
+            ),
         ];
 
         let distribution = analyzer.get_query_type_distribution(&entries);

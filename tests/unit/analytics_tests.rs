@@ -2,9 +2,9 @@
 //!
 //! Tests query analysis, classification, normalization, and performance metrics
 
-use pg_logstats::analytics::queries::{QueryAnalyzer, QueryType, QueryMetrics};
+use chrono::{DateTime, TimeZone, Utc};
+use pg_logstats::analytics::queries::{QueryAnalyzer, QueryMetrics, QueryType};
 use pg_logstats::{LogEntry, LogLevel};
-use chrono::{DateTime, Utc, TimeZone};
 use std::collections::HashMap;
 
 /// Helper function to create test log entries
@@ -25,7 +25,9 @@ fn create_test_entry(
         client_host: None,
         application_name: Some("psql".to_string()),
         message_type,
-        message: query.as_ref().map_or("test message".to_string(), |q| format!("statement: {}", q)),
+        message: query
+            .as_ref()
+            .map_or("test message".to_string(), |q| format!("statement: {}", q)),
         query,
         duration,
     }
@@ -58,13 +60,15 @@ fn create_diverse_test_entries() -> Vec<LogEntry> {
         create_test_entry(
             base_time + chrono::Duration::seconds(2),
             LogLevel::Statement,
-            Some("SELECT u.name, u.email FROM users u JOIN profiles p ON u.id = p.user_id".to_string()),
+            Some(
+                "SELECT u.name, u.email FROM users u JOIN profiles p ON u.id = p.user_id"
+                    .to_string(),
+            ),
             Some(150.0),
             Some("12347"),
             Some("postgres"),
             Some("testdb"),
         ),
-
         // INSERT queries
         create_test_entry(
             base_time + chrono::Duration::seconds(3),
@@ -84,7 +88,6 @@ fn create_diverse_test_entries() -> Vec<LogEntry> {
             Some("app_user"),
             Some("app_db"),
         ),
-
         // UPDATE queries
         create_test_entry(
             base_time + chrono::Duration::seconds(5),
@@ -95,7 +98,6 @@ fn create_diverse_test_entries() -> Vec<LogEntry> {
             Some("postgres"),
             Some("testdb"),
         ),
-
         // DELETE query
         create_test_entry(
             base_time + chrono::Duration::seconds(6),
@@ -106,7 +108,6 @@ fn create_diverse_test_entries() -> Vec<LogEntry> {
             Some("cleanup_job"),
             Some("testdb"),
         ),
-
         // DDL queries
         create_test_entry(
             base_time + chrono::Duration::seconds(7),
@@ -126,7 +127,6 @@ fn create_diverse_test_entries() -> Vec<LogEntry> {
             Some("admin"),
             Some("testdb"),
         ),
-
         // Other queries
         create_test_entry(
             base_time + chrono::Duration::seconds(9),
@@ -146,7 +146,6 @@ fn create_diverse_test_entries() -> Vec<LogEntry> {
             Some("postgres"),
             Some("testdb"),
         ),
-
         // Error entries
         create_test_entry(
             base_time + chrono::Duration::seconds(11),
@@ -166,7 +165,6 @@ fn create_diverse_test_entries() -> Vec<LogEntry> {
             Some("app_user"),
             Some("app_db"),
         ),
-
         // Connection-related entries
         create_test_entry(
             base_time + chrono::Duration::seconds(13),
@@ -177,7 +175,6 @@ fn create_diverse_test_entries() -> Vec<LogEntry> {
             Some("postgres"),
             Some("testdb"),
         ),
-
         // Duplicate queries for frequency testing
         create_test_entry(
             base_time + chrono::Duration::seconds(14),
@@ -326,9 +323,18 @@ mod analytics_unit_tests {
         let analyzer = QueryAnalyzer::new();
 
         let test_cases = vec![
-            ("SELECT * FROM users WHERE id = $1", "SELECT * FROM users WHERE id = ?"),
-            ("UPDATE users SET name = $1, email = $2 WHERE id = $3", "UPDATE users SET name = ?, email = ? WHERE id = ?"),
-            ("INSERT INTO users VALUES ($1, $2, $3)", "INSERT INTO users VALUES (?, ?, ?)"),
+            (
+                "SELECT * FROM users WHERE id = $1",
+                "SELECT * FROM users WHERE id = ?",
+            ),
+            (
+                "UPDATE users SET name = $1, email = $2 WHERE id = $3",
+                "UPDATE users SET name = ?, email = ? WHERE id = ?",
+            ),
+            (
+                "INSERT INTO users VALUES ($1, $2, $3)",
+                "INSERT INTO users VALUES (?, ?, ?)",
+            ),
         ];
 
         for (input, expected) in test_cases {
@@ -342,9 +348,18 @@ mod analytics_unit_tests {
         let analyzer = QueryAnalyzer::new();
 
         let test_cases = vec![
-            ("SELECT * FROM users WHERE age > 25", "SELECT * FROM users WHERE age > N"),
-            ("UPDATE products SET price = 99.99", "UPDATE products SET price = N"),
-            ("SELECT * FROM orders WHERE total BETWEEN 10.5 AND 100", "SELECT * FROM orders WHERE total BETWEEN N AND N"),
+            (
+                "SELECT * FROM users WHERE age > 25",
+                "SELECT * FROM users WHERE age > N",
+            ),
+            (
+                "UPDATE products SET price = 99.99",
+                "UPDATE products SET price = N",
+            ),
+            (
+                "SELECT * FROM orders WHERE total BETWEEN 10.5 AND 100",
+                "SELECT * FROM orders WHERE total BETWEEN N AND N",
+            ),
         ];
 
         for (input, expected) in test_cases {
@@ -358,9 +373,18 @@ mod analytics_unit_tests {
         let analyzer = QueryAnalyzer::new();
 
         let test_cases = vec![
-            ("SELECT * FROM users WHERE name = 'John'", "SELECT * FROM users WHERE name = S"),
-            ("INSERT INTO users VALUES ('John', 'john@example.com')", "INSERT INTO users VALUES (S, S)"),
-            ("UPDATE users SET status = 'active' WHERE name LIKE '%admin%'", "UPDATE users SET status = S WHERE name LIKE S"),
+            (
+                "SELECT * FROM users WHERE name = 'John'",
+                "SELECT * FROM users WHERE name = S",
+            ),
+            (
+                "INSERT INTO users VALUES ('John', 'john@example.com')",
+                "INSERT INTO users VALUES (S, S)",
+            ),
+            (
+                "UPDATE users SET status = 'active' WHERE name LIKE '%admin%'",
+                "UPDATE users SET status = S WHERE name LIKE S",
+            ),
         ];
 
         for (input, expected) in test_cases {
@@ -375,8 +399,14 @@ mod analytics_unit_tests {
 
         let test_cases = vec![
             ("SELECT   *   FROM    users", "SELECT * FROM users"),
-            ("  UPDATE  users  SET  name='John'  ", "UPDATE users SET name=S"),
-            ("SELECT\n*\nFROM\nusers\nWHERE\nid=1", "SELECT * FROM users WHERE id=N"),
+            (
+                "  UPDATE  users  SET  name='John'  ",
+                "UPDATE users SET name=S",
+            ),
+            (
+                "SELECT\n*\nFROM\nusers\nWHERE\nid=1",
+                "SELECT * FROM users WHERE id=N",
+            ),
         ];
 
         for (input, expected) in test_cases {
@@ -390,7 +420,8 @@ mod analytics_unit_tests {
         let analyzer = QueryAnalyzer::new();
 
         let input = "SELECT u.name, u.email FROM users u WHERE u.age > 25 AND u.status = 'active' AND u.id = $1";
-        let expected = "SELECT u.name, u.email FROM users u WHERE u.age > N AND u.status = S AND u.id = ?";
+        let expected =
+            "SELECT u.name, u.email FROM users u WHERE u.age > N AND u.status = S AND u.id = ?";
 
         let result = analyzer.normalize_query(input);
         assert_eq!(result, expected);
@@ -414,17 +445,15 @@ mod analytics_unit_tests {
     #[test]
     fn test_analyze_single_query() {
         let analyzer = QueryAnalyzer::new();
-        let entries = vec![
-            create_test_entry(
-                Utc::now(),
-                LogLevel::Statement,
-                Some("SELECT * FROM users".to_string()),
-                Some(100.0),
-                None,
-                None,
-                None,
-            ),
-        ];
+        let entries = vec![create_test_entry(
+            Utc::now(),
+            LogLevel::Statement,
+            Some("SELECT * FROM users".to_string()),
+            Some(100.0),
+            None,
+            None,
+            None,
+        )];
 
         let result = analyzer.analyze(&entries).unwrap();
 
@@ -450,7 +479,19 @@ mod analytics_unit_tests {
         assert_eq!(result.total_queries, 13);
 
         // Total duration should be sum of all query durations
-        let expected_total = 50.0 + 25.0 + 150.0 + 10.0 + 15.0 + 30.0 + 75.0 + 2000.0 + 100.0 + 1.0 + 2.0 + 45.0 + 55.0;
+        let expected_total = 50.0
+            + 25.0
+            + 150.0
+            + 10.0
+            + 15.0
+            + 30.0
+            + 75.0
+            + 2000.0
+            + 100.0
+            + 1.0
+            + 2.0
+            + 45.0
+            + 55.0;
         assert_eq!(result.total_duration, expected_total);
 
         // Average duration
@@ -487,9 +528,10 @@ mod analytics_unit_tests {
         }
 
         // Should include the CREATE INDEX query (2000ms)
-        assert!(result.slowest_queries.iter().any(|(query, duration)| {
-            query.contains("CREATE INDEX") && *duration == 2000.0
-        }));
+        assert!(result
+            .slowest_queries
+            .iter()
+            .any(|(query, duration)| { query.contains("CREATE INDEX") && *duration == 2000.0 }));
     }
 
     #[test]
@@ -512,13 +554,17 @@ mod analytics_unit_tests {
         // The duplicate SELECT query should be most frequent (appears 3 times)
         let most_frequent = &result.most_frequent_queries[0];
         assert_eq!(most_frequent.1, 3); // Count should be 3
-        assert!(most_frequent.0.contains("SELECT * FROM users WHERE active = true"));
+        assert!(most_frequent
+            .0
+            .contains("SELECT * FROM users WHERE active = true"));
     }
 
     #[test]
     fn test_calculate_metrics() {
         let analyzer = QueryAnalyzer::new();
-        let durations = vec![10.0, 20.0, 30.0, 40.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0];
+        let durations = vec![
+            10.0, 20.0, 30.0, 40.0, 50.0, 100.0, 200.0, 500.0, 1000.0, 2000.0,
+        ];
 
         let metrics = analyzer.calculate_metrics(&durations);
 
@@ -605,17 +651,15 @@ mod analytics_unit_tests {
     #[test]
     fn test_calculate_error_rate_no_errors() {
         let analyzer = QueryAnalyzer::new();
-        let entries = vec![
-            create_test_entry(
-                Utc::now(),
-                LogLevel::Statement,
-                Some("SELECT * FROM users".to_string()),
-                Some(100.0),
-                None,
-                None,
-                None,
-            ),
-        ];
+        let entries = vec![create_test_entry(
+            Utc::now(),
+            LogLevel::Statement,
+            Some("SELECT * FROM users".to_string()),
+            Some(100.0),
+            None,
+            None,
+            None,
+        )];
 
         let error_rate = analyzer.calculate_error_rate(&entries);
         assert_eq!(error_rate, 0.0);
@@ -693,7 +737,11 @@ mod analytics_unit_tests {
         assert_eq!(analysis.total_queries, 1000);
 
         // Should complete within reasonable time
-        assert!(duration.as_millis() < 1000, "Analysis took too long: {:?}", duration);
+        assert!(
+            duration.as_millis() < 1000,
+            "Analysis took too long: {:?}",
+            duration
+        );
     }
 
     #[test]

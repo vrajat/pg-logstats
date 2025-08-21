@@ -1,8 +1,8 @@
 //! Performance timing analysis for PostgreSQL logs
 
-use crate::{LogEntry, Result, analytics_error};
-use chrono::{DateTime, Utc, Datelike, Timelike, Duration};
-use serde::{Serialize, Deserialize};
+use crate::{analytics_error, LogEntry, Result};
+use chrono::{DateTime, Datelike, Duration, Timelike, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Timing analyzer configuration
@@ -84,7 +84,9 @@ impl TimingAnalyzer {
             }
 
             // Analyze connection patterns if enabled
-            if self.config.include_connections && entry.message.to_lowercase().contains("connection") {
+            if self.config.include_connections
+                && entry.message.to_lowercase().contains("connection")
+            {
                 let hour = entry.timestamp.hour();
                 *connection_patterns.entry(hour).or_insert(0) += 1;
             }
@@ -133,9 +135,16 @@ impl TimingAnalyzer {
     }
 
     /// Calculate response time percentiles
-    pub fn calculate_percentiles(&self, response_times: &[f64], percentiles: &[f64]) -> Result<Vec<(f64, f64)>> {
+    pub fn calculate_percentiles(
+        &self,
+        response_times: &[f64],
+        percentiles: &[f64],
+    ) -> Result<Vec<(f64, f64)>> {
         if response_times.is_empty() {
-            return Err(analytics_error("No response times provided", "calculate_percentiles"));
+            return Err(analytics_error(
+                "No response times provided",
+                "calculate_percentiles",
+            ));
         }
 
         let mut sorted_times = response_times.to_vec();
@@ -146,7 +155,7 @@ impl TimingAnalyzer {
             if percentile < 0.0 || percentile > 1.0 {
                 return Err(analytics_error(
                     &format!("Invalid percentile: {}", percentile),
-                    "calculate_percentiles"
+                    "calculate_percentiles",
                 ));
             }
 
@@ -159,7 +168,10 @@ impl TimingAnalyzer {
     }
 
     /// Analyze hourly query distribution
-    pub fn analyze_hourly_distribution(&self, entries: &[LogEntry]) -> Result<HashMap<u32, HourlyMetrics>> {
+    pub fn analyze_hourly_distribution(
+        &self,
+        entries: &[LogEntry],
+    ) -> Result<HashMap<u32, HourlyMetrics>> {
         let mut hourly_metrics = HashMap::new();
 
         for entry in entries {
@@ -255,14 +267,21 @@ impl TimingAnalyzer {
     }
 
     /// Calculate queries per second for hourly buckets
-    fn calculate_queries_per_second(&self, hourly_metrics: &mut HashMap<u32, HourlyMetrics>, entries: &[LogEntry]) {
+    fn calculate_queries_per_second(
+        &self,
+        hourly_metrics: &mut HashMap<u32, HourlyMetrics>,
+        entries: &[LogEntry],
+    ) {
         // Group entries by hour to calculate time spans
         let mut hourly_entries: HashMap<u32, Vec<DateTime<Utc>>> = HashMap::new();
 
         for entry in entries {
             if entry.is_query() {
                 let hour = entry.timestamp.hour();
-                hourly_entries.entry(hour).or_default().push(entry.timestamp);
+                hourly_entries
+                    .entry(hour)
+                    .or_default()
+                    .push(entry.timestamp);
             }
         }
 
@@ -289,8 +308,15 @@ impl TimingAnalyzer {
             return Ok(PeakUsageAnalysis::default());
         }
 
-        let max_queries = hourly_distribution.values().map(|m| m.query_count).max().unwrap_or(0);
-        let max_duration = hourly_distribution.values().map(|m| m.total_duration).fold(0.0_f64, f64::max);
+        let max_queries = hourly_distribution
+            .values()
+            .map(|m| m.query_count)
+            .max()
+            .unwrap_or(0);
+        let max_duration = hourly_distribution
+            .values()
+            .map(|m| m.total_duration)
+            .fold(0.0_f64, f64::max);
 
         let peak_hours: Vec<_> = hourly_distribution
             .iter()
@@ -311,7 +337,11 @@ impl TimingAnalyzer {
             busiest_hour,
             max_queries_per_hour: max_queries,
             max_duration_per_hour: max_duration,
-            average_queries_per_hour: hourly_distribution.values().map(|m| m.query_count).sum::<u64>() / hourly_distribution.len() as u64,
+            average_queries_per_hour: hourly_distribution
+                .values()
+                .map(|m| m.query_count)
+                .sum::<u64>()
+                / hourly_distribution.len() as u64,
         })
     }
 }
@@ -455,7 +485,9 @@ mod tests {
         let response_times = vec![10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0, 80.0, 90.0, 100.0];
         let percentiles = vec![0.5, 0.95, 0.99];
 
-        let result = analyzer.calculate_percentiles(&response_times, &percentiles).unwrap();
+        let result = analyzer
+            .calculate_percentiles(&response_times, &percentiles)
+            .unwrap();
 
         assert_eq!(result.len(), 3);
         assert_eq!(result[0], (0.5, 60.0)); // median (5th element in 0-indexed array)
@@ -491,20 +523,41 @@ mod tests {
 
         // Hour 10: 5 queries
         for i in 0..5 {
-            let timestamp = (now + Duration::hours(10)).with_nanosecond(i * 1_000_000).unwrap();
-            entries.push(create_test_entry(timestamp, LogLevel::Statement, Some(100.0), "statement: SELECT 1"));
+            let timestamp = (now + Duration::hours(10))
+                .with_nanosecond(i * 1_000_000)
+                .unwrap();
+            entries.push(create_test_entry(
+                timestamp,
+                LogLevel::Statement,
+                Some(100.0),
+                "statement: SELECT 1",
+            ));
         }
 
         // Hour 11: 10 queries (peak)
         for i in 0..10 {
-            let timestamp = (now + Duration::hours(11)).with_nanosecond(i * 1_000_000).unwrap();
-            entries.push(create_test_entry(timestamp, LogLevel::Statement, Some(100.0), "statement: SELECT 1"));
+            let timestamp = (now + Duration::hours(11))
+                .with_nanosecond(i * 1_000_000)
+                .unwrap();
+            entries.push(create_test_entry(
+                timestamp,
+                LogLevel::Statement,
+                Some(100.0),
+                "statement: SELECT 1",
+            ));
         }
 
         // Hour 12: 3 queries
         for i in 0..3 {
-            let timestamp = (now + Duration::hours(10)).with_nanosecond(i * 1_000_000).unwrap();
-            entries.push(create_test_entry(timestamp, LogLevel::Statement, Some(100.0), "statement: SELECT 1"));
+            let timestamp = (now + Duration::hours(10))
+                .with_nanosecond(i * 1_000_000)
+                .unwrap();
+            entries.push(create_test_entry(
+                timestamp,
+                LogLevel::Statement,
+                Some(100.0),
+                "statement: SELECT 1",
+            ));
         }
 
         let result = analyzer.get_peak_usage_analysis(&entries).unwrap();
