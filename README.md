@@ -2,8 +2,15 @@
 
 A fast, modern PostgreSQL log analysis tool written in Rust. Analyze PostgreSQL logs with powerful query classification, performance metrics, and flexible output formats.
 
-[![Rust](https://github.com/vrajat/pg-logstats/workflows/Rust/badge.svg)](https://github.com/vrajat/pg-logstats/actions)
+This project is a platform to experiment with AI Coding Assistants.
+
+## Articles
+The [intro post](https://vrajat.com/posts/pg-logstats-intro/) covers my goals and experiments building pg-logstats using AI code assistants.
+
+
+[![CI](https://github.com/vrajat/pg-logstats/actions/workflows/ci.yml/badge.svg)](https://github.com/vrajat/pg-logstats/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 
 ## 🚀 Quick Start
 
