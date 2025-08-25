@@ -2,17 +2,19 @@
 
 A fast, modern PostgreSQL log analysis tool written in Rust. Analyze PostgreSQL logs with powerful query classification, performance metrics, and flexible output formats.
 
-This project is a platform to experiment with AI Coding Assistants.
-
-## Articles
-The [intro post](https://vrajat.com/posts/pg-logstats-intro/) covers my goals and experiments building pg-logstats using AI code assistants.
-
-
 [![CI](https://github.com/vrajat/pg-logstats/actions/workflows/ci.yml/badge.svg)](https://github.com/vrajat/pg-logstats/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 
-## 🚀 Quick Start
+## Motivation
+
+This project is a platform to experiment with AI Coding Assistants.
+
+### Articles
+The [intro post](https://vrajat.com/posts/pg-logstats-intro/) covers my goals and experiments building pg-logstats using AI code assistants.
+
+
+## Quick Start
 
 ```bash
 # Install from source
@@ -30,7 +32,7 @@ pg-logstats --log-dir /var/log/postgresql --output-format json
 pg-logstats --log-dir /var/log/postgresql --quick --sample-size 10000
 ```
 
-## 📋 Table of Contents
+## Table of Contents
 
 - [Features](#features)
 - [Installation](#installation)
@@ -41,7 +43,7 @@ pg-logstats --log-dir /var/log/postgresql --quick --sample-size 10000
 - [Contributing](#contributing)
 - [License](#license)
 
-## ✨ Features
+## Features
 
 ### Phase 1 (Current)
 - **Fast PostgreSQL Log Parsing**: Supports stderr format with comprehensive error handling
@@ -58,7 +60,7 @@ pg-logstats --log-dir /var/log/postgresql --quick --sample-size 10000
 - **Real-time Monitoring**: Live log analysis and alerting
 - **Export Options**: Integration with monitoring systems
 
-## 🔧 Installation
+## Installation
 
 ### From Source (Recommended)
 
@@ -85,7 +87,7 @@ pg-logstats --version
 - **Storage**: Minimal disk space required (processes logs in-place)
 - **OS**: Linux, macOS, Windows (cross-platform)
 
-## 📖 Usage
+## Usage
 
 ### Basic Commands
 
@@ -138,7 +140,7 @@ pg-logstats --output-format json postgresql.log > analysis.json
 | `--help` | Show help information | `--help` |
 | `--version` | Show version information | `--version` |
 
-## 💡 Examples
+## Examples
 
 ### Example 1: Basic Analysis
 
@@ -203,7 +205,7 @@ Quick Summary:
 - Top Query Type: SELECT (67.8%)
 ```
 
-## 🎬 Demo
+## Demo
 
 We provide a complete Docker-based demo environment:
 
@@ -224,7 +226,7 @@ cd demo
 
 See [demo/README.md](demo/README.md) for detailed demo instructions.
 
-## 🏗️ Architecture
+## Architecture
 
 pg-logstats is built with a modular architecture:
 
@@ -250,7 +252,7 @@ pg-logstats is built with a modular architecture:
 
 For detailed architecture documentation, see [docs/architecture.md](docs/architecture.md).
 
-## 🤝 Contributing
+## Contributing
 
 Here's how to get started:
 
@@ -335,6 +337,6 @@ cargo run -- examples/sample.log
 - **Discussions**: [GitHub Discussions](https://github.com/vrajat/pg-logstats/discussions)
 - **Documentation**: Check [docs/](docs/) directory
 
-## 📄 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
