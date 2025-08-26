@@ -343,7 +343,10 @@ mod tests {
         assert_eq!(entry.message_type, LogLevel::Statement);
         assert!(entry.queries.is_some());
         assert_eq!(entry.queries.as_ref().unwrap().len(), 1);
-        assert_eq!(entry.queries.as_ref().unwrap()[0].normalized_query, "SELECT * FROM users WHERE active = ?");
+        assert_eq!(
+            entry.queries.as_ref().unwrap()[0].normalized_query,
+            "SELECT * FROM users WHERE active = ?"
+        );
     }
 
     #[test]
@@ -420,11 +423,9 @@ mod tests {
         assert_eq!(duration_entry.duration, Some(12.345));
         assert!(statement_entry.queries.is_some());
         assert_eq!(statement_entry.queries.as_ref().unwrap().len(), 1);
-        assert!(statement_entry
-            .queries
-            .as_ref()
-            .unwrap()[0]
-            .normalized_query.contains("SELECT u.name, p.title"));
+        assert!(statement_entry.queries.as_ref().unwrap()[0]
+            .normalized_query
+            .contains("SELECT u.name, p.title"));
     }
 
     #[test]

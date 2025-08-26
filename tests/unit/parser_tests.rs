@@ -86,7 +86,10 @@ mod parser_unit_tests {
         assert!(entry.queries.is_some());
         let queries = entry.queries.unwrap();
         assert_eq!(queries.len(), 1);
-        assert_eq!(queries[0].normalized_query, "SELECT * FROM users WHERE active = ?");
+        assert_eq!(
+            queries[0].normalized_query,
+            "SELECT * FROM users WHERE active = ?"
+        );
         assert!(entry.duration.is_none());
     }
 
@@ -154,7 +157,10 @@ mod parser_unit_tests {
         assert!(entry.queries.is_some());
         let queries = entry.queries.unwrap();
         assert_eq!(queries.len(), 1);
-        assert_eq!(queries[0].normalized_query, "UPDATE products SET price = ? WHERE id = ?".to_string());
+        assert_eq!(
+            queries[0].normalized_query,
+            "UPDATE products SET price = ? WHERE id = ?".to_string()
+        );
     }
 
     #[test]
@@ -186,7 +192,9 @@ mod parser_unit_tests {
         assert!(statement_entry.queries.is_some());
         let queries = statement_entry.queries.as_ref().unwrap();
         assert_eq!(queries.len(), 1);
-        assert!(queries[0].normalized_query.contains("SELECT u.name, p.title"));
+        assert!(queries[0]
+            .normalized_query
+            .contains("SELECT u.name, p.title"));
     }
 
     #[test]

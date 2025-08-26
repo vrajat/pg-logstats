@@ -4,8 +4,8 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 use pg_logstats::analytics::queries::{QueryAnalyzer, QueryMetrics};
+use pg_logstats::sql::{Query, QueryType};
 use pg_logstats::{LogEntry, LogLevel};
-use pg_logstats::sql::{QueryType, Query};
 use std::collections::HashMap;
 
 /// Helper function to create test log entries

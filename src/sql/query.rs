@@ -221,7 +221,7 @@ mod tests {
             (
                 "SELECT * FROM users WHERE active = true",
                 "SELECT * FROM users WHERE active = ?",
-            )
+            ),
         ];
 
         for (original, expected) in cases {

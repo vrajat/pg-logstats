@@ -5,7 +5,7 @@
 use chrono::{Duration, TimeZone, Utc};
 use pg_logstats::output::json::JsonFormatter;
 use pg_logstats::output::text::TextFormatter;
-use pg_logstats::{AnalysisResult, LogEntry, LogLevel, TimingAnalysis, Query};
+use pg_logstats::{AnalysisResult, LogEntry, LogLevel, Query, TimingAnalysis};
 use std::collections::HashMap;
 
 /// Helper function to create a test AnalysisResult

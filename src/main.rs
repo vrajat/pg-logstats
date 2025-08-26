@@ -39,7 +39,6 @@ struct Arguments {
     sample_size: Option<usize>,
 
     // Existing options (keeping the most important ones)
-
     /// file containing a list of log file to parse.
     #[clap(short = 'L', long, value_name = "logfile-list")]
     logfile_list: Option<String>,

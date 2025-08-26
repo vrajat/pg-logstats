@@ -18,7 +18,7 @@ pub mod sql;
 pub use analytics::{QueryAnalyzer, TimingAnalysis, TimingAnalyzer};
 pub use output::{JsonFormatter, TextFormatter};
 pub use parsers::StderrParser;
-pub use sql::{QueryType, Query};
+pub use sql::{Query, QueryType};
 
 /// Main error type for pg-logstats operations
 #[derive(Error, Debug)]
