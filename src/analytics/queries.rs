@@ -1,40 +1,10 @@
 //! Query analysis functionality for PostgreSQL logs
 
-use crate::{AnalysisResult, LogEntry, Result};
+use crate::{AnalysisResult, LogEntry, QueryType, Result};
 use chrono::{DateTime, Timelike, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-
-/// Query type classification
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum QueryType {
-    /// SELECT queries
-    Select,
-    /// INSERT queries
-    Insert,
-    /// UPDATE queries
-    Update,
-    /// DELETE queries
-    Delete,
-    /// Data Definition Language (CREATE, DROP, ALTER, etc.)
-    DDL,
-    /// Other queries (BEGIN, COMMIT, ROLLBACK, etc.)
-    Other,
-}
-
-impl std::fmt::Display for QueryType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            QueryType::Select => write!(f, "SELECT"),
-            QueryType::Insert => write!(f, "INSERT"),
-            QueryType::Update => write!(f, "UPDATE"),
-            QueryType::Delete => write!(f, "DELETE"),
-            QueryType::DDL => write!(f, "DDL"),
-            QueryType::Other => write!(f, "OTHER"),
-        }
-    }
-}
 
 /// Query performance metrics
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -161,37 +131,42 @@ impl QueryAnalyzer {
 
         for entry in entries {
             if entry.is_query() {
-                if let Some(query) = &entry.query {
-                    let duration = entry.duration.unwrap_or(0.0);
-                    let normalized = self.normalize_query(query);
-                    let query_type = self.classify_query(query);
+                let duration = entry.duration.unwrap_or(0.0);
+                let normalized_concat = entry.normalized_query();
+                if let Some(queries) = &entry.queries {
+                    for query in queries {
+                        let normalized_query = query.normalized_query.clone();
+                        let query_type = &query.query_type;
 
-                    // Update query counts
-                    *query_counts.entry(normalized.clone()).or_insert(0) += 1;
-                    *query_type_counts.entry(query_type).or_insert(0) += 1;
-
-                    // Update duration statistics
-                    query_durations.push(duration);
-                    result.total_queries += 1;
-                    result.total_duration += duration;
-
-                    // Track slow queries
-                    if duration > self.slow_query_threshold {
-                        slow_queries.push((normalized.clone(), duration));
+                        // Update query counts
+                        *query_counts.entry(normalized_query.clone()).or_insert(0) += 1;
+                        *query_type_counts.entry(query_type).or_insert(0) += 1;
                     }
-
-                    // Update hourly statistics
-                    let hour = entry.timestamp.hour();
-                    let hourly = hourly_stats.entry(hour).or_insert_with(|| HourlyStats {
-                        hour,
-                        query_count: 0,
-                        queries_per_second: 0.0,
-                        total_duration: 0.0,
-                        average_duration: 0.0,
-                    });
-                    hourly.query_count += 1;
-                    hourly.total_duration += duration;
                 }
+                // Track slow queries
+                match normalized_concat {
+                    Some(ref n) => {
+                        if duration > self.slow_query_threshold {
+                            slow_queries.push((n.clone(), duration));
+                        }
+                    }
+                    None => {}
+                }
+
+                // Update hourly statistics
+                let hour = entry.timestamp.hour();
+                let hourly = hourly_stats.entry(hour).or_insert_with(|| HourlyStats {
+                    hour,
+                    query_count: 0,
+                    queries_per_second: 0.0,
+                    total_duration: 0.0,
+                    average_duration: 0.0,
+                });
+                hourly.query_count += 1;
+                hourly.total_duration += duration;
+                result.total_queries += 1;
+                query_durations.push(duration);
+                result.total_duration += duration;
             } else if entry.is_error() {
                 error_count += 1;
             } else if entry.message.to_lowercase().contains("connection") {
@@ -371,9 +346,10 @@ impl QueryAnalyzer {
 
         for entry in entries {
             if entry.is_query() {
-                if let Some(query) = &entry.query {
-                    let query_type = self.classify_query(query);
-                    *distribution.entry(query_type).or_insert(0) += 1;
+                if let Some(queries) = &entry.queries {
+                    for query in queries {
+                        *distribution.entry(query.query_type.clone()).or_insert(0) += 1;
+                    }
                 }
             }
         }
@@ -421,7 +397,7 @@ mod tests {
             message: query
                 .as_ref()
                 .map_or("test message".to_string(), |q| format!("statement: {}", q)),
-            query,
+            queries: crate::Query::from_sql(query.as_deref().unwrap_or("")).ok(),
             duration,
         }
     }

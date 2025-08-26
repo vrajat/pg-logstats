@@ -446,7 +446,7 @@ mod tests {
             application_name: Some("psql".to_string()),
             message_type,
             message: message.to_string(),
-            query: None,
+            queries: None,
             duration,
         }
     }

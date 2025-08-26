@@ -3,7 +3,7 @@
 pub mod queries;
 pub mod timing;
 
-pub use queries::{HourlyStats, QueryAnalyzer, QueryMetrics, QueryType};
+pub use queries::{HourlyStats, QueryAnalyzer, QueryMetrics};
 pub use timing::{
     ConnectionAnalysis, HourlyMetrics, PeakUsageAnalysis, TimingAnalysis, TimingAnalyzer,
     TimingAnalyzerConfig,

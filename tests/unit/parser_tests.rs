@@ -83,8 +83,10 @@ mod parser_unit_tests {
         assert_eq!(entry.database, Some("testdb".to_string()));
         assert_eq!(entry.application_name, Some("psql".to_string()));
         assert_eq!(entry.message_type, LogLevel::Statement);
-        assert!(entry.query.is_some());
-        assert_eq!(entry.query.unwrap(), "SELECT * FROM users WHERE active = ?");
+        assert!(entry.queries.is_some());
+        let queries = entry.queries.unwrap();
+        assert_eq!(queries.len(), 1);
+        assert_eq!(queries[0].normalized_query, "SELECT * FROM users WHERE active = ?");
         assert!(entry.duration.is_none());
     }
 
@@ -100,7 +102,7 @@ mod parser_unit_tests {
         let entry = result.unwrap();
         assert_eq!(entry.message_type, LogLevel::Duration);
         assert_eq!(entry.duration, Some(45.123));
-        assert!(entry.query.is_none());
+        assert!(entry.queries.is_none());
     }
 
     #[test]
@@ -119,7 +121,7 @@ mod parser_unit_tests {
         assert!(entry
             .message
             .contains("relation \"missing_table\" does not exist"));
-        assert!(entry.query.is_none());
+        assert!(entry.queries.is_none());
         assert!(entry.duration.is_none());
     }
 
@@ -149,10 +151,10 @@ mod parser_unit_tests {
         let entry = result.unwrap();
         assert_eq!(entry.message_type, LogLevel::Statement);
         // Query should be normalized with parameters replaced
-        assert_eq!(
-            entry.query,
-            Some("UPDATE products SET price = ? WHERE id = ?".to_string())
-        );
+        assert!(entry.queries.is_some());
+        let queries = entry.queries.unwrap();
+        assert_eq!(queries.len(), 1);
+        assert_eq!(queries[0].normalized_query, "UPDATE products SET price = ? WHERE id = ?".to_string());
     }
 
     #[test]
@@ -181,11 +183,10 @@ mod parser_unit_tests {
         assert_eq!(duration_entry.duration, Some(12.345));
 
         // Multi-line query should be properly assembled
-        assert!(statement_entry
-            .query
-            .as_ref()
-            .unwrap()
-            .contains("SELECT u.name, p.title"));
+        assert!(statement_entry.queries.is_some());
+        let queries = statement_entry.queries.as_ref().unwrap();
+        assert_eq!(queries.len(), 1);
+        assert!(queries[0].normalized_query.contains("SELECT u.name, p.title"));
     }
 
     #[test]
@@ -264,9 +265,10 @@ mod parser_unit_tests {
 
         let entry = result.unwrap();
         assert_eq!(entry.message_type, LogLevel::Statement);
-        assert!(entry.query.is_some());
-        // Should handle special characters properly
-        assert!(entry.query.unwrap().contains("user-table"));
+        assert!(entry.queries.is_some());
+        let queries = entry.queries.unwrap();
+        assert_eq!(queries.len(), 1);
+        assert!(queries[0].normalized_query.contains("user-table"));
     }
 
     #[test]
@@ -298,49 +300,6 @@ mod parser_unit_tests {
 
         let entries = result.unwrap();
         assert_eq!(entries.len(), 2); // Should parse 2 valid lines, skip invalid ones
-    }
-
-    #[test]
-    fn test_normalize_query_parameters() {
-        let parser = StderrParser::new();
-
-        // Test parameter replacement
-        let query = "UPDATE users SET name = $1, email = $2 WHERE id = $3";
-        let normalized = parser.normalize_query(query).unwrap();
-        assert_eq!(
-            normalized,
-            "UPDATE users SET name = ?, email = ? WHERE id = ?"
-        );
-    }
-
-    #[test]
-    fn test_normalize_query_literals() {
-        let parser = StderrParser::new();
-
-        // Test numeric literal replacement
-        let query = "SELECT * FROM users WHERE age > 25 AND score < 100.5";
-        let normalized = parser.normalize_query(query).unwrap();
-        assert_eq!(
-            normalized,
-            "SELECT * FROM users WHERE age > ? AND score < ?"
-        );
-
-        // Test string literal replacement
-        let query = "SELECT * FROM users WHERE name = 'John' AND city = 'New York'";
-        let normalized = parser.normalize_query(query).unwrap();
-        assert_eq!(
-            normalized,
-            "SELECT * FROM users WHERE name = ? AND city = ?"
-        );
-    }
-
-    #[test]
-    fn test_normalize_query_whitespace() {
-        let parser = StderrParser::new();
-
-        let query = "SELECT   *   FROM    users   WHERE   id=1";
-        let normalized = parser.normalize_query(query).unwrap();
-        assert_eq!(normalized, "SELECT * FROM users WHERE id = ?");
     }
 
     #[test]
@@ -492,9 +451,11 @@ mod parser_unit_tests {
         assert!(result.is_some());
 
         let entry = result.unwrap();
-        assert!(entry.query.is_some());
+        assert!(entry.queries.is_some());
+        let queries = entry.queries.unwrap();
+        assert_eq!(queries.len(), 1);
         // Query should be normalized and not cause memory issues
-        assert!(entry.query.unwrap().len() > 0);
+        assert!(queries[0].normalized_query.len() > 0);
     }
 }
 
@@ -520,7 +481,7 @@ mod property_based_tests {
 
             // Statement entries should have queries
             if entry.message_type == LogLevel::Statement {
-                assert!(entry.query.is_some());
+                assert!(entry.queries.is_some());
             }
 
             // Duration entries should have duration values

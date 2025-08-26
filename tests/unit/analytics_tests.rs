@@ -3,8 +3,9 @@
 //! Tests query analysis, classification, normalization, and performance metrics
 
 use chrono::{DateTime, TimeZone, Utc};
-use pg_logstats::analytics::queries::{QueryAnalyzer, QueryMetrics, QueryType};
+use pg_logstats::analytics::queries::{QueryAnalyzer, QueryMetrics};
 use pg_logstats::{LogEntry, LogLevel};
+use pg_logstats::sql::{QueryType, Query};
 use std::collections::HashMap;
 
 /// Helper function to create test log entries
@@ -28,7 +29,7 @@ fn create_test_entry(
         message: query
             .as_ref()
             .map_or("test message".to_string(), |q| format!("statement: {}", q)),
-        query,
+        queries: Query::from_sql(query.as_deref().unwrap_or("")).ok(),
         duration,
     }
 }
@@ -556,7 +557,7 @@ mod analytics_unit_tests {
         assert_eq!(most_frequent.1, 3); // Count should be 3
         assert!(most_frequent
             .0
-            .contains("SELECT * FROM users WHERE active = true"));
+            .contains("SELECT * FROM users WHERE active = ?"));
     }
 
     #[test]

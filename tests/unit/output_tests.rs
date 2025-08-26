@@ -5,7 +5,7 @@
 use chrono::{Duration, TimeZone, Utc};
 use pg_logstats::output::json::JsonFormatter;
 use pg_logstats::output::text::TextFormatter;
-use pg_logstats::{AnalysisResult, LogEntry, LogLevel, TimingAnalysis};
+use pg_logstats::{AnalysisResult, LogEntry, LogLevel, TimingAnalysis, Query};
 use std::collections::HashMap;
 
 /// Helper function to create a test AnalysisResult
@@ -104,7 +104,7 @@ fn create_test_log_entries() -> Vec<LogEntry> {
             application_name: Some("psql".to_string()),
             message_type: LogLevel::Statement,
             message: "statement: SELECT * FROM users WHERE active = true".to_string(),
-            query: Some("SELECT * FROM users WHERE active = true".to_string()),
+            queries: Query::from_sql("SELECT * FROM users WHERE active = true").ok(),
             duration: Some(150.0),
         },
         LogEntry {
@@ -116,7 +116,7 @@ fn create_test_log_entries() -> Vec<LogEntry> {
             application_name: Some("pgbench".to_string()),
             message_type: LogLevel::Error,
             message: "relation \"missing_table\" does not exist".to_string(),
-            query: None,
+            queries: None,
             duration: None,
         },
         LogEntry {
@@ -128,7 +128,7 @@ fn create_test_log_entries() -> Vec<LogEntry> {
             application_name: Some("web_app".to_string()),
             message_type: LogLevel::Duration,
             message: "duration: 45.123 ms".to_string(),
-            query: None,
+            queries: None,
             duration: Some(45.123),
         },
     ]

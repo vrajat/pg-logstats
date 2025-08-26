@@ -12,11 +12,13 @@ use thiserror::Error;
 pub mod analytics;
 pub mod output;
 pub mod parsers;
+pub mod sql;
 
 // Re-export commonly used items
 pub use analytics::{QueryAnalyzer, TimingAnalysis, TimingAnalyzer};
 pub use output::{JsonFormatter, TextFormatter};
 pub use parsers::StderrParser;
+pub use sql::{QueryType, Query};
 
 /// Main error type for pg-logstats operations
 #[derive(Error, Debug)]
@@ -146,7 +148,7 @@ pub struct LogEntry {
     /// The main log message content
     pub message: String,
     /// SQL query (if this is a statement log)
-    pub query: Option<String>,
+    pub queries: Option<Vec<Query>>,
     /// Query duration in milliseconds (if available)
     pub duration: Option<f64>,
 }
@@ -168,7 +170,7 @@ impl LogEntry {
             application_name: None,
             message_type,
             message,
-            query: None,
+            queries: None,
             duration: None,
         }
     }
@@ -190,10 +192,18 @@ impl LogEntry {
 
     /// Get the normalized query (for deduplication)
     pub fn normalized_query(&self) -> Option<String> {
-        self.query.as_ref().map(|q| {
-            // Basic normalization - remove extra whitespace and convert to lowercase
-            q.trim().to_lowercase()
-        })
+        let mut normalized_query: Option<String> = None;
+        if self.is_query() {
+            if let Some(queries) = &self.queries {
+                for query in queries {
+                    normalized_query = match normalized_query {
+                        Some(ref mut s) => Some(format!("{};{}", s, query.normalized_query)),
+                        None => Some(query.normalized_query.clone()),
+                    };
+                }
+            }
+        }
+        normalized_query
     }
 }
 
