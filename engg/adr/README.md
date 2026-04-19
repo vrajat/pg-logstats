@@ -1,0 +1,23 @@
+# Architecture Decision Records
+
+ADRs capture durable project decisions.
+
+## When to Add an ADR
+
+Add an ADR when a change affects:
+
+- project scope or positioning
+- core data model
+- parser architecture
+- output schema compatibility
+- major workflow or process changes
+
+## Format
+
+- File name: `NNNN-short-kebab-case-title.md`
+- Use the template in [`template.md`](template.md)
+- ADRs should remain append-only after acceptance; supersede them with new ADRs instead of rewriting history
+
+## Current ADRs
+
+- [0001 - Product direction: modern PostgreSQL observability](0001-product-direction-modern-postgres-observability.md)
