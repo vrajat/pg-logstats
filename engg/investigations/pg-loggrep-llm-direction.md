@@ -295,6 +295,195 @@ Reference:
 
 - <https://www.postgresql.org/docs/current/auto-explain.html>
 
+## Concrete Workflows to Emulate
+
+The most useful product clues are not abstract feature lists. They are the recurring manual workflows people already run with pgBadger and then inspect by hand.
+
+### 1. Weekly "What Is New in Top Queries?" Review
+
+This is the clearest direct workflow signal.
+
+In pgBadger issue `#872`, the user describes running pgBadger weekly, comparing top time-consuming and most-frequent normalized queries, and wanting to know which queries are newly appearing versus always present.
+
+Reference:
+
+- <https://github.com/darold/pgbadger/issues/872>
+
+This maps almost perfectly to an agent workflow:
+
+1. refresh the local analysis cache
+2. diff query families against previous windows
+3. rank newly appearing or newly regressed families
+4. attach evidence
+5. suggest follow-up SQL
+
+This is probably the best first product wedge for `pg-loggrep`.
+
+### 2. Hourly or Daily Incremental Analysis of Rotated Logs
+
+Another concrete pattern is scheduled ingestion of new logs followed by inspection of the changed window.
+
+In pgBadger issue `#697`, the user ingests RDS logs hourly, stores one-hour files, runs pgBadger in incremental mode, archives processed logs, and expects daily and weekly outputs to keep updating.
+
+Reference:
+
+- <https://github.com/darold/pgbadger/issues/697>
+
+The underlying workflow is:
+
+1. collect new logs
+2. update rolling analysis state
+3. inspect only what changed
+
+This suggests an LLM-friendly model like:
+
+- `pg-loggrep update`
+- `pg-loggrep top`
+- `pg-loggrep diff`
+
+without rebuilding a full report every time.
+
+### 3. Estate-Wide Daily Triage Across Many Servers
+
+Some users are not doing ad hoc single-file analysis. They are running pgBadger every day across fleets.
+
+In pgBadger issue `#794`, the user runs pgBadger daily across multiple servers, excludes `pg_dump`, keeps a retention window, and uses incremental mode. The issue itself is about pgBadger getting OOM-killed, but the operational pattern matters more than the bug.
+
+Reference:
+
+- <https://github.com/darold/pgbadger/issues/794>
+
+The real workflow is:
+
+1. collect and process logs from many systems
+2. suppress obvious maintenance noise
+3. inspect the top findings from the fresh window
+
+For `pg-loggrep`, this argues strongly for:
+
+- incremental caches
+- cheap top-N retrieval
+- low-memory summaries
+- filters that remove known benign workloads before ranking findings
+
+### 4. Scheduled Error-Only Review
+
+The pgBadger documentation explicitly shows a cron workflow for weekly error reporting using watch mode.
+
+Reference:
+
+- <https://pgbadger.darold.net/documentation.html>
+
+This manual pattern is simple and important:
+
+1. scan the new log slice
+2. group errors
+3. collapse repeats
+4. inspect the top classes by frequency or novelty
+
+An agent-friendly version would make this much stronger by grouping on fields like:
+
+- SQLSTATE
+- application name
+- user
+- database
+- normalized error text
+
+and by emitting suggested follow-up SQL for live inspection.
+
+### 5. Incremental Daily and Weekly Rolling Reports
+
+The pgBadger docs also show incremental daily and weekly report generation with `-I`.
+
+Reference:
+
+- <https://pgbadger.darold.net/documentation.html>
+
+That is effectively a rolling baseline workflow:
+
+1. maintain state over time
+2. update from newly rotated logs
+3. inspect the latest day or week against historical context
+
+For `pg-loggrep`, the equivalent should probably be a local structured cache rather than HTML.
+
+The key product question becomes:
+
+- how do we materialize investigative state cheaply enough that both humans and agents can query it interactively?
+
+### 6. Noise Suppression Before Ranking
+
+The pgBadger docs explicitly show excluding `pg_dump` windows or app names so that `COPY`-heavy maintenance activity does not dominate the slowest-query view.
+
+Reference:
+
+- <https://pgbadger.darold.net/documentation.html>
+
+This is a very real operational workflow:
+
+1. remove known background jobs
+2. re-rank the remaining workload
+3. inspect true anomalies
+
+This matters because real investigations are not "search everything." They are "search after subtracting known noise."
+
+That should become a first-class concept in `pg-loggrep`, not an afterthought.
+
+### 7. Cross-Tier PostgreSQL + PgBouncer Investigation
+
+The pgBadger docs show parsing a local PostgreSQL log together with a remote PgBouncer log in one run.
+
+Reference:
+
+- <https://pgbadger.darold.net/documentation.html>
+
+This suggests a valuable investigation loop:
+
+1. identify slowness or queueing symptoms
+2. inspect both PostgreSQL-side and pooler-side evidence
+3. decide whether the bottleneck is pool saturation, server execution, or both
+
+That kind of cross-layer correlation is exactly the sort of thing an LLM agent can help navigate if the CLI emits compact evidence.
+
+### 8. Slow Query to Plan Review
+
+pgBadger 13.0 added support for `auto_explain` plans in CSV and JSON logs.
+
+Reference:
+
+- <https://www.postgresql.org/about/news/pgbadger-130-released-2975/>
+
+This implies a concrete workflow:
+
+1. detect the problematic query family
+2. inspect representative slow executions
+3. pull the plan
+4. decide whether the next step is indexing, SQL rewrite, or live database inspection
+
+This is one of the strongest LLM-assisted workflows because the agent can:
+
+- summarize the query family
+- summarize the plan shape
+- propose the next `psql` queries or `EXPLAIN` targets
+
+## Product Implication
+
+The manual pgBadger workflow is usually:
+
+1. scheduled ingestion
+2. manual inspection of top sections
+3. ad hoc follow-up SQL
+
+The agentified `pg-loggrep` workflow should be:
+
+1. incrementally ingest
+2. rank deltas and new findings
+3. suppress known noise
+4. attach evidence
+5. generate the next SQL to run
+
+That is a much sharper and more concrete product target than “AI for Postgres” in the abstract.
+
 ## Risks
 
 ### Risk 1: Becoming a Generic Log Search Tool

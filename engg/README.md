@@ -22,10 +22,8 @@ Notes from deeper design or code reviews when a change deserves durable document
 ## Current Recommended Reading Order
 
 1. [`PHILOSOPHY.md`](PHILOSOPHY.md)
-2. [`adr/0001-product-direction-modern-postgres-observability.md`](adr/0001-product-direction-modern-postgres-observability.md)
-3. [`design/product-requirements.md`](design/product-requirements.md)
-4. [`design/implementation-plan.md`](design/implementation-plan.md)
-5. [`investigations/postgres-logging-landscape.md`](investigations/postgres-logging-landscape.md)
+2. [`adr/0001-ripgrep-inspired-cli-philosophy.md`](adr/0001-ripgrep-inspired-cli-philosophy.md)
+3. [`investigations/pg-loggrep-llm-direction.md`](investigations/pg-loggrep-llm-direction.md)
 
 ## Contribution Notes
 
