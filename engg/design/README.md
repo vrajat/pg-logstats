@@ -4,8 +4,7 @@ Living design docs for `pg-logstats`.
 
 ## Current Documents
 
-- [Product Requirements](product-requirements.md)
-- [Implementation Plan](implementation-plan.md)
+- [Investigate New Slow Queries](investigate-new-slow-queries.md)
 
 ## Design Doc Expectations
 
