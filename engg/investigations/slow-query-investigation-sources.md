@@ -5,7 +5,7 @@ Date: 2026-04-19
 
 ## Why This Exists
 
-This note collects concrete references for how people investigate slow PostgreSQL queries in practice. The point is not to build a giant bibliography. It is to capture obvious recurring patterns that `pg-loggrep` can emulate.
+This note collects concrete references for how people investigate slow PostgreSQL queries in practice. The point is not to build a giant bibliography. It is to capture obvious recurring patterns that `pg-logstats` can emulate.
 
 ## Sources and Observations
 
@@ -136,7 +136,7 @@ Observed workflow:
 - avoid relying only on re-running EXPLAIN after the fact
 - connect query statistics with captured plans and context
 
-This is very close to the long-term `pg-loggrep` vision of logs plus companion data plus next-step analysis.
+This is very close to the long-term `pg-logstats` vision of logs plus companion data plus next-step analysis.
 
 ## Summary
 
@@ -148,4 +148,4 @@ The recurring slow-query investigation pattern is:
 4. inspect plans and context for the top findings
 5. run follow-up SQL in the live system
 
-That is a strong fit for `pg-loggrep`.
+That is a strong fit for `pg-logstats`.

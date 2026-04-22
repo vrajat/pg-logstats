@@ -1,6 +1,6 @@
-# About pg-loggrep
+# About pg-logstats
 
-**pg-loggrep is a PostgreSQL-native log investigation CLI.**
+**pg-logstats is a PostgreSQL-native log investigation CLI.**
 
 It should feel closer to `ripgrep` than to a traditional database report generator: simple to invoke, useful by default, fast enough to stay in the loop, and composable with the rest of the shell.
 
@@ -31,7 +31,7 @@ The most important lesson from ripgrep is not just “be fast.” It is the comb
 
 That combination is what makes a CLI become a habit instead of a curiosity.
 
-For `pg-loggrep`, that means:
+For `pg-logstats`, that means:
 
 - smart defaults
 - compact outputs
@@ -40,7 +40,7 @@ For `pg-loggrep`, that means:
 
 ## Simplicity
 
-`pg-loggrep` should be easy to explain in one sentence:
+`pg-logstats` should be easy to explain in one sentence:
 
 > Search and triage PostgreSQL logs quickly, then jump into follow-up SQL.
 
@@ -89,7 +89,7 @@ The fast path matters more than the long feature list.
 
 ## Smart Defaults
 
-Like ripgrep, `pg-loggrep` should do the right thing in the common case without a long incantation.
+Like ripgrep, `pg-logstats` should do the right thing in the common case without a long incantation.
 
 Examples of good defaults:
 
@@ -103,7 +103,7 @@ Examples of good defaults:
 
 Smart defaults are only tolerable when users can override them.
 
-`pg-loggrep` should make it easy to:
+`pg-logstats` should make it easy to:
 
 - inspect raw evidence
 - disable filters
@@ -132,7 +132,7 @@ This should not become a generic log search engine.
 
 ## Composability
 
-`pg-loggrep` should work well with:
+`pg-logstats` should work well with:
 
 - `psql`
 - `jq`
@@ -159,7 +159,7 @@ Pretty reports can sit on top later.
 
 ## Honest Anti-Pitch
 
-Do not use `pg-loggrep` when you need:
+Do not use `pg-logstats` when you need:
 
 - a ubiquitous POSIX-standard tool
 - a general-purpose log search engine

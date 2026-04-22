@@ -9,7 +9,7 @@ This design focuses on one workflow:
 
 > Find slow query families that are new, newly important, or newly regressed, and tell the operator what to inspect next.
 
-This is a strong candidate for the first compelling `pg-loggrep` workflow because it is:
+This is a strong candidate for the first compelling `pg-logstats` workflow because it is:
 
 - easy to explain
 - aligned with existing pgBadger usage
@@ -32,7 +32,7 @@ Reference:
 
 - <https://github.com/darold/pgbadger/issues/872>
 
-The opportunity for `pg-loggrep` is to turn that manual report-comparison loop into a tight CLI workflow that emits compact findings and suggested follow-up SQL.
+The opportunity for `pg-logstats` is to turn that manual report-comparison loop into a tight CLI workflow that emits compact findings and suggested follow-up SQL.
 
 ## Goals
 
@@ -55,10 +55,10 @@ The opportunity for `pg-loggrep` is to turn that manual report-comparison loop i
 ### Target CLI Shape
 
 ```text
-pg-loggrep update --logs /var/log/postgresql/*.jsonlog --cache .pg-loggrep/
-pg-loggrep slow-queries diff --baseline last-7d --target today --top 20 --format llm-json
-pg-loggrep evidence qf_01J...
-pg-loggrep suggest-sql qf_01J...
+pg-logstats update --logs /var/log/postgresql/*.jsonlog --cache .pg-logstats/
+pg-logstats slow-queries diff --baseline last-7d --target today --top 20 --format llm-json
+pg-logstats evidence qf_01J...
+pg-logstats suggest-sql qf_01J...
 ```
 
 ### Operator Experience
@@ -209,7 +209,7 @@ Examples:
 - `pg_stat_activity` queries filtered by app or database
 - if available, lookups for temp-file, lock, or I/O context
 
-This is where `pg-loggrep` hands off to `psql`.
+This is where `pg-logstats` hands off to `psql`.
 
 ## Why This Workflow Is Hard to Test
 

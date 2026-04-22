@@ -1,4 +1,4 @@
-# ADR 0001: Adopt a ripgrep-inspired CLI philosophy for pg-loggrep
+# ADR 0001: Adopt a ripgrep-inspired CLI philosophy for pg-logstats
 
 - Status: Accepted
 - Date: 2026-04-19
@@ -31,7 +31,7 @@ That philosophy aligns with the needs of both human investigators and LLM-driven
 
 ## Decision
 
-We will build `pg-loggrep` as a **CLI-first PostgreSQL log investigation tool inspired by the product philosophy of ripgrep**.
+We will build `pg-logstats` as a **CLI-first PostgreSQL log investigation tool inspired by the product philosophy of ripgrep**.
 
 This means:
 

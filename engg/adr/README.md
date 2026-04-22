@@ -20,4 +20,4 @@ Add an ADR when a change affects:
 
 ## Current ADRs
 
-- [0001 - Adopt a ripgrep-inspired CLI philosophy for pg-loggrep](0001-ripgrep-inspired-cli-philosophy.md)
+- [0001 - Adopt a ripgrep-inspired CLI philosophy for pg-logstats](0001-ripgrep-inspired-cli-philosophy.md)

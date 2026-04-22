@@ -1,11 +1,11 @@
-# pg-loggrep and LLM-First Investigation
+# pg-logstats and LLM-First Investigation
 
 Status: running investigation  
 Date: 2026-04-19
 
 ## Summary
 
-One promising direction for `pg-logstats` is to evolve it into **`pg-loggrep`**: a CLI-first PostgreSQL log investigation tool that behaves more like `ripgrep` for operational events than like a traditional HTML report generator.
+One promising direction for `pg-logstats` is to evolve into a CLI-first PostgreSQL log investigation tool that behaves more like `ripgrep` for operational workflows than like a traditional HTML report generator.
 
 The key difference is that this should not be plain regex over log lines. It should parse PostgreSQL logs into structured events and return compact, investigation-friendly output that can be combined with:
 
@@ -60,7 +60,7 @@ But `psql` is not designed to do these jobs well:
 
 So the right model is:
 
-- `pg-loggrep` narrows and structures the search space
+- `pg-logstats` narrows and structures the search space
 - `psql` performs the deeper live interrogation
 
 ## Why `pgBadger` Is Not Enough
@@ -88,7 +88,7 @@ The better wedge is not breadth. It is **machine-first investigation**.
 
 ## Proposed Product Position
 
-`pg-loggrep` should be positioned as:
+`pg-logstats` should be positioned as:
 
 - a PostgreSQL-native log investigation CLI
 - optimized for fast drilldowns and structured output
@@ -100,7 +100,7 @@ The comparison should be:
 - `ripgrep` for codebases
 - `jq` for JSON
 - `psql` for live PostgreSQL state
-- `pg-loggrep` for PostgreSQL log evidence and triage
+- `pg-logstats` for PostgreSQL log evidence and triage
 
 ## What the Tool Should Add Above `psql + SQL`
 
@@ -230,14 +230,14 @@ The CLI should feel closer to search and triage than to report generation.
 Candidate commands:
 
 ```text
-pg-loggrep top query-families --since 1h --format llm-json
-pg-loggrep errors --group-by sqlstate,app,user
-pg-loggrep temp-files --top 20
-pg-loggrep locks --since 30m
-pg-loggrep correlate --pg-stat-statements pgss.csv --auto-explain auto_explain.log
-pg-loggrep evidence <finding-id>
-pg-loggrep suggest-sql <finding-id>
-pg-loggrep diff --baseline yesterday.cache --target today.cache
+pg-logstats top query-families --since 1h --format llm-json
+pg-logstats errors --group-by sqlstate,app,user
+pg-logstats temp-files --top 20
+pg-logstats locks --since 30m
+pg-logstats correlate --pg-stat-statements pgss.csv --auto-explain auto_explain.log
+pg-logstats evidence <finding-id>
+pg-logstats suggest-sql <finding-id>
+pg-logstats diff --baseline yesterday.cache --target today.cache
 ```
 
 ## Output Shape
@@ -317,7 +317,7 @@ This maps almost perfectly to an agent workflow:
 4. attach evidence
 5. suggest follow-up SQL
 
-This is probably the best first product wedge for `pg-loggrep`.
+This is probably the best first product wedge for `pg-logstats`.
 
 ### 2. Hourly or Daily Incremental Analysis of Rotated Logs
 
@@ -337,9 +337,9 @@ The underlying workflow is:
 
 This suggests an LLM-friendly model like:
 
-- `pg-loggrep update`
-- `pg-loggrep top`
-- `pg-loggrep diff`
+- `pg-logstats update`
+- `pg-logstats top`
+- `pg-logstats diff`
 
 without rebuilding a full report every time.
 
@@ -359,7 +359,7 @@ The real workflow is:
 2. suppress obvious maintenance noise
 3. inspect the top findings from the fresh window
 
-For `pg-loggrep`, this argues strongly for:
+For `pg-logstats`, this argues strongly for:
 
 - incremental caches
 - cheap top-N retrieval
@@ -405,7 +405,7 @@ That is effectively a rolling baseline workflow:
 2. update from newly rotated logs
 3. inspect the latest day or week against historical context
 
-For `pg-loggrep`, the equivalent should probably be a local structured cache rather than HTML.
+For `pg-logstats`, the equivalent should probably be a local structured cache rather than HTML.
 
 The key product question becomes:
 
@@ -427,7 +427,7 @@ This is a very real operational workflow:
 
 This matters because real investigations are not "search everything." They are "search after subtracting known noise."
 
-That should become a first-class concept in `pg-loggrep`, not an afterthought.
+That should become a first-class concept in `pg-logstats`, not an afterthought.
 
 ### 7. Cross-Tier PostgreSQL + PgBouncer Investigation
 
@@ -474,7 +474,7 @@ The manual pgBadger workflow is usually:
 2. manual inspection of top sections
 3. ad hoc follow-up SQL
 
-The agentified `pg-loggrep` workflow should be:
+The agentified `pg-logstats` workflow should be:
 
 1. incrementally ingest
 2. rank deltas and new findings
@@ -512,7 +512,7 @@ That sequence keeps the product grounded in real workflows rather than speculati
 
 ## Open Questions
 
-- Should `pg-loggrep` be a rename, a subcommand family, or just a positioning concept inside `pg-logstats`?
+- Should the ripgrep comparison remain just a positioning concept inside `pg-logstats`, or should it shape subcommand naming too?
 - Should the first output schema be JSONL, compact JSON, or both?
 - Should local caching be visible and user-managed, or implicit?
 - How much of the first version should depend on `pg_stat_statements` being available?

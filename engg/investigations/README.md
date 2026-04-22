@@ -13,6 +13,6 @@ Use this directory for:
 Current documents:
 
 - [PostgreSQL logging landscape](postgres-logging-landscape.md)
-- [pg-loggrep and LLM-first investigation](pg-loggrep-llm-direction.md)
+- [pg-logstats and LLM-first investigation](pg-loggrep-llm-direction.md)
 - [First workflow candidates](first-workflow-candidates.md)
 - [Slow query investigation sources](slow-query-investigation-sources.md)
