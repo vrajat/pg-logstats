@@ -71,6 +71,8 @@ That means:
 
 The output should make the next step clearer, not just generate a prettier artifact.
 
+`pg-logstats` should be an important early grounding step for external AI-assisted triage, but it should not become an AI workflow host itself.
+
 ## Performance
 
 Performance is not an optimization pass. It is part of the product.
@@ -143,6 +145,11 @@ This should not become a generic log search engine.
 
 It should be natural to pipe its output into another tool or to ask it for the next SQL query to run.
 
+The intended pattern is:
+
+- `pg-logstats` produces compact, deterministic evidence
+- an external human, script, or agent decides what to do next
+
 ## Structured Output First
 
 Human-readable output matters, but the durable asset is a stable machine-readable representation of findings and evidence.
@@ -165,5 +172,6 @@ Do not use `pg-logstats` when you need:
 - a general-purpose log search engine
 - a full HTML reporting suite on day one
 - a replacement for `psql`
+- a chat-based or autonomous investigation product embedded in the CLI
 
 Those boundaries are healthy. They keep the product sharp.

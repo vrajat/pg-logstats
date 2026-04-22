@@ -7,6 +7,8 @@ Date: 2026-04-19
 
 One promising direction for `pg-logstats` is to evolve into a CLI-first PostgreSQL log investigation tool that behaves more like `ripgrep` for operational workflows than like a traditional HTML report generator.
 
+For clarity, "LLM-first" in this document means that `pg-logstats` should be a strong early grounding source for external AI workflows. It does not mean embedding chat, planning, or autonomous investigation directly inside the CLI.
+
 The key difference is that this should not be plain regex over log lines. It should parse PostgreSQL logs into structured events and return compact, investigation-friendly output that can be combined with:
 
 - `psql`
@@ -94,6 +96,8 @@ The better wedge is not breadth. It is **machine-first investigation**.
 - optimized for fast drilldowns and structured output
 - friendly to both humans and LLM-driven workflows
 - complementary to `psql` instead of competing with it
+
+It should be consumed naturally by external agents, shell scripts, and humans without turning the CLI itself into an AI workflow product.
 
 The comparison should be:
 
@@ -474,7 +478,7 @@ The manual pgBadger workflow is usually:
 2. manual inspection of top sections
 3. ad hoc follow-up SQL
 
-The agentified `pg-logstats` workflow should be:
+The external agent workflow around `pg-logstats` should be:
 
 1. incrementally ingest
 2. rank deltas and new findings

@@ -22,6 +22,7 @@ The tool should sit between PostgreSQL logs and live database inspection.
 - `pg-logstats` narrows and ranks historical evidence
 - `psql` remains the tool for deeper live interrogation
 - `pgBadger` remains the broader reporting tool
+- external agents or scripts may call `pg-logstats` early in a triage loop, but orchestration remains outside the CLI
 
 The first implementation slices should reinforce that thesis rather than chase report breadth.
 
@@ -40,6 +41,7 @@ The first implementation slices should reinforce that thesis rather than chase r
 - Generic non-PostgreSQL log analysis
 - Automatic SQL tuning or indexing advice in the first implementation
 - Broad companion-source ingestion before the core event model and finding schema are stable
+- Built-in chat, agent orchestration, or autonomous investigation flows
 
 ## Current State
 
@@ -59,6 +61,7 @@ The design implication is that the first meaningful refactor is internal, not co
 - Prefer event-model work over presentation work.
 - Prefer explicit and deterministic baseline/target inputs before clever heuristics.
 - Use stable identifiers and evidence references everywhere they matter.
+- Treat machine-readable findings as a public contract for shell tools and external AI workflows.
 - Preserve backwards compatibility only when it does not fight the new product direction.
 
 ## Proposed Architecture Direction
@@ -106,10 +109,12 @@ A finding should include:
 - stable `finding_id`
 - workflow-specific kind
 - compact title and reason
+- compact machine-readable reason codes for reproducible downstream use
 - score or rank inputs
 - grouped dimensions such as query family, SQLSTATE, app, user, or database
 - summary metrics
 - evidence pointers
+- optional confidence or suppression notes when ranking depends on heuristics
 - suggested follow-up SQL when relevant
 
 ### 4. Command Layer
@@ -299,6 +304,9 @@ These fields should be treated as first-class in the new event and finding model
 - duration
 - SQLSTATE
 - finding rank and reason
+- reason code
+- suppression or filter notes
+- suggested follow-up SQL
 
 ## Validation Strategy
 
@@ -342,8 +350,9 @@ Prefer compact fixtures in `examples/logs/` or test fixtures that cover:
 
 1. Approve this phase structure and the first workflow choice.
 2. Confirm the naming posture and remove remaining rename assumptions from docs and CLI planning.
-3. Implement Phase 1 by introducing the normalized event model without changing user-facing behavior yet.
-4. Add deterministic fixtures that will also support the later correlation and finding tests.
+3. Hand off Phases 1 through 3 plus single-window `top query-families` as the initial implementation scope.
+4. Implement Phase 1 by introducing the normalized event model without changing user-facing behavior yet.
+5. Add deterministic fixtures that will also support the later correlation and finding tests.
 
 ## Open Questions
 

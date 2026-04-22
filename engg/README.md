@@ -23,7 +23,8 @@ Notes from deeper design or code reviews when a change deserves durable document
 
 1. [`PHILOSOPHY.md`](PHILOSOPHY.md)
 2. [`adr/0001-ripgrep-inspired-cli-philosophy.md`](adr/0001-ripgrep-inspired-cli-philosophy.md)
-3. [`investigations/pg-loggrep-llm-direction.md`](investigations/pg-loggrep-llm-direction.md)
+3. [`adr/0002-select-v1-investigation-workflows.md`](adr/0002-select-v1-investigation-workflows.md)
+4. [`investigations/pg-loggrep-llm-direction.md`](investigations/pg-loggrep-llm-direction.md)
 
 ## Contribution Notes
 

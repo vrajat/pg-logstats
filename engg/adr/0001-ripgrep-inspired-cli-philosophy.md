@@ -27,7 +27,9 @@ Primary reference:
 
 - Andrew Gallant, "ripgrep is faster than {grep, ag, git grep, ucg, pt, sift}" — <https://burntsushi.net/ripgrep/>
 
-That philosophy aligns with the needs of both human investigators and LLM-driven workflows, where speed and token efficiency matter.
+That philosophy aligns with the needs of both human investigators and external LLM-driven workflows, where speed and token efficiency matter.
+
+The intent is not to embed AI workflow orchestration inside `pg-logstats`. The CLI should instead act as a fast, trustworthy source of grounded PostgreSQL log evidence that other tools can consume.
 
 ## Decision
 
@@ -40,7 +42,7 @@ This means:
 3. prefer compact, structured findings over large report outputs
 4. use smart defaults with explicit escape hatches
 5. keep the tool PostgreSQL-specific rather than becoming a generic log search engine
-6. design the CLI to compose naturally with `psql`, shell tools, and LLM skills
+6. design the CLI to compose naturally with `psql`, shell tools, and external LLM skills or agents
 
 In practical terms, the primary command surface should focus on workflows like:
 
@@ -58,6 +60,7 @@ In practical terms, the primary command surface should focus on workflows like:
 - The command-line interface can stay small and coherent longer.
 - Performance, token efficiency, and composability become explicit design goals.
 - The tool can serve both human CLI workflows and LLM-assisted triage without becoming unnatural for either.
+- The CLI stays focused on evidence production rather than embedded AI orchestration.
 
 ### Negative
 

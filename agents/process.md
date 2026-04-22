@@ -20,9 +20,10 @@ Shared development process and conventions for `pg-logstats`.
 ## Related Files
 
 - `engg/PHILOSOPHY.md`
-- `engg/design/product-requirements.md`
 - `engg/design/implementation-plan.md`
-- `engg/adr/0001-product-direction-modern-postgres-observability.md`
+- `engg/adr/0001-ripgrep-inspired-cli-philosophy.md`
+- `engg/adr/0002-select-v1-investigation-workflows.md`
+- `engg/investigations/pg-loggrep-llm-direction.md`
 - `agents/context/technical-domain.md`
 - `agents/context/living-notes.md`
 - `agents/testing.md`
