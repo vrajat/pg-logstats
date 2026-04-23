@@ -43,6 +43,22 @@ fn large_log_content(num_entries: usize) -> String {
     base_entry.repeat(num_entries)
 }
 
+fn baseline_slow_query_diff_content() -> &'static str {
+    r#"2024-01-15 09:00:00.000 UTC [2001] app@appdb api: LOG: statement: SELECT * FROM users WHERE id = 1;
+2024-01-15 09:00:00.020 UTC [2001] app@appdb api: LOG: duration: 20.000 ms
+2024-01-15 09:00:01.000 UTC [2002] app@appdb api: LOG: statement: SELECT * FROM users WHERE id = 2;
+2024-01-15 09:00:01.030 UTC [2002] app@appdb api: LOG: duration: 30.000 ms"#
+}
+
+fn target_slow_query_diff_content() -> &'static str {
+    r#"2024-01-15 10:00:00.000 UTC [3001] app@appdb api: LOG: statement: SELECT * FROM users WHERE id = 3;
+2024-01-15 10:00:00.100 UTC [3001] app@appdb api: LOG: duration: 100.000 ms
+2024-01-15 10:00:01.000 UTC [3002] app@appdb api: LOG: statement: SELECT * FROM users WHERE id = 4;
+2024-01-15 10:00:01.150 UTC [3002] app@appdb api: LOG: duration: 150.000 ms
+2024-01-15 10:00:02.000 UTC [3003] app@appdb api: LOG: statement: SELECT * FROM orders WHERE id = 1;
+2024-01-15 10:00:02.200 UTC [3003] app@appdb api: LOG: duration: 200.000 ms"#
+}
+
 #[test]
 fn test_cli_help() {
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
@@ -52,11 +68,9 @@ fn test_cli_help() {
         .stdout(predicate::str::contains(
             "A fast PostgreSQL log analysis tool",
         ))
-        .stdout(predicate::str::contains("--log-dir"))
         .stdout(predicate::str::contains("--output-format"))
-        .stdout(predicate::str::contains("--quick"))
-        .stdout(predicate::str::contains("--sample-size"))
-        .stdout(predicate::str::contains("top"));
+        .stdout(predicate::str::contains("top"))
+        .stdout(predicate::str::contains("slow-queries"));
 }
 
 #[test]
@@ -74,19 +88,26 @@ fn test_single_log_file_text_output() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg(log_file.to_str().unwrap())
-        .arg("--output-format")
+    cmd.arg("--output-format")
         .arg("text")
         .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg("--limit")
+        .arg("3")
+        .arg(log_file.to_str().unwrap())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Query Analysis Report"))
-        .stdout(predicate::str::contains("Total Queries: 4"))
-        .stdout(predicate::str::contains("Total Duration: 41.81 ms"))
-        .stdout(predicate::str::contains("Error Count: 1"))
-        .stdout(predicate::str::contains("SELECT: 2"))
-        .stdout(predicate::str::contains("INSERT: 1"))
-        .stdout(predicate::str::contains("UPDATE: 1"));
+        .stdout(predicate::str::contains("Findings"))
+        .stdout(predicate::str::contains("Schema Version: 1"))
+        .stdout(predicate::str::contains("#1 [query_family:"))
+        .stdout(predicate::str::contains("SELECT * FROM users WHERE id = ?"))
+        .stdout(predicate::str::contains(
+            "INSERT INTO users (name, email) VALUES (?, ?)",
+        ))
+        .stdout(predicate::str::contains(
+            "UPDATE users SET last_login = NOW() WHERE id = ?",
+        ));
 }
 
 #[test]
@@ -95,18 +116,20 @@ fn test_single_log_file_json_output() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg(log_file.to_str().unwrap())
-        .arg("--output-format")
+    cmd.arg("--output-format")
         .arg("json")
         .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg("--limit")
+        .arg("3")
+        .arg(log_file.to_str().unwrap())
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"total_queries\": 4"))
-        .stdout(predicate::str::contains("\"total_duration_ms\": 41.814"))
-        .stdout(predicate::str::contains("\"error_count\": 1"))
-        .stdout(predicate::str::contains("\"SELECT\": 2"))
-        .stdout(predicate::str::contains("\"INSERT\": 1"))
-        .stdout(predicate::str::contains("\"UPDATE\": 1"));
+        .stdout(predicate::str::contains("\"schema_version\": 1"))
+        .stdout(predicate::str::contains("\"kind\": \"query_family\""))
+        .stdout(predicate::str::contains("\"total_duration_ms\": 15.234"))
+        .stdout(predicate::str::contains("\"execution_count\": 1"));
 }
 
 #[test]
@@ -116,12 +139,18 @@ fn test_log_directory_processing() {
     create_test_log_file(temp_dir.path(), "queries.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg("--log-dir")
-        .arg(temp_dir.path().to_str().unwrap())
+    cmd.arg("--output-format")
+        .arg("json")
         .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg("--log-dir")
+        .arg(temp_dir.path().to_str().unwrap())
+        .arg("--limit")
+        .arg("3")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Total Queries: 8")); // 4 queries per file * 2 files
+        .stdout(predicate::str::contains("\"execution_count\": 2")); // top finding appears twice across two files
 }
 
 #[test]
@@ -130,13 +159,22 @@ fn test_sample_size_limiting() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg(log_file.to_str().unwrap())
+    cmd.arg("--output-format")
+        .arg("json")
+        .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
         .arg("--sample-size")
         .arg("5")
-        .arg("--quiet")
+        .arg("--limit")
+        .arg("5")
+        .arg(log_file.to_str().unwrap())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Total Queries: 3")); // Limited by sample size
+        .stdout(predicate::str::contains("\"rank\": 1"))
+        .stdout(predicate::str::contains("\"rank\": 2"))
+        .stdout(predicate::str::contains("\"rank\": 3"))
+        .stdout(predicate::str::contains("\"partial_correlation\""));
 }
 
 #[test]
@@ -146,21 +184,25 @@ fn test_output_to_file() {
     let output_file = temp_dir.path().join("results.json");
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg(log_file.to_str().unwrap())
-        .arg("--output-format")
+    cmd.arg("--output-format")
         .arg("json")
         .arg("--outfile")
         .arg(output_file.to_str().unwrap())
         .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg("--limit")
+        .arg("3")
+        .arg(log_file.to_str().unwrap())
         .assert()
         .success();
 
     // Verify output file was created and contains expected content
     assert!(output_file.exists());
     let content = fs::read_to_string(&output_file).unwrap();
-    assert!(content.contains("\"total_queries\": 4"));
-    assert!(content.contains("\"total_duration_ms\": 41.814"));
-    assert!(content.contains("\"error_count\": 1"));
+    assert!(content.contains("\"schema_version\": 1"));
+    assert!(content.contains("\"total_duration_ms\": 15.234"));
+    assert!(content.contains("\"kind\": \"query_family\""));
 }
 
 #[test]
@@ -169,13 +211,13 @@ fn test_top_query_families_json_output() {
     create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg("--log-dir")
-        .arg(temp_dir.path().to_str().unwrap())
-        .arg("--output-format")
+    cmd.arg("--output-format")
         .arg("json")
         .arg("--quiet")
         .arg("top")
         .arg("query-families")
+        .arg("--log-dir")
+        .arg(temp_dir.path().to_str().unwrap())
         .arg("--limit")
         .arg("2")
         .assert()
@@ -195,11 +237,11 @@ fn test_top_query_families_text_output() {
     create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg("--log-dir")
-        .arg(temp_dir.path().to_str().unwrap())
-        .arg("--quiet")
+    cmd.arg("--quiet")
         .arg("top")
         .arg("query-families")
+        .arg("--log-dir")
+        .arg(temp_dir.path().to_str().unwrap())
         .arg("--limit")
         .arg("1")
         .assert()
@@ -215,6 +257,78 @@ fn test_top_query_families_text_output() {
 }
 
 #[test]
+fn test_slow_queries_diff_json_output() {
+    let temp_dir = TempDir::new().unwrap();
+    let baseline = create_test_log_file(
+        temp_dir.path(),
+        "baseline.log",
+        baseline_slow_query_diff_content(),
+    );
+    let target = create_test_log_file(
+        temp_dir.path(),
+        "target.log",
+        target_slow_query_diff_content(),
+    );
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.arg("--output-format")
+        .arg("json")
+        .arg("--quiet")
+        .arg("slow-queries")
+        .arg("diff")
+        .arg("--baseline")
+        .arg(baseline.to_str().unwrap())
+        .arg("--target")
+        .arg(target.to_str().unwrap())
+        .arg("--limit")
+        .arg("2")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"kind\": \"slow_query_regression\"",
+        ))
+        .stdout(predicate::str::contains("\"p95_regressed\""))
+        .stdout(predicate::str::contains("\"absent_in_baseline\""))
+        .stdout(predicate::str::contains("\"baseline\""))
+        .stdout(predicate::str::contains("\"target\""))
+        .stdout(predicate::str::contains("\"delta\""))
+        .stdout(predicate::str::contains("\"rank\": 1"))
+        .stdout(predicate::str::contains("\"rank\": 2"))
+        .stdout(predicate::str::contains("\"rank\": 3").not());
+}
+
+#[test]
+fn test_slow_queries_diff_thresholds_filter_results() {
+    let temp_dir = TempDir::new().unwrap();
+    let baseline = create_test_log_file(
+        temp_dir.path(),
+        "baseline.log",
+        baseline_slow_query_diff_content(),
+    );
+    let target = create_test_log_file(
+        temp_dir.path(),
+        "target.log",
+        target_slow_query_diff_content(),
+    );
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.arg("--output-format")
+        .arg("json")
+        .arg("--quiet")
+        .arg("slow-queries")
+        .arg("diff")
+        .arg("--baseline")
+        .arg(baseline.to_str().unwrap())
+        .arg("--target")
+        .arg(target.to_str().unwrap())
+        .arg("--min-target-count")
+        .arg("3")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"findings\": []"));
+}
+
+#[test]
 fn test_empty_log_file() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "empty.log", "");
@@ -222,6 +336,8 @@ fn test_empty_log_file() {
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg(log_file.to_str().unwrap())
         .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
         .assert()
         .failure(); // Should exit with error code for no entries
 }
@@ -229,15 +345,22 @@ fn test_empty_log_file() {
 #[test]
 fn test_nonexistent_log_file() {
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg("nonexistent.log").arg("--quiet").assert().failure(); // Should exit with error code
+    cmd.arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg("nonexistent.log")
+        .assert()
+        .failure(); // Should exit with error code
 }
 
 #[test]
 fn test_nonexistent_log_directory() {
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg("--log-dir")
+    cmd.arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg("--log-dir")
         .arg("/nonexistent/directory")
-        .arg("--quiet")
         .assert()
         .failure()
         .stderr(predicate::str::contains("Log directory does not exist"));
@@ -249,10 +372,12 @@ fn test_invalid_sample_size() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg(log_file.to_str().unwrap())
+    cmd.arg("--quiet")
+        .arg("top")
+        .arg("query-families")
         .arg("--sample-size")
         .arg("0")
-        .arg("--quiet")
+        .arg(log_file.to_str().unwrap())
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -266,11 +391,16 @@ fn test_malformed_log_lines() {
     let log_file = create_test_log_file(temp_dir.path(), "malformed.log", malformed_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg(log_file.to_str().unwrap())
+    cmd.arg("--output-format")
+        .arg("json")
         .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg(log_file.to_str().unwrap())
         .assert()
         .success() // Should succeed but with fewer parsed entries
-        .stdout(predicate::str::contains("Total Queries: 1")); // Only 1 valid query line
+        .stdout(predicate::str::contains("\"rank\": 1"))
+        .stdout(predicate::str::contains("\"rank\": 2").not()); // Only 1 correlated execution
 }
 
 #[test]
@@ -279,8 +409,10 @@ fn test_progress_bar_disabled_in_quiet_mode() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg(log_file.to_str().unwrap())
-        .arg("--quiet")
+    cmd.arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg(log_file.to_str().unwrap())
         .assert()
         .success()
         .stdout(predicate::str::contains("Processing").not()); // No progress messages
@@ -292,7 +424,9 @@ fn test_progress_bar_enabled_by_default() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg(log_file.to_str().unwrap())
+    cmd.arg("top")
+        .arg("query-families")
+        .arg(log_file.to_str().unwrap())
         .timeout(std::time::Duration::from_secs(10))
         .assert()
         .success();
@@ -307,12 +441,16 @@ fn test_large_file_processing() {
     let log_file = create_test_log_file(temp_dir.path(), "large.log", &large_content);
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg(log_file.to_str().unwrap())
+    cmd.arg("--output-format")
+        .arg("json")
         .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg(log_file.to_str().unwrap())
         .timeout(std::time::Duration::from_secs(30))
         .assert()
         .success()
-        .stdout(predicate::str::contains("Total Queries: 1000"));
+        .stdout(predicate::str::contains("\"execution_count\": 1000"));
 }
 
 #[test]
@@ -322,12 +460,16 @@ fn test_multiple_log_files() {
     let log_file2 = create_test_log_file(temp_dir.path(), "test2.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg(log_file1.to_str().unwrap())
-        .arg(log_file2.to_str().unwrap())
+    cmd.arg("--output-format")
+        .arg("json")
         .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg(log_file1.to_str().unwrap())
+        .arg(log_file2.to_str().unwrap())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Total Queries: 8")); // 4 queries per file * 2 files
+        .stdout(predicate::str::contains("\"execution_count\": 2")); // top finding appears twice across two files
 }
 
 #[test]
@@ -337,12 +479,16 @@ fn test_mixed_valid_invalid_files() {
     let invalid_file = temp_dir.path().join("nonexistent.log");
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg(valid_file.to_str().unwrap())
-        .arg(invalid_file.to_str().unwrap())
+    cmd.arg("--output-format")
+        .arg("json")
         .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg(valid_file.to_str().unwrap())
+        .arg(invalid_file.to_str().unwrap())
         .assert()
         .success() // Should succeed with valid file, warn about invalid
-        .stdout(predicate::str::contains("Total Queries: 4"));
+        .stdout(predicate::str::contains("\"execution_count\": 1"));
 }
 
 #[test]
@@ -352,8 +498,10 @@ fn test_verbose_logging() {
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.env("RUST_LOG", "debug")
-        .arg(log_file.to_str().unwrap())
         .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg(log_file.to_str().unwrap())
         .assert()
         .success()
         .stderr(predicate::str::contains("DEBUG"))
@@ -367,10 +515,14 @@ fn test_json_output_structure() {
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     let output = cmd
-        .arg(log_file.to_str().unwrap())
         .arg("--output-format")
         .arg("json")
         .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg("--limit")
+        .arg("3")
+        .arg(log_file.to_str().unwrap())
         .output()
         .unwrap();
 
@@ -381,12 +533,11 @@ fn test_json_output_structure() {
     let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
 
     assert!(json["metadata"].is_object());
-    assert!(json["summary"].is_object());
-    assert!(json["query_analysis"].is_object());
+    assert!(json["findings"].is_array());
 
     assert!(json["metadata"]["tool_version"].is_string());
-    assert!(json["summary"]["total_queries"].is_number());
-    assert!(json["query_analysis"]["by_type"].is_object());
+    assert!(json["metadata"]["total_log_entries"].is_number());
+    assert!(json["findings"][0]["kind"].is_string());
 }
 
 #[test]
@@ -398,14 +549,18 @@ fn test_performance_with_sample_size() {
     let start = std::time::Instant::now();
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg(log_file.to_str().unwrap())
+    cmd.arg("--output-format")
+        .arg("json")
+        .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
         .arg("--sample-size")
         .arg("100") // Limit to first 100 lines
-        .arg("--quiet")
+        .arg(log_file.to_str().unwrap())
         .timeout(std::time::Duration::from_secs(10))
         .assert()
         .success()
-        .stdout(predicate::str::contains("Total Queries: 100"));
+        .stdout(predicate::str::contains("\"execution_count\": 100"));
 
     let elapsed = start.elapsed();
     assert!(elapsed < std::time::Duration::from_secs(5)); // Should be fast with sampling
@@ -438,8 +593,10 @@ mod benchmark_tests {
         let start = Instant::now();
 
         let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-        cmd.arg(log_file.to_str().unwrap())
-            .arg("--quiet")
+        cmd.arg("--quiet")
+            .arg("top")
+            .arg("query-families")
+            .arg(log_file.to_str().unwrap())
             .timeout(std::time::Duration::from_secs(30))
             .assert()
             .success();
@@ -459,11 +616,15 @@ mod benchmark_tests {
 
         // This is a basic test - in production you'd use more sophisticated memory profiling
         let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-        cmd.arg(log_file.to_str().unwrap())
+        cmd.arg("--output-format")
+            .arg("json")
             .arg("--quiet")
+            .arg("top")
+            .arg("query-families")
+            .arg(log_file.to_str().unwrap())
             .timeout(std::time::Duration::from_secs(15))
             .assert()
             .success()
-            .stdout(predicate::str::contains("Total Queries: 1000"));
+            .stdout(predicate::str::contains("\"execution_count\": 1000"));
     }
 }

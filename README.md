@@ -1,6 +1,6 @@
 # pg-logstats
 
-A fast, modern PostgreSQL log analysis tool written in Rust. Analyze PostgreSQL logs with powerful query classification, performance metrics, and flexible output formats.
+A fast, modern PostgreSQL log investigation tool written in Rust. Analyze PostgreSQL logs with explicit workflow commands, correlated query families, and structured findings output.
 
 [![CI](https://github.com/vrajat/pg-logstats/actions/workflows/ci.yml/badge.svg)](https://github.com/vrajat/pg-logstats/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
@@ -22,14 +22,16 @@ git clone https://github.com/yourusername/pg-logstats.git
 cd pg-logstats
 cargo install --path .
 
-# Analyze a single log file
-pg-logstats /var/log/postgresql/postgresql.log
+# Rank the top slow query families in a log file
+pg-logstats top query-families /var/log/postgresql/postgresql.log
 
-# Analyze all logs in a directory with JSON output
-pg-logstats --log-dir /var/log/postgresql --output-format json
+# Analyze a directory and emit findings as JSON
+pg-logstats --output-format json top query-families --log-dir /var/log/postgresql
 
-# Quick summary of large files
-pg-logstats --log-dir /var/log/postgresql --quick --sample-size 10000
+# Diff a target window against a baseline window
+pg-logstats --output-format json slow-queries diff \
+  --baseline /var/log/postgresql/baseline \
+  --target /var/log/postgresql/target
 ```
 
 ## Table of Contents
@@ -45,11 +47,11 @@ pg-logstats --log-dir /var/log/postgresql --quick --sample-size 10000
 
 ## Features
 
-### Phase 1 (Current)
-- **Fast PostgreSQL Log Parsing**: Supports stderr format with comprehensive error handling
-- **Query Analysis**: Automatic classification (SELECT, INSERT, UPDATE, DELETE, DDL, etc.)
-- **Performance Metrics**: Duration analysis with percentiles and slow query detection
-- **Flexible Output**: Human-readable text or structured JSON output
+### Current
+- **Workflow-first CLI**: Explicit `top query-families` and `slow-queries diff` commands
+- **Correlated Query Families**: Statement and duration pairing using stderr process-order correlation
+- **Structured Findings**: Text and JSON output from the same machine-readable finding model
+- **Baseline Versus Target Diffing**: Deterministic regression ranking with explainable reason codes
 - **Large File Support**: Memory-efficient processing with sampling options
 - **Progress Indication**: Real-time progress bars and verbose logging
 
@@ -92,23 +94,20 @@ pg-logstats --version
 ### Basic Commands
 
 ```bash
-# Analyze a single log file
-pg-logstats postgresql.log
+# Rank slow query families in a single log file
+pg-logstats top query-families postgresql.log
 
-# Analyze multiple files
-pg-logstats file1.log file2.log file3.log
+# Rank slow query families across multiple files
+pg-logstats top query-families file1.log file2.log file3.log
 
 # Analyze all logs in a directory
-pg-logstats --log-dir /var/log/postgresql/
+pg-logstats top query-families --log-dir /var/log/postgresql/
 
 # Limit analysis to first 1000 lines of each file
-pg-logstats --sample-size 1000 large-file.log
-
-# Get quick summary without detailed queries
-pg-logstats --quick postgresql.log
+pg-logstats top query-families --sample-size 1000 large-file.log
 
 # Output as JSON for further processing
-pg-logstats --output-format json postgresql.log | jq '.summary'
+pg-logstats --output-format json top query-families postgresql.log | jq '.findings'
 ```
 
 ### Advanced Usage
@@ -116,93 +115,81 @@ pg-logstats --output-format json postgresql.log | jq '.summary'
 ```bash
 # Combine multiple options
 pg-logstats \
-  --log-dir /var/log/postgresql/ \
   --output-format json \
-  --sample-size 5000 \
-  --quick
+  top query-families \
+  --log-dir /var/log/postgresql/ \
+  --sample-size 5000
 
 # Process with verbose logging
-RUST_LOG=debug pg-logstats --verbose postgresql.log
+RUST_LOG=debug pg-logstats top query-families postgresql.log
 
 # Save output to file
-pg-logstats --output-format json postgresql.log > analysis.json
+pg-logstats --output-format json top query-families postgresql.log > findings.json
+
+# Compare a target window to a baseline window
+pg-logstats slow-queries diff \
+  --baseline ./fixtures/baseline.log \
+  --target ./fixtures/target.log
 ```
 
 ### Command Line Options
 
 | Option | Description | Example |
 |--------|-------------|---------|
-| `--log-dir <DIR>` | Directory containing log files | `--log-dir /var/log/postgresql/` |
 | `--output-format <FORMAT>` | Output format: text, json | `--output-format json` |
-| `--quick` | Show only summary information | `--quick` |
-| `--sample-size <N>` | Limit analysis to first N lines | `--sample-size 10000` |
-| `--verbose` | Enable verbose logging | `--verbose` |
+| `top query-families --log-dir <DIR>` | Analyze all logs in a directory | `top query-families --log-dir /var/log/postgresql/` |
+| `top query-families --sample-size <N>` | Limit analysis to first N lines per file | `top query-families --sample-size 10000 postgresql.log` |
+| `slow-queries diff --baseline <PATH> --target <PATH>` | Compare two explicit log windows | `slow-queries diff --baseline base.log --target target.log` |
 | `--help` | Show help information | `--help` |
 | `--version` | Show version information | `--version` |
 
 ## Examples
 
-### Example 1: Basic Analysis
+### Example 1: Top Query Families
 
 ```bash
-$ pg-logstats sample.log
-Query Analysis Report
-===================
-Total Queries: 1,234
-Total Duration: 45,678.90 ms
-Average Duration: 37.02 ms
-P95 Duration: 156.78 ms
-P99 Duration: 892.34 ms
-Error Count: 12
-Connection Count: 45
+$ pg-logstats top query-families sample.log
+Findings
+Schema Version: 1
 
-Query Types:
-    SELECT: 856
-    INSERT: 234
-    UPDATE: 89
-    DELETE: 34
-       DDL: 12
-     OTHER: 9
-
-Slowest Queries:
-     #  Duration (ms)  Query
-     1       2,345.67  SELECT * FROM large_table WHERE complex_condition...
-     2       1,234.56  CREATE INDEX idx_performance ON users(email, created_at)
-     3         892.34  UPDATE users SET last_login = NOW() WHERE active = true
-
-Most Frequent Queries:
-     #     Count  Query
-     1       234  SELECT * FROM users WHERE active = ?
-     2       156  INSERT INTO logs (level, message) VALUES (?, ?)
-     3        89  SELECT COUNT(*) FROM orders WHERE status = ?
+#1 [query_family:queryid=|db=app|user=web|app=api|sql=SELECT * FROM orders WHERE id = ?]
+Query family with high total runtime
+Reason: 42 executions contributed 2876.120 ms total runtime; max execution was 241.551 ms
+Score: 2876.120  Confidence: High
+Query Family: queryid=|db=app|user=web|app=api|sql=SELECT * FROM orders WHERE id = ?
+SQL: SELECT * FROM orders WHERE id = ?
 ```
 
-### Example 2: JSON Output for Processing
+### Example 2: JSON Findings Output
 
 ```bash
-$ pg-logstats --output-format json sample.log | jq '.summary'
+$ pg-logstats --output-format json top query-families sample.log | jq '.findings[0]'
 {
-  "total_queries": 1234,
-  "total_duration_ms": 45678.9,
-  "avg_duration_ms": 37.02,
-  "error_count": 12,
-  "connection_count": 45
+  "kind": "query_family",
+  "rank": 1,
+  "reason_codes": ["high_total_duration", "high_max_duration", "correlated_duration"]
 }
 ```
 
-### Example 3: Large File Processing
+### Example 3: Baseline Versus Target Diff
 
 ```bash
-$ pg-logstats --sample-size 10000 --quick large-production.log
-Processing large-production.log...
-[████████████████████████████████████████] 10000/10000 lines
+$ pg-logstats --output-format json slow-queries diff \
+    --baseline baseline.log \
+    --target target.log \
+    --min-target-count 3
 
-Quick Summary:
-- Processed: 10,000 lines (sample)
-- Total Queries: 8,456
-- Average Duration: 23.45 ms
-- Error Rate: 0.8%
-- Top Query Type: SELECT (67.8%)
+{
+  "findings": [
+    {
+      "kind": "slow_query_regression",
+      "reason_codes": ["meets_eligibility_thresholds", "p95_regressed"],
+      "baseline": { "...": "..." },
+      "target": { "...": "..." },
+      "delta": { "...": "..." }
+    }
+  ]
+}
 ```
 
 ## Demo
@@ -270,7 +257,7 @@ cargo build
 cargo test
 
 # Run with sample data
-cargo run -- examples/sample.log
+cargo run -- top query-families examples/sample.log
 ```
 
 ### Code Style
@@ -294,7 +281,7 @@ cargo run -- examples/sample.log
 - **Document Code**: Use rustdoc comments for public APIs
 - **Performance**: Consider memory usage and processing speed
 - **Error Handling**: Provide clear, actionable error messages
-- **Backwards Compatibility**: Maintain API stability where possible
+- **CLI Clarity**: Prefer explicit workflow commands over implicit modes
 
 ### Areas for Contribution
 
@@ -304,7 +291,7 @@ cargo run -- examples/sample.log
 - **Documentation**: Examples, tutorials, API docs
 - **Testing**: Edge cases, performance benchmarks
 
-## 📚 Documentation
+## Documentation
 
 - **[Architecture Guide](docs/architecture.md)**: System design and module overview
 - **[API Documentation](https://docs.rs/pg-logstats)**: Generated API docs
@@ -312,7 +299,7 @@ cargo run -- examples/sample.log
 - **[Demo Guide](demo/README.md)**: Step-by-step demo walkthrough
 - **[Testing Guide](tests/README.md)**: Running and writing tests
 
-## 🔍 Troubleshooting
+## Troubleshooting
 
 ### Common Issues
 
@@ -327,8 +314,7 @@ cargo run -- examples/sample.log
 - Consider upgrading system memory for very large files
 
 **Slow processing**
-- Enable `--quick` mode for faster summary analysis
-- Use `--sample-size` to process subset of large files
+- Use `top query-families --sample-size <N>` to process a subset of large files
 - Check disk I/O performance
 
 ### Getting Help

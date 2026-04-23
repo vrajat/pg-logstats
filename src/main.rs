@@ -1,10 +1,10 @@
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use pg_logstats::{
-    normalize_log_entries, query_family_findings, Correlator, EventSourceKind, JsonFormatter,
-    PgLogstatsError, ProcessOrderCorrelator, QueryAnalyzer, Result, StderrParser, TextFormatter,
-    TimingAnalyzer,
+    normalize_log_entries, query_family_findings, slow_query_diff_findings, Correlator,
+    EventSourceKind, JsonFormatter, PgLogstatsError, ProcessOrderCorrelator, Result,
+    SlowQueryDiffOptions, StderrParser, TextFormatter,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,33 +19,11 @@ use std::time::Instant;
 )]
 struct Arguments {
     #[clap(subcommand)]
-    command: Option<Command>,
-
-    /// Log files or directory to analyze (supports glob patterns)
-    #[clap(value_name = "LOG_FILES")]
-    log_files: Vec<String>,
-
-    // Phase 1 Features
-    /// Directory containing PostgreSQL log files
-    #[clap(long, value_name = "DIR")]
-    log_dir: Option<PathBuf>,
+    command: Command,
 
     /// Output format for results
     #[clap(long, value_enum, default_value = "text")]
     output_format: OutputFormat,
-
-    /// Show only summary information (quick mode)
-    #[clap(long)]
-    quick: bool,
-
-    /// Limit analysis to first N lines of each file (for large files)
-    #[clap(long, value_name = "N")]
-    sample_size: Option<usize>,
-
-    // Existing options (keeping the most important ones)
-    /// file containing a list of log file to parse.
-    #[clap(short = 'L', long, value_name = "logfile-list")]
-    logfile_list: Option<String>,
 
     /// define the filename for the output. Default depends on the output format: out.html, out.txt, out.bin, out.json or out.tsung. This option can be used multiple time to output several format. To use json output the Perl module JSON::XS must be installed, To dump output to stdout use - as filename.
     #[clap(short = 'o', long, value_name = "outfile")]
@@ -60,12 +38,36 @@ struct Arguments {
     quiet: bool,
 }
 
+#[derive(Debug, Args)]
+struct LogInputArgs {
+    /// Directory containing PostgreSQL log files
+    #[clap(long, value_name = "DIR")]
+    log_dir: Option<PathBuf>,
+
+    /// Limit analysis to first N lines of each file (for large files)
+    #[clap(long, value_name = "N")]
+    sample_size: Option<usize>,
+
+    /// file containing a list of log file to parse.
+    #[clap(short = 'L', long, value_name = "logfile-list")]
+    logfile_list: Option<String>,
+
+    /// Log files to analyze
+    #[clap(value_name = "LOG_FILES")]
+    log_files: Vec<String>,
+}
+
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Investigation-oriented top findings
     Top {
         #[clap(subcommand)]
         command: TopCommand,
+    },
+    /// Slow-query investigation workflows
+    SlowQueries {
+        #[clap(subcommand)]
+        command: SlowQueriesCommand,
     },
 }
 
@@ -76,6 +78,43 @@ enum TopCommand {
         /// Maximum number of query-family findings to emit
         #[clap(long, default_value_t = 10)]
         limit: usize,
+
+        #[clap(flatten)]
+        input: LogInputArgs,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum SlowQueriesCommand {
+    /// Compare target logs against explicit baseline logs
+    Diff {
+        /// Baseline log file or directory
+        #[clap(long, value_name = "PATH")]
+        baseline: PathBuf,
+
+        /// Target log file or directory
+        #[clap(long, value_name = "PATH")]
+        target: PathBuf,
+
+        /// Limit analysis to first N lines of each file in each window
+        #[clap(long, value_name = "N")]
+        sample_size: Option<usize>,
+
+        /// Maximum number of findings to emit
+        #[clap(long, default_value_t = 10)]
+        limit: usize,
+
+        /// Minimum target executions for a query family to be eligible
+        #[clap(long, default_value_t = 1)]
+        min_target_count: u64,
+
+        /// Minimum target total runtime in milliseconds
+        #[clap(long, default_value_t = 0.0)]
+        min_target_total_ms: f64,
+
+        /// Minimum p95 regression in milliseconds
+        #[clap(long, default_value_t = 0.0)]
+        min_p95_delta_ms: f64,
     },
 }
 
@@ -109,6 +148,56 @@ fn main() -> Result<()> {
     // Validate CLI arguments
     validate_arguments(&args)?;
 
+    // Initialize parser based on format
+    let parser = initialize_parser(&args)?;
+
+    run_command(&args, &parser)?;
+
+    let elapsed = start_time.elapsed();
+    if !args.quiet {
+        println!("Analysis completed in {:.2}s", elapsed.as_secs_f64());
+    }
+
+    Ok(())
+}
+
+fn run_command(args: &Arguments, parser: &StderrParser) -> Result<()> {
+    match &args.command {
+        Command::Top {
+            command: TopCommand::QueryFamilies { limit, input },
+        } => run_top_query_families_command(args, parser, input, *limit),
+        Command::SlowQueries {
+            command:
+                SlowQueriesCommand::Diff {
+                    baseline,
+                    target,
+                    sample_size,
+                    limit,
+                    min_target_count,
+                    min_target_total_ms,
+                    min_p95_delta_ms,
+                },
+        } => run_slow_queries_diff_command(
+            args,
+            parser,
+            baseline,
+            target,
+            *sample_size,
+            SlowQueryDiffOptions {
+                limit: *limit,
+                min_target_count: *min_target_count,
+                min_target_total_ms: *min_target_total_ms,
+                min_p95_delta_ms: *min_p95_delta_ms,
+            },
+        ),
+    }
+}
+
+fn load_default_log_entries(
+    args: &Arguments,
+    input: &LogInputArgs,
+    parser: &StderrParser,
+) -> Result<Vec<pg_logstats::LogEntry>> {
     // Initialize progress bar if not in quiet mode
     let progress_bar = if !args.quiet {
         Some(create_progress_bar())
@@ -117,7 +206,7 @@ fn main() -> Result<()> {
     };
 
     // Discover log files
-    let log_files = discover_log_files(&args)?;
+    let log_files = discover_log_files(input)?;
 
     if log_files.is_empty() {
         error!("No log files found to process");
@@ -125,9 +214,6 @@ fn main() -> Result<()> {
     }
 
     info!("Found {} log files to process", log_files.len());
-
-    // Initialize parser based on format
-    let parser = initialize_parser(&args)?;
 
     // Process log files with progress indication
     let mut all_entries = Vec::new();
@@ -138,7 +224,7 @@ fn main() -> Result<()> {
             pb.set_position(index as u64);
         }
 
-        match process_log_file(log_file, &parser, &args) {
+        match process_log_file(log_file, parser, input.sample_size) {
             Ok(mut entries) => {
                 info!(
                     "Processed {} entries from {}",
@@ -164,34 +250,62 @@ fn main() -> Result<()> {
     }
 
     info!("Total entries parsed: {}", all_entries.len());
+    Ok(all_entries)
+}
 
+fn run_top_query_families_command(
+    args: &Arguments,
+    parser: &StderrParser,
+    input: &LogInputArgs,
+    limit: usize,
+) -> Result<()> {
+    let all_entries = load_default_log_entries(args, input, parser)?;
+    let findings = run_top_query_families(&all_entries, limit)?;
+    output_findings(&findings, args, &all_entries)
+}
+
+fn run_slow_queries_diff_command(
+    args: &Arguments,
+    parser: &StderrParser,
+    baseline: &Path,
+    target: &Path,
+    sample_size: Option<usize>,
+    options: SlowQueryDiffOptions,
+) -> Result<()> {
+    let (findings, total_entries) =
+        run_slow_queries_diff(baseline, target, parser, sample_size, options)?;
+    output_findings_with_entry_count(&findings, args, total_entries)
+}
+
+fn validate_arguments(args: &Arguments) -> Result<()> {
     match &args.command {
-        Some(Command::Top {
-            command: TopCommand::QueryFamilies { limit },
-        }) => {
-            let findings = run_top_query_families(&all_entries, *limit)?;
-            output_findings(&findings, &args, &all_entries)?;
-        }
-        None => {
-            // Run analytics on parsed data
-            let analytics_result = run_analytics(&all_entries, &args)?;
-
-            // Output results in requested format
-            output_results(&analytics_result, &args, &all_entries)?;
-        }
+        Command::Top {
+            command: TopCommand::QueryFamilies { input, .. },
+        } => validate_log_input_args(input)?,
+        Command::SlowQueries {
+            command: SlowQueriesCommand::Diff { sample_size, .. },
+        } => validate_sample_size(*sample_size)?,
     }
 
-    let elapsed = start_time.elapsed();
-    if !args.quiet {
-        println!("Analysis completed in {:.2}s", elapsed.as_secs_f64());
+    // Validate output directory if specified
+    if let Some(outdir) = &args.outdir {
+        let outdir_path = Path::new(outdir);
+        if outdir_path.exists() && !outdir_path.is_dir() {
+            return Err(PgLogstatsError::Configuration {
+                message: format!(
+                    "Output directory path exists but is not a directory: {}",
+                    outdir
+                ),
+                field: Some("outdir".to_string()),
+            });
+        }
     }
 
     Ok(())
 }
 
-fn validate_arguments(args: &Arguments) -> Result<()> {
-    // Check if log directory exists and is readable
-    if let Some(log_dir) = &args.log_dir {
+fn validate_log_input_args(input: &LogInputArgs) -> Result<()> {
+    if let Some(log_dir) = &input.log_dir {
         if !log_dir.exists() {
             return Err(PgLogstatsError::Configuration {
                 message: format!("Log directory does not exist: {}", log_dir.display()),
@@ -221,8 +335,11 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
         }
     }
 
-    // Validate sample size
-    if let Some(sample_size) = args.sample_size {
+    validate_sample_size(input.sample_size)
+}
+
+fn validate_sample_size(sample_size: Option<usize>) -> Result<()> {
+    if let Some(sample_size) = sample_size {
         if sample_size == 0 {
             return Err(PgLogstatsError::Configuration {
                 message: "Sample size must be greater than 0".to_string(),
@@ -231,33 +348,19 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
         }
     }
 
-    // Validate output directory if specified
-    if let Some(outdir) = &args.outdir {
-        let outdir_path = Path::new(outdir);
-        if outdir_path.exists() && !outdir_path.is_dir() {
-            return Err(PgLogstatsError::Configuration {
-                message: format!(
-                    "Output directory path exists but is not a directory: {}",
-                    outdir
-                ),
-                field: Some("outdir".to_string()),
-            });
-        }
-    }
-
     Ok(())
 }
 
-fn discover_log_files(args: &Arguments) -> Result<Vec<PathBuf>> {
+fn discover_log_files(input: &LogInputArgs) -> Result<Vec<PathBuf>> {
     let mut log_files = Vec::new();
 
     // If log_dir is specified, discover files in that directory
-    if let Some(log_dir) = &args.log_dir {
+    if let Some(log_dir) = &input.log_dir {
         discover_files_in_directory(log_dir, &mut log_files)?;
     }
 
     // Add explicitly specified log files
-    for file_pattern in &args.log_files {
+    for file_pattern in &input.log_files {
         if let Ok(path) = PathBuf::from(file_pattern).canonicalize() {
             if path.is_file() {
                 log_files.push(path);
@@ -272,8 +375,8 @@ fn discover_log_files(args: &Arguments) -> Result<Vec<PathBuf>> {
     }
 
     // If logfile_list is specified, read file list
-    if let Some(logfile_list) = &args.logfile_list {
-        let list_content = fs::read_to_string(logfile_list).map_err(|e| PgLogstatsError::Io(e))?;
+    if let Some(logfile_list) = &input.logfile_list {
+        let list_content = fs::read_to_string(logfile_list).map_err(PgLogstatsError::Io)?;
 
         for line in list_content.lines() {
             let line = line.trim();
@@ -335,6 +438,31 @@ fn discover_files_in_directory(dir: &Path, log_files: &mut Vec<PathBuf>) -> Resu
     Ok(())
 }
 
+fn discover_log_files_for_path(path: &Path) -> Result<Vec<PathBuf>> {
+    if !path.exists() {
+        return Err(PgLogstatsError::Configuration {
+            message: format!("Log path does not exist: {}", path.display()),
+            field: Some("path".to_string()),
+        });
+    }
+
+    let mut log_files = Vec::new();
+    if path.is_file() {
+        log_files.push(path.to_path_buf());
+    } else if path.is_dir() {
+        discover_files_in_directory(path, &mut log_files)?;
+    } else {
+        return Err(PgLogstatsError::Configuration {
+            message: format!("Log path is neither file nor directory: {}", path.display()),
+            field: Some("path".to_string()),
+        });
+    }
+
+    log_files.sort();
+    log_files.dedup();
+    Ok(log_files)
+}
+
 fn initialize_parser(_args: &Arguments) -> Result<StderrParser> {
     // For now, we'll use StderrParser as the default
     // In the future, we can add logic to choose parser based on format
@@ -345,13 +473,13 @@ fn initialize_parser(_args: &Arguments) -> Result<StderrParser> {
 fn process_log_file(
     log_file: &Path,
     parser: &StderrParser,
-    args: &Arguments,
+    sample_size: Option<usize>,
 ) -> Result<Vec<pg_logstats::LogEntry>> {
     let content = fs::read_to_string(log_file)?;
     let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
 
     // Apply sample size limit if specified
-    let lines_to_process = if let Some(sample_size) = args.sample_size {
+    let lines_to_process = if let Some(sample_size) = sample_size {
         if lines.len() > sample_size {
             info!(
                 "Limiting analysis to first {} lines of {}",
@@ -369,23 +497,26 @@ fn process_log_file(
     parser.parse_lines(lines_to_process)
 }
 
-fn run_analytics(
-    entries: &[pg_logstats::LogEntry],
-    _args: &Arguments,
-) -> Result<pg_logstats::AnalysisResult> {
-    info!("Running analytics on {} entries", entries.len());
-    let events = normalize_log_entries(entries, EventSourceKind::Stderr);
+fn process_log_paths(
+    path: &Path,
+    parser: &StderrParser,
+    sample_size: Option<usize>,
+) -> Result<Vec<pg_logstats::LogEntry>> {
+    let log_files = discover_log_files_for_path(path)?;
+    if log_files.is_empty() {
+        return Err(PgLogstatsError::Configuration {
+            message: format!("No log files found under {}", path.display()),
+            field: Some("path".to_string()),
+        });
+    }
 
-    let query_analyzer = QueryAnalyzer::new();
-    let timing_analyzer = TimingAnalyzer::new();
+    let mut all_entries = Vec::new();
+    for log_file in log_files {
+        let mut entries = process_log_file(&log_file, parser, sample_size)?;
+        all_entries.append(&mut entries);
+    }
 
-    // Run query analysis
-    let analysis_result = query_analyzer.analyze_events(&events)?;
-
-    // Run timing analysis
-    let _timing_analysis = timing_analyzer.analyze_timing_events(&events)?;
-
-    Ok(analysis_result)
+    Ok(all_entries)
 }
 
 fn run_top_query_families(
@@ -402,50 +533,31 @@ fn run_top_query_families(
     Ok(query_family_findings(&executions, limit))
 }
 
-fn output_results(
-    analytics_result: &pg_logstats::AnalysisResult,
-    args: &Arguments,
-    entries: &[pg_logstats::LogEntry],
-) -> Result<()> {
-    match args.output_format {
-        OutputFormat::Json => {
-            let formatter = JsonFormatter::new().with_pretty(true).with_metadata(
-                env!("CARGO_PKG_VERSION"),
-                vec![],
-                entries.len(),
-            );
+fn run_slow_queries_diff(
+    baseline: &Path,
+    target: &Path,
+    parser: &StderrParser,
+    sample_size: Option<usize>,
+    options: SlowQueryDiffOptions,
+) -> Result<(pg_logstats::FindingSet, usize)> {
+    info!(
+        "Building slow-query diff findings from baseline {} and target {}",
+        baseline.display(),
+        target.display()
+    );
 
-            let output = formatter.format(analytics_result)?;
+    let baseline_entries = process_log_paths(baseline, parser, sample_size)?;
+    let target_entries = process_log_paths(target, parser, sample_size)?;
 
-            if let Some(outfile) = &args.outfile {
-                if outfile == "-" {
-                    println!("{}", output);
-                } else {
-                    fs::write(outfile, output)?;
-                    info!("Results written to {}", outfile);
-                }
-            } else {
-                println!("{}", output);
-            }
-        }
-        OutputFormat::Text => {
-            let formatter = TextFormatter::new();
-            let output = formatter.format_query_analysis(analytics_result)?;
+    let baseline_events = normalize_log_entries(&baseline_entries, EventSourceKind::Stderr);
+    let target_events = normalize_log_entries(&target_entries, EventSourceKind::Stderr);
+    let baseline_executions = ProcessOrderCorrelator.correlate(&baseline_events);
+    let target_executions = ProcessOrderCorrelator.correlate(&target_events);
 
-            if let Some(outfile) = &args.outfile {
-                if outfile == "-" {
-                    println!("{}", output);
-                } else {
-                    fs::write(outfile, output)?;
-                    info!("Results written to {}", outfile);
-                }
-            } else {
-                println!("{}", output);
-            }
-        }
-    }
+    let findings = slow_query_diff_findings(&baseline_executions, &target_executions, options);
+    let total_entries = baseline_entries.len() + target_entries.len();
 
-    Ok(())
+    Ok((findings, total_entries))
 }
 
 fn output_findings(
@@ -453,12 +565,20 @@ fn output_findings(
     args: &Arguments,
     entries: &[pg_logstats::LogEntry],
 ) -> Result<()> {
+    output_findings_with_entry_count(findings, args, entries.len())
+}
+
+fn output_findings_with_entry_count(
+    findings: &pg_logstats::FindingSet,
+    args: &Arguments,
+    total_log_entries: usize,
+) -> Result<()> {
     match args.output_format {
         OutputFormat::Json => {
             let formatter = JsonFormatter::new().with_pretty(true).with_metadata(
                 env!("CARGO_PKG_VERSION"),
                 vec![],
-                entries.len(),
+                total_log_entries,
             );
 
             let output = formatter.format_findings(findings)?;

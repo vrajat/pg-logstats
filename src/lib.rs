@@ -28,8 +28,9 @@ pub use events::{
     SessionIdentity, SourceReference, StatementEvent,
 };
 pub use findings::{
-    query_family_findings, Finding, FindingConfidence, FindingKind, FindingMetrics, FindingSet,
-    QueryFamilyFinding, ReasonCode, FINDING_SCHEMA_VERSION,
+    query_family_findings, slow_query_diff_findings, ComparisonMetrics, DeltaMetrics, Finding,
+    FindingConfidence, FindingKind, FindingMetrics, FindingSet, QueryFamilyFinding, ReasonCode,
+    SlowQueryDiffOptions, FINDING_SCHEMA_VERSION,
 };
 pub use output::{JsonFormatter, TextFormatter};
 pub use parsers::StderrParser;
