@@ -32,6 +32,9 @@ pg-logstats --output-format json top query-families --log-dir /var/log/postgresq
 pg-logstats --output-format json slow-queries diff \
   --baseline /var/log/postgresql/baseline \
   --target /var/log/postgresql/target
+
+# Print suggested follow-up SQL for the top finding
+pg-logstats suggest-sql --findings-file findings.json --rank 1
 ```
 
 ## Table of Contents
@@ -52,6 +55,7 @@ pg-logstats --output-format json slow-queries diff \
 - **Correlated Query Families**: Statement and duration pairing using stderr process-order correlation
 - **Structured Findings**: Text and JSON output from the same machine-readable finding model
 - **Baseline Versus Target Diffing**: Deterministic regression ranking with explainable reason codes
+- **Suggested Follow-up SQL**: Print `pg_stat_statements` and `pg_stat_activity` queries for a surfaced finding
 - **Large File Support**: Memory-efficient processing with sampling options
 - **Progress Indication**: Real-time progress bars and verbose logging
 
@@ -130,6 +134,9 @@ pg-logstats --output-format json top query-families postgresql.log > findings.js
 pg-logstats slow-queries diff \
   --baseline ./fixtures/baseline.log \
   --target ./fixtures/target.log
+
+# Print the suggested SQL for a chosen finding from saved findings JSON
+pg-logstats suggest-sql --findings-file findings.json --rank 1
 ```
 
 ### Command Line Options
@@ -140,6 +147,7 @@ pg-logstats slow-queries diff \
 | `top query-families --log-dir <DIR>` | Analyze all logs in a directory | `top query-families --log-dir /var/log/postgresql/` |
 | `top query-families --sample-size <N>` | Limit analysis to first N lines per file | `top query-families --sample-size 10000 postgresql.log` |
 | `slow-queries diff --baseline <PATH> --target <PATH>` | Compare two explicit log windows | `slow-queries diff --baseline base.log --target target.log` |
+| `suggest-sql --findings-file <PATH> --rank <N>` | Print follow-up SQL for one finding | `suggest-sql --findings-file findings.json --rank 1` |
 | `--help` | Show help information | `--help` |
 | `--version` | Show version information | `--version` |
 
@@ -190,6 +198,16 @@ $ pg-logstats --output-format json slow-queries diff \
     }
   ]
 }
+```
+
+### Example 4: Suggested SQL
+
+```bash
+$ pg-logstats suggest-sql --findings-file findings.json --rank 1
+#1 [query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM orders WHERE id = ?]
+Query family with high total runtime
+select queryid, calls, total_exec_time, mean_exec_time, rows, query from pg_stat_statements where query ilike '%SELECT * FROM orders WHERE id = ?%' order by total_exec_time desc limit 20;
+select pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query from pg_stat_activity where datname = 'appdb' and usename = 'app' and application_name = 'api' order by query_start desc nulls last limit 20;
 ```
 
 ## Demo

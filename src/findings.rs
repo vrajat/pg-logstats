@@ -229,17 +229,7 @@ impl QueryFamilyAccumulator {
             reason_codes.push(ReasonCode::PartialCorrelation);
         }
 
-        let next_sql = self
-            .identity
-            .queryid
-            .as_ref()
-            .map(|queryid| {
-                vec![format!(
-                    "select * from pg_stat_statements where queryid = {};",
-                    queryid
-                )]
-            })
-            .unwrap_or_default();
+        let next_sql = suggest_sql_for_query_family(&self.identity);
 
         Finding {
             schema_version: FINDING_SCHEMA_VERSION,
@@ -538,18 +528,67 @@ fn diff_finding(rank: usize, candidate: DiffCandidate) -> Finding {
         delta: Some(delta),
         evidence: accumulator.evidence,
         confidence,
-        next_sql: accumulator
-            .identity
-            .queryid
-            .as_ref()
-            .map(|queryid| {
-                vec![format!(
-                    "select * from pg_stat_statements where queryid = {};",
-                    queryid
-                )]
-            })
-            .unwrap_or_default(),
+        next_sql: suggest_sql_for_query_family(&accumulator.identity),
     }
+}
+
+/// Build follow-up SQL suggestions for a query-family finding.
+pub fn suggest_sql_for_query_family(identity: &QueryFamilyIdentity) -> Vec<String> {
+    let mut statements = Vec::new();
+
+    if let Some(queryid) = &identity.queryid {
+        statements.push(format!(
+            "select queryid, calls, total_exec_time, mean_exec_time, rows, query \
+from pg_stat_statements where queryid = {};",
+            queryid
+        ));
+    } else {
+        statements.push(format!(
+            "select queryid, calls, total_exec_time, mean_exec_time, rows, query \
+from pg_stat_statements where query ilike '%{}%' order by total_exec_time desc limit 20;",
+            escape_like_literal(&identity.normalized_sql)
+        ));
+    }
+
+    let mut activity_filters = Vec::new();
+    if let Some(database) = &identity.database {
+        activity_filters.push(format!("datname = '{}'", escape_sql_literal(database)));
+    }
+    if let Some(user) = &identity.user {
+        activity_filters.push(format!("usename = '{}'", escape_sql_literal(user)));
+    }
+    if let Some(application_name) = &identity.application_name {
+        activity_filters.push(format!(
+            "application_name = '{}'",
+            escape_sql_literal(application_name)
+        ));
+    }
+
+    let where_clause = if activity_filters.is_empty() {
+        "state <> 'idle'".to_string()
+    } else {
+        activity_filters.join(" and ")
+    };
+
+    statements.push(format!(
+        "select pid, usename, datname, application_name, state, wait_event_type, \
+wait_event, query_start, query from pg_stat_activity where {} \
+order by query_start desc nulls last limit 20;",
+        where_clause
+    ));
+
+    statements
+}
+
+fn escape_sql_literal(value: &str) -> String {
+    value.replace('\'', "''")
+}
+
+fn escape_like_literal(value: &str) -> String {
+    escape_sql_literal(value)
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 #[cfg(test)]
@@ -633,6 +672,9 @@ mod tests {
         assert_eq!(finding.metrics.execution_count, 2);
         assert_eq!(finding.metrics.correlated_execution_count, 1);
         assert_eq!(finding.metrics.uncorrelated_execution_count, 1);
+        assert_eq!(finding.next_sql.len(), 2);
+        assert!(finding.next_sql[0].contains("pg_stat_statements"));
+        assert!(finding.next_sql[1].contains("pg_stat_activity"));
     }
 
     #[test]
@@ -695,6 +737,7 @@ mod tests {
         assert_eq!(finding.baseline.unwrap().p95_duration_ms, 30.0);
         assert_eq!(finding.target.unwrap().p95_duration_ms, 150.0);
         assert_eq!(finding.delta.unwrap().p95_duration_ms, 120.0);
+        assert_eq!(finding.next_sql.len(), 2);
     }
 
     #[test]
@@ -714,5 +757,29 @@ mod tests {
         );
 
         assert!(findings.findings.is_empty());
+    }
+
+    #[test]
+    fn suggest_sql_escapes_identity_fields() {
+        let session = SessionIdentity {
+            process_id: "12345".to_string(),
+            user: Some("app'user".to_string()),
+            database: Some("app_db".to_string()),
+            client_host: None,
+            application_name: Some("api%worker".to_string()),
+        };
+        let identity = QueryFamilyIdentity::new(
+            "select * from orders where note = 'abc_%'".to_string(),
+            &session,
+            None,
+        );
+
+        let sql = suggest_sql_for_query_family(&identity);
+
+        assert_eq!(sql.len(), 2);
+        assert!(sql[0].contains("pg_stat_statements"));
+        assert!(sql[0].contains("abc\\_\\%"));
+        assert!(sql[1].contains("usename = 'app''user'"));
+        assert!(sql[1].contains("application_name = 'api%worker'"));
     }
 }

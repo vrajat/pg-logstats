@@ -59,6 +59,10 @@ fn target_slow_query_diff_content() -> &'static str {
 2024-01-15 10:00:02.200 UTC [3003] app@appdb api: LOG: duration: 200.000 ms"#
 }
 
+fn finding_id_for_users_select() -> &'static str {
+    "query_family:queryid=|db=testdb|user=testuser|app=psql|sql=SELECT * FROM users WHERE id = ?"
+}
+
 #[test]
 fn test_cli_help() {
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
@@ -70,7 +74,8 @@ fn test_cli_help() {
         ))
         .stdout(predicate::str::contains("--output-format"))
         .stdout(predicate::str::contains("top"))
-        .stdout(predicate::str::contains("slow-queries"));
+        .stdout(predicate::str::contains("slow-queries"))
+        .stdout(predicate::str::contains("suggest-sql"));
 }
 
 #[test]
@@ -326,6 +331,81 @@ fn test_slow_queries_diff_thresholds_filter_results() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"findings\": []"));
+}
+
+#[test]
+fn test_suggest_sql_by_rank_from_findings_file() {
+    let temp_dir = TempDir::new().unwrap();
+    let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
+    let findings_file = temp_dir.path().join("findings.json");
+
+    Command::cargo_bin("pg-logstats")
+        .unwrap()
+        .arg("--output-format")
+        .arg("json")
+        .arg("--outfile")
+        .arg(findings_file.to_str().unwrap())
+        .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg("--limit")
+        .arg("3")
+        .arg(log_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    Command::cargo_bin("pg-logstats")
+        .unwrap()
+        .arg("--output-format")
+        .arg("json")
+        .arg("--quiet")
+        .arg("suggest-sql")
+        .arg("--findings-file")
+        .arg(findings_file.to_str().unwrap())
+        .arg("--rank")
+        .arg("1")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"rank\": 1"))
+        .stdout(predicate::str::contains("\"next_sql\""))
+        .stdout(predicate::str::contains("pg_stat_statements"))
+        .stdout(predicate::str::contains("pg_stat_activity"));
+}
+
+#[test]
+fn test_suggest_sql_by_finding_id() {
+    let temp_dir = TempDir::new().unwrap();
+    let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
+    let findings_file = temp_dir.path().join("findings.json");
+
+    Command::cargo_bin("pg-logstats")
+        .unwrap()
+        .arg("--output-format")
+        .arg("json")
+        .arg("--outfile")
+        .arg(findings_file.to_str().unwrap())
+        .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg("--limit")
+        .arg("3")
+        .arg(log_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    Command::cargo_bin("pg-logstats")
+        .unwrap()
+        .arg("--quiet")
+        .arg("suggest-sql")
+        .arg("--findings-file")
+        .arg(findings_file.to_str().unwrap())
+        .arg("--finding-id")
+        .arg(finding_id_for_users_select())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(finding_id_for_users_select()))
+        .stdout(predicate::str::contains("pg_stat_statements"))
+        .stdout(predicate::str::contains("pg_stat_activity"));
 }
 
 #[test]
