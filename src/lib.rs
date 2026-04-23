@@ -12,6 +12,7 @@ use thiserror::Error;
 pub mod analytics;
 pub mod correlation;
 pub mod events;
+pub mod findings;
 pub mod output;
 pub mod parsers;
 pub mod sql;
@@ -25,6 +26,10 @@ pub use correlation::{
 pub use events::{
     normalize_log_entries, DurationEvent, ErrorEvent, EventKind, EventSourceKind, NormalizedEvent,
     SessionIdentity, SourceReference, StatementEvent,
+};
+pub use findings::{
+    query_family_findings, Finding, FindingConfidence, FindingKind, FindingMetrics, FindingSet,
+    QueryFamilyFinding, ReasonCode, FINDING_SCHEMA_VERSION,
 };
 pub use output::{JsonFormatter, TextFormatter};
 pub use parsers::StderrParser;

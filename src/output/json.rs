@@ -1,6 +1,6 @@
 //! JSON output formatter for pg-logstats results
 
-use crate::{AnalysisResult, PgLogstatsError, Result, TimingAnalysis};
+use crate::{AnalysisResult, FindingSet, PgLogstatsError, Result, TimingAnalysis};
 use chrono::Utc;
 use serde_json::json;
 use std::collections::HashMap;
@@ -171,6 +171,21 @@ impl JsonFormatter {
             serde_json::to_string_pretty(&base).map_err(PgLogstatsError::Serialization)
         } else {
             serde_json::to_string(&base).map_err(PgLogstatsError::Serialization)
+        }
+    }
+
+    /// Format structured findings as compact, versioned JSON.
+    pub fn format_findings(&self, findings: &FindingSet) -> Result<String> {
+        let root = json!({
+            "metadata": self.metadata_object(),
+            "schema_version": findings.schema_version,
+            "findings": findings.findings,
+        });
+
+        if self.pretty {
+            serde_json::to_string_pretty(&root).map_err(PgLogstatsError::Serialization)
+        } else {
+            serde_json::to_string(&root).map_err(PgLogstatsError::Serialization)
         }
     }
 }

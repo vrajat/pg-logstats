@@ -1,6 +1,6 @@
 //! Human-readable text output formatter for pg-logstats results
 
-use crate::{AnalysisResult, LogEntry, PgLogstatsError, Result, TimingAnalysis};
+use crate::{AnalysisResult, FindingSet, LogEntry, PgLogstatsError, Result, TimingAnalysis};
 use std::fmt::Write;
 
 /// ANSI color helpers (basic)
@@ -237,6 +237,71 @@ impl TextFormatter {
             message: e.to_string(),
             context: Some("text formatting".to_string()),
         })?;
+
+        Ok(output)
+    }
+
+    /// Format structured findings as a compact human-readable view.
+    pub fn format_findings(&self, findings: &FindingSet) -> Result<String> {
+        let mut output = String::new();
+
+        writeln!(
+            output,
+            "{}",
+            bold("Findings", Some("cyan"), self.enable_color)
+        )
+        .map_err(|e| PgLogstatsError::Unexpected {
+            message: e.to_string(),
+            context: Some("text formatting".to_string()),
+        })?;
+        writeln!(output, "Schema Version: {}", findings.schema_version).map_err(|e| {
+            PgLogstatsError::Unexpected {
+                message: e.to_string(),
+                context: Some("text formatting".to_string()),
+            }
+        })?;
+
+        for finding in &findings.findings {
+            writeln!(
+                output,
+                "\n#{} [{}] {}",
+                finding.rank, finding.finding_id, finding.title
+            )
+            .map_err(|e| PgLogstatsError::Unexpected {
+                message: e.to_string(),
+                context: Some("text formatting".to_string()),
+            })?;
+            writeln!(output, "Reason: {}", finding.reason).map_err(|e| {
+                PgLogstatsError::Unexpected {
+                    message: e.to_string(),
+                    context: Some("text formatting".to_string()),
+                }
+            })?;
+            writeln!(
+                output,
+                "Score: {:.3}  Confidence: {:?}",
+                finding.score, finding.confidence
+            )
+            .map_err(|e| PgLogstatsError::Unexpected {
+                message: e.to_string(),
+                context: Some("text formatting".to_string()),
+            })?;
+
+            if let Some(query_family) = &finding.query_family {
+                writeln!(output, "Query Family: {}", query_family.query_family_id).map_err(
+                    |e| PgLogstatsError::Unexpected {
+                        message: e.to_string(),
+                        context: Some("text formatting".to_string()),
+                    },
+                )?;
+                writeln!(output, "SQL: {}", query_family.normalized_sql).map_err(|e| {
+                    PgLogstatsError::Unexpected {
+                        message: e.to_string(),
+                        context: Some("text formatting".to_string()),
+                    }
+                })?;
+            }
+        }
 
         Ok(output)
     }
