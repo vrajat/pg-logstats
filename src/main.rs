@@ -3,9 +3,10 @@ use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use pg_logstats::{
     normalize_log_entries, query_family_findings, slow_query_diff_findings, Correlator,
-    EventSourceKind, JsonFormatter, PgLogstatsError, ProcessOrderCorrelator, Result,
-    SlowQueryDiffOptions, StderrParser, TextFormatter,
+    EventSourceKind, Finding, FindingSet, JsonFormatter, PgLogstatsError, ProcessOrderCorrelator,
+    Result, SlowQueryDiffOptions, StderrParser, TextFormatter,
 };
+use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
@@ -68,6 +69,20 @@ enum Command {
     SlowQueries {
         #[clap(subcommand)]
         command: SlowQueriesCommand,
+    },
+    /// Print follow-up SQL for a finding from a findings JSON file
+    SuggestSql {
+        /// Findings JSON file produced by pg-logstats
+        #[clap(long, value_name = "PATH")]
+        findings_file: PathBuf,
+
+        /// Select a finding by its exact finding id
+        #[clap(long, value_name = "FINDING_ID", conflicts_with = "rank")]
+        finding_id: Option<String>,
+
+        /// Select a finding by rank within the findings output
+        #[clap(long, value_name = "N", conflicts_with = "finding_id")]
+        rank: Option<usize>,
     },
 }
 
@@ -190,6 +205,11 @@ fn run_command(args: &Arguments, parser: &StderrParser) -> Result<()> {
                 min_p95_delta_ms: *min_p95_delta_ms,
             },
         ),
+        Command::SuggestSql {
+            findings_file,
+            finding_id,
+            rank,
+        } => run_suggest_sql_command(args, findings_file, finding_id.as_deref(), *rank),
     }
 }
 
@@ -285,6 +305,11 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
         Command::SlowQueries {
             command: SlowQueriesCommand::Diff { sample_size, .. },
         } => validate_sample_size(*sample_size)?,
+        Command::SuggestSql {
+            findings_file,
+            finding_id,
+            rank,
+        } => validate_suggest_sql_args(findings_file, finding_id.as_deref(), *rank)?,
     }
 
     // Validate output directory if specified
@@ -346,6 +371,42 @@ fn validate_sample_size(sample_size: Option<usize>) -> Result<()> {
                 field: Some("sample_size".to_string()),
             });
         }
+    }
+
+    Ok(())
+}
+
+fn validate_suggest_sql_args(
+    findings_file: &Path,
+    finding_id: Option<&str>,
+    rank: Option<usize>,
+) -> Result<()> {
+    if !findings_file.exists() {
+        return Err(PgLogstatsError::Configuration {
+            message: format!("Findings file does not exist: {}", findings_file.display()),
+            field: Some("findings_file".to_string()),
+        });
+    }
+
+    if !findings_file.is_file() {
+        return Err(PgLogstatsError::Configuration {
+            message: format!("Findings path is not a file: {}", findings_file.display()),
+            field: Some("findings_file".to_string()),
+        });
+    }
+
+    if finding_id.is_none() && rank.is_none() {
+        return Err(PgLogstatsError::Configuration {
+            message: "Specify either --finding-id or --rank".to_string(),
+            field: Some("finding_selector".to_string()),
+        });
+    }
+
+    if matches!(rank, Some(0)) {
+        return Err(PgLogstatsError::Configuration {
+            message: "Rank must be greater than 0".to_string(),
+            field: Some("rank".to_string()),
+        });
     }
 
     Ok(())
@@ -558,6 +619,91 @@ fn run_slow_queries_diff(
     let total_entries = baseline_entries.len() + target_entries.len();
 
     Ok((findings, total_entries))
+}
+
+fn run_suggest_sql_command(
+    args: &Arguments,
+    findings_file: &Path,
+    finding_id: Option<&str>,
+    rank: Option<usize>,
+) -> Result<()> {
+    let findings = load_findings_file(findings_file)?;
+    let finding = select_finding(&findings, finding_id, rank)?;
+
+    if finding.next_sql.is_empty() {
+        return Err(PgLogstatsError::Configuration {
+            message: format!("No suggested SQL is available for {}", finding.finding_id),
+            field: Some("finding_id".to_string()),
+        });
+    }
+
+    output_suggested_sql(args, finding)
+}
+
+fn load_findings_file(path: &Path) -> Result<FindingSet> {
+    let content = fs::read_to_string(path)?;
+    serde_json::from_str(&content).map_err(PgLogstatsError::Serialization)
+}
+
+fn select_finding<'a>(
+    findings: &'a FindingSet,
+    finding_id: Option<&str>,
+    rank: Option<usize>,
+) -> Result<&'a Finding> {
+    if let Some(finding_id) = finding_id {
+        return findings
+            .findings
+            .iter()
+            .find(|finding| finding.finding_id == finding_id)
+            .ok_or_else(|| PgLogstatsError::Configuration {
+                message: format!("Finding id not found: {}", finding_id),
+                field: Some("finding_id".to_string()),
+            });
+    }
+
+    if let Some(rank) = rank {
+        return findings
+            .findings
+            .iter()
+            .find(|finding| finding.rank == rank)
+            .ok_or_else(|| PgLogstatsError::Configuration {
+                message: format!("Finding rank not found: {}", rank),
+                field: Some("rank".to_string()),
+            });
+    }
+
+    Err(PgLogstatsError::Configuration {
+        message: "Specify either --finding-id or --rank".to_string(),
+        field: Some("finding_selector".to_string()),
+    })
+}
+
+fn output_suggested_sql(args: &Arguments, finding: &Finding) -> Result<()> {
+    match args.output_format {
+        OutputFormat::Json => {
+            let output = serde_json::to_string_pretty(&json!({
+                "finding_id": finding.finding_id,
+                "rank": finding.rank,
+                "kind": finding.kind,
+                "title": finding.title,
+                "next_sql": finding.next_sql,
+            }))
+            .map_err(PgLogstatsError::Serialization)?;
+            write_or_print_output(output, args)
+        }
+        OutputFormat::Text => {
+            let mut output = String::new();
+            output.push_str(&format!(
+                "#{} [{}] {}\n",
+                finding.rank, finding.finding_id, finding.title
+            ));
+            for statement in &finding.next_sql {
+                output.push_str(statement);
+                output.push('\n');
+            }
+            write_or_print_output(output, args)
+        }
+    }
 }
 
 fn output_findings(
