@@ -1,9 +1,10 @@
-use clap::{Parser, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use pg_logstats::{
-    normalize_log_entries, EventSourceKind, JsonFormatter, PgLogstatsError, QueryAnalyzer, Result,
-    StderrParser, TextFormatter, TimingAnalyzer,
+    normalize_log_entries, query_family_findings, Correlator, EventSourceKind, JsonFormatter,
+    PgLogstatsError, ProcessOrderCorrelator, QueryAnalyzer, Result, StderrParser, TextFormatter,
+    TimingAnalyzer,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,9 @@ use std::time::Instant;
     about = "A fast PostgreSQL log analysis tool"
 )]
 struct Arguments {
+    #[clap(subcommand)]
+    command: Option<Command>,
+
     /// Log files or directory to analyze (supports glob patterns)
     #[clap(value_name = "LOG_FILES")]
     log_files: Vec<String>,
@@ -54,6 +58,25 @@ struct Arguments {
     /// don't print anything to stdout, not even a progress bar.
     #[clap(short = 'q', long, value_name = "quiet")]
     quiet: bool,
+}
+
+#[derive(Debug, Subcommand)]
+enum Command {
+    /// Investigation-oriented top findings
+    Top {
+        #[clap(subcommand)]
+        command: TopCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum TopCommand {
+    /// Rank query families by total runtime in one log window
+    QueryFamilies {
+        /// Maximum number of query-family findings to emit
+        #[clap(long, default_value_t = 10)]
+        limit: usize,
+    },
 }
 
 #[derive(Debug, ValueEnum, Clone, Copy)]
@@ -142,11 +165,21 @@ fn main() -> Result<()> {
 
     info!("Total entries parsed: {}", all_entries.len());
 
-    // Run analytics on parsed data
-    let analytics_result = run_analytics(&all_entries, &args)?;
+    match &args.command {
+        Some(Command::Top {
+            command: TopCommand::QueryFamilies { limit },
+        }) => {
+            let findings = run_top_query_families(&all_entries, *limit)?;
+            output_findings(&findings, &args, &all_entries)?;
+        }
+        None => {
+            // Run analytics on parsed data
+            let analytics_result = run_analytics(&all_entries, &args)?;
 
-    // Output results in requested format
-    output_results(&analytics_result, &args, &all_entries)?;
+            // Output results in requested format
+            output_results(&analytics_result, &args, &all_entries)?;
+        }
+    }
 
     let elapsed = start_time.elapsed();
     if !args.quiet {
@@ -355,6 +388,20 @@ fn run_analytics(
     Ok(analysis_result)
 }
 
+fn run_top_query_families(
+    entries: &[pg_logstats::LogEntry],
+    limit: usize,
+) -> Result<pg_logstats::FindingSet> {
+    info!(
+        "Building top query-family findings from {} entries",
+        entries.len()
+    );
+    let events = normalize_log_entries(entries, EventSourceKind::Stderr);
+    let executions = ProcessOrderCorrelator.correlate(&events);
+
+    Ok(query_family_findings(&executions, limit))
+}
+
 fn output_results(
     analytics_result: &pg_logstats::AnalysisResult,
     args: &Arguments,
@@ -396,6 +443,47 @@ fn output_results(
                 println!("{}", output);
             }
         }
+    }
+
+    Ok(())
+}
+
+fn output_findings(
+    findings: &pg_logstats::FindingSet,
+    args: &Arguments,
+    entries: &[pg_logstats::LogEntry],
+) -> Result<()> {
+    match args.output_format {
+        OutputFormat::Json => {
+            let formatter = JsonFormatter::new().with_pretty(true).with_metadata(
+                env!("CARGO_PKG_VERSION"),
+                vec![],
+                entries.len(),
+            );
+
+            let output = formatter.format_findings(findings)?;
+            write_or_print_output(output, args)?;
+        }
+        OutputFormat::Text => {
+            let formatter = TextFormatter::new();
+            let output = formatter.format_findings(findings)?;
+            write_or_print_output(output, args)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn write_or_print_output(output: String, args: &Arguments) -> Result<()> {
+    if let Some(outfile) = &args.outfile {
+        if outfile == "-" {
+            println!("{}", output);
+        } else {
+            fs::write(outfile, output)?;
+            info!("Results written to {}", outfile);
+        }
+    } else {
+        println!("{}", output);
     }
 
     Ok(())

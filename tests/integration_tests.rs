@@ -55,7 +55,8 @@ fn test_cli_help() {
         .stdout(predicate::str::contains("--log-dir"))
         .stdout(predicate::str::contains("--output-format"))
         .stdout(predicate::str::contains("--quick"))
-        .stdout(predicate::str::contains("--sample-size"));
+        .stdout(predicate::str::contains("--sample-size"))
+        .stdout(predicate::str::contains("top"));
 }
 
 #[test]
@@ -160,6 +161,57 @@ fn test_output_to_file() {
     assert!(content.contains("\"total_queries\": 4"));
     assert!(content.contains("\"total_duration_ms\": 41.814"));
     assert!(content.contains("\"error_count\": 1"));
+}
+
+#[test]
+fn test_top_query_families_json_output() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.arg("--log-dir")
+        .arg(temp_dir.path().to_str().unwrap())
+        .arg("--output-format")
+        .arg("json")
+        .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg("--limit")
+        .arg("2")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"schema_version\": 1"))
+        .stdout(predicate::str::contains("\"kind\": \"query_family\""))
+        .stdout(predicate::str::contains("\"rank\": 1"))
+        .stdout(predicate::str::contains("\"rank\": 2"))
+        .stdout(predicate::str::contains("\"rank\": 3").not())
+        .stdout(predicate::str::contains("\"correlated_duration\""))
+        .stdout(predicate::str::contains("\"total_duration_ms\": 15.234"));
+}
+
+#[test]
+fn test_top_query_families_text_output() {
+    let temp_dir = TempDir::new().unwrap();
+    create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.arg("--log-dir")
+        .arg(temp_dir.path().to_str().unwrap())
+        .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg("--limit")
+        .arg("1")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Findings"))
+        .stdout(predicate::str::contains("Schema Version: 1"))
+        .stdout(predicate::str::contains("#1 [query_family:"))
+        .stdout(predicate::str::contains(
+            "Query family with high total runtime",
+        ))
+        .stdout(predicate::str::contains("SELECT * FROM users WHERE id = ?"))
+        .stdout(predicate::str::contains("#2 [query_family:").not());
 }
 
 #[test]
