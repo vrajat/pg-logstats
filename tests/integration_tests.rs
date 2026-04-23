@@ -81,6 +81,7 @@ fn test_single_log_file_text_output() {
         .success()
         .stdout(predicate::str::contains("Query Analysis Report"))
         .stdout(predicate::str::contains("Total Queries: 4"))
+        .stdout(predicate::str::contains("Total Duration: 41.81 ms"))
         .stdout(predicate::str::contains("Error Count: 1"))
         .stdout(predicate::str::contains("SELECT: 2"))
         .stdout(predicate::str::contains("INSERT: 1"))
@@ -100,6 +101,7 @@ fn test_single_log_file_json_output() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"total_queries\": 4"))
+        .stdout(predicate::str::contains("\"total_duration_ms\": 41.814"))
         .stdout(predicate::str::contains("\"error_count\": 1"))
         .stdout(predicate::str::contains("\"SELECT\": 2"))
         .stdout(predicate::str::contains("\"INSERT\": 1"))
@@ -156,6 +158,7 @@ fn test_output_to_file() {
     assert!(output_file.exists());
     let content = fs::read_to_string(&output_file).unwrap();
     assert!(content.contains("\"total_queries\": 4"));
+    assert!(content.contains("\"total_duration_ms\": 41.814"));
     assert!(content.contains("\"error_count\": 1"));
 }
 

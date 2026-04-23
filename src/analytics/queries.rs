@@ -1,8 +1,8 @@
 //! Query analysis functionality for PostgreSQL logs
 
 use crate::{
-    normalize_log_entries, AnalysisResult, EventSourceKind, LogEntry, NormalizedEvent, QueryType,
-    Result,
+    normalize_log_entries, AnalysisResult, Correlator, EventSourceKind, LogEntry, NormalizedEvent,
+    ProcessOrderCorrelator, QueryType, Result,
 };
 use chrono::{DateTime, Timelike, Utc};
 use regex::Regex;
@@ -138,45 +138,44 @@ impl QueryAnalyzer {
         let mut error_count = 0;
         let mut connection_count = 0;
 
+        let executions = ProcessOrderCorrelator.correlate(events);
+        for execution in &executions {
+            let duration = execution.duration_ms.unwrap_or(0.0);
+            let normalized_concat = Some(execution.query_family.normalized_sql.clone());
+            for query in &execution.queries {
+                let normalized_query = query.normalized_query.clone();
+                let query_type = &query.query_type;
+
+                // Update query counts
+                *query_counts.entry(normalized_query).or_insert(0) += 1;
+                *query_type_counts.entry(query_type).or_insert(0) += 1;
+            }
+
+            // Track slow queries
+            if let Some(ref n) = normalized_concat {
+                if duration > self.slow_query_threshold {
+                    slow_queries.push((n.clone(), duration));
+                }
+            }
+
+            // Update hourly statistics
+            let hour = execution.timestamp.hour();
+            let hourly = hourly_stats.entry(hour).or_insert_with(|| HourlyStats {
+                hour,
+                query_count: 0,
+                queries_per_second: 0.0,
+                total_duration: 0.0,
+                average_duration: 0.0,
+            });
+            hourly.query_count += 1;
+            hourly.total_duration += duration;
+            result.total_queries += 1;
+            query_durations.push(duration);
+            result.total_duration += duration;
+        }
+
         for event in events {
-            if event.is_query() {
-                let duration = event.duration_ms().unwrap_or(0.0);
-                let normalized_concat = event.normalized_query();
-                if let Some(queries) = event.queries() {
-                    for query in queries {
-                        let normalized_query = query.normalized_query.clone();
-                        let query_type = &query.query_type;
-
-                        // Update query counts
-                        *query_counts.entry(normalized_query.clone()).or_insert(0) += 1;
-                        *query_type_counts.entry(query_type).or_insert(0) += 1;
-                    }
-                }
-                // Track slow queries
-                match normalized_concat {
-                    Some(ref n) => {
-                        if duration > self.slow_query_threshold {
-                            slow_queries.push((n.clone(), duration));
-                        }
-                    }
-                    None => {}
-                }
-
-                // Update hourly statistics
-                let hour = event.timestamp.hour();
-                let hourly = hourly_stats.entry(hour).or_insert_with(|| HourlyStats {
-                    hour,
-                    query_count: 0,
-                    queries_per_second: 0.0,
-                    total_duration: 0.0,
-                    average_duration: 0.0,
-                });
-                hourly.query_count += 1;
-                hourly.total_duration += duration;
-                result.total_queries += 1;
-                query_durations.push(duration);
-                result.total_duration += duration;
-            } else if event.is_error() {
+            if event.is_error() {
                 error_count += 1;
             } else if event.message().to_lowercase().contains("connection") {
                 connection_count += 1;
@@ -566,6 +565,57 @@ mod tests {
         assert_eq!(event_result.error_count, entry_result.error_count);
         assert_eq!(event_result.query_types, entry_result.query_types);
         assert_eq!(event_result.slowest_queries, entry_result.slowest_queries);
+    }
+
+    #[test]
+    fn test_analyze_events_uses_correlated_statement_duration_pairs() {
+        let analyzer = QueryAnalyzer::with_settings(100.0, 5, 5);
+        let parser = crate::StderrParser::new();
+        let lines = vec![
+            "2024-08-15 10:30:15.123 UTC [12345] postgres@testdb psql: LOG:  statement: SELECT * FROM users WHERE id = 1".to_string(),
+            "2024-08-15 10:30:15.456 UTC [12345] postgres@testdb psql: LOG:  duration: 150.000 ms".to_string(),
+        ];
+        let entries = parser.parse_lines(&lines).unwrap();
+        let events = normalize_log_entries(&entries, EventSourceKind::Stderr);
+
+        let result = analyzer.analyze_events(&events).unwrap();
+
+        assert_eq!(result.total_queries, 1);
+        assert_eq!(result.total_duration, 150.0);
+        assert_eq!(result.average_duration, 150.0);
+        assert_eq!(result.slowest_queries.len(), 1);
+        assert_eq!(
+            result.slowest_queries[0],
+            ("SELECT * FROM users WHERE id = ?".to_string(), 150.0)
+        );
+    }
+
+    #[test]
+    fn test_analyze_events_correlates_interleaved_processes() {
+        let analyzer = QueryAnalyzer::with_settings(100.0, 5, 5);
+        let parser = crate::StderrParser::new();
+        let lines = vec![
+            "2024-08-15 10:30:15.000 UTC [11111] postgres@testdb psql: LOG:  statement: SELECT * FROM users WHERE id = 1".to_string(),
+            "2024-08-15 10:30:15.001 UTC [22222] postgres@testdb psql: LOG:  statement: SELECT * FROM orders WHERE id = 2".to_string(),
+            "2024-08-15 10:30:15.002 UTC [22222] postgres@testdb psql: LOG:  duration: 250.000 ms".to_string(),
+            "2024-08-15 10:30:15.003 UTC [11111] postgres@testdb psql: LOG:  duration: 150.000 ms".to_string(),
+        ];
+        let entries = parser.parse_lines(&lines).unwrap();
+        let events = normalize_log_entries(&entries, EventSourceKind::Stderr);
+
+        let result = analyzer.analyze_events(&events).unwrap();
+
+        assert_eq!(result.total_queries, 2);
+        assert_eq!(result.total_duration, 400.0);
+        assert_eq!(result.slowest_queries.len(), 2);
+        assert_eq!(
+            result.slowest_queries[0],
+            ("SELECT * FROM orders WHERE id = ?".to_string(), 250.0)
+        );
+        assert_eq!(
+            result.slowest_queries[1],
+            ("SELECT * FROM users WHERE id = ?".to_string(), 150.0)
+        );
     }
 
     #[test]
