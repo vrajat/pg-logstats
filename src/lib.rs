@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 pub mod analytics;
+pub mod correlation;
 pub mod events;
 pub mod output;
 pub mod parsers;
@@ -17,6 +18,10 @@ pub mod sql;
 
 // Re-export commonly used items
 pub use analytics::{QueryAnalyzer, TimingAnalysis, TimingAnalyzer};
+pub use correlation::{
+    correlate_query_executions, CorrelationConfidence, Correlator, ProcessOrderCorrelator,
+    QueryExecution, QueryFamilyIdentity,
+};
 pub use events::{
     normalize_log_entries, DurationEvent, ErrorEvent, EventKind, EventSourceKind, NormalizedEvent,
     SessionIdentity, SourceReference, StatementEvent,
