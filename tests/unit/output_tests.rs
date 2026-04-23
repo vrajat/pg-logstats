@@ -5,7 +5,10 @@
 use chrono::{Duration, TimeZone, Utc};
 use pg_logstats::output::json::JsonFormatter;
 use pg_logstats::output::text::TextFormatter;
-use pg_logstats::{AnalysisResult, LogEntry, LogLevel, Query, TimingAnalysis};
+use pg_logstats::{
+    AnalysisResult, Finding, FindingConfidence, FindingKind, FindingMetrics, FindingSet, LogEntry,
+    LogLevel, Query, QueryFamilyFinding, ReasonCode, SourceReference, TimingAnalysis,
+};
 use std::collections::HashMap;
 
 /// Helper function to create a test AnalysisResult
@@ -132,6 +135,46 @@ fn create_test_log_entries() -> Vec<LogEntry> {
             duration: Some(45.123),
         },
     ]
+}
+
+fn create_test_finding_set() -> FindingSet {
+    FindingSet::new(vec![Finding {
+        schema_version: 1,
+        finding_id: "query_family:db=appdb|sql=SELECT ?".to_string(),
+        kind: FindingKind::QueryFamily,
+        rank: 1,
+        title: "Query family with high total runtime".to_string(),
+        reason: "2 executions contributed 125.000 ms total runtime; max execution was 75.000 ms"
+            .to_string(),
+        reason_codes: vec![
+            ReasonCode::HighTotalDuration,
+            ReasonCode::HighMaxDuration,
+            ReasonCode::CorrelatedDuration,
+        ],
+        score: 125.0,
+        query_family: Some(QueryFamilyFinding {
+            query_family_id: "db=appdb|sql=SELECT ?".to_string(),
+            normalized_sql: "SELECT ?".to_string(),
+            queryid: None,
+            database: Some("appdb".to_string()),
+            user: Some("app".to_string()),
+            application_name: Some("api".to_string()),
+        }),
+        metrics: FindingMetrics {
+            execution_count: 2,
+            total_duration_ms: 125.0,
+            avg_duration_ms: 62.5,
+            max_duration_ms: 75.0,
+            correlated_execution_count: 2,
+            uncorrelated_execution_count: 0,
+        },
+        evidence: vec![SourceReference {
+            source_kind: pg_logstats::EventSourceKind::Stderr,
+            record_index: 7,
+        }],
+        confidence: FindingConfidence::High,
+        next_sql: Vec::new(),
+    }])
 }
 
 #[cfg(test)]
@@ -285,6 +328,21 @@ mod text_formatter_tests {
         assert!(output.contains("Average Response Time: 450ms"));
         assert!(output.contains("95th Percentile: 1800ms"));
         assert!(output.contains("99th Percentile: 2300ms"));
+    }
+
+    #[test]
+    fn test_format_findings() {
+        let formatter = TextFormatter::new();
+        let findings = create_test_finding_set();
+
+        let output = formatter.format_findings(&findings).unwrap();
+
+        assert!(output.contains("Findings"));
+        assert!(output.contains("Schema Version: 1"));
+        assert!(output.contains("#1 [query_family:db=appdb|sql=SELECT ?]"));
+        assert!(output.contains("Query family with high total runtime"));
+        assert!(output.contains("Confidence: High"));
+        assert!(output.contains("SQL: SELECT ?"));
     }
 
     #[test]
@@ -488,6 +546,33 @@ mod json_formatter_tests {
         let hourly = &json["temporal_analysis"]["hourly_stats"];
         assert!(hourly.is_array());
         assert_eq!(hourly.as_array().unwrap().len(), 5);
+    }
+
+    #[test]
+    fn test_format_findings_schema() {
+        let formatter = JsonFormatter::new();
+        let findings = create_test_finding_set();
+
+        let json_str = formatter.format_findings(&findings).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(json["schema_version"], 1);
+        assert!(json["metadata"]["analysis_timestamp"].is_string());
+        let first = &json["findings"][0];
+        assert_eq!(first["schema_version"], 1);
+        assert_eq!(first["finding_id"], "query_family:db=appdb|sql=SELECT ?");
+        assert_eq!(first["kind"], "query_family");
+        assert_eq!(first["rank"], 1);
+        assert_eq!(first["reason_codes"][0], "high_total_duration");
+        assert_eq!(first["confidence"], "high");
+        assert_eq!(first["score"], 125.0);
+        assert_eq!(first["query_family"]["normalized_sql"], "SELECT ?");
+        assert_eq!(first["query_family"]["database"], "appdb");
+        assert_eq!(first["metrics"]["execution_count"], 2);
+        assert_eq!(first["metrics"]["total_duration_ms"], 125.0);
+        assert_eq!(first["metrics"]["avg_duration_ms"], 62.5);
+        assert_eq!(first["evidence"][0]["source_kind"], "Stderr");
+        assert_eq!(first["evidence"][0]["record_index"], 7);
     }
 
     #[test]
