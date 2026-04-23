@@ -1,6 +1,8 @@
 //! Performance timing analysis for PostgreSQL logs
 
-use crate::{analytics_error, LogEntry, Result};
+use crate::{
+    analytics_error, normalize_log_entries, EventSourceKind, LogEntry, NormalizedEvent, Result,
+};
 use chrono::{DateTime, Datelike, Duration, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -57,7 +59,13 @@ impl TimingAnalyzer {
 
     /// Analyze timing patterns in log entries
     pub fn analyze_timing(&self, entries: &[LogEntry]) -> Result<TimingAnalysis> {
-        if entries.is_empty() {
+        let events = normalize_log_entries(entries, EventSourceKind::Stderr);
+        self.analyze_timing_events(&events)
+    }
+
+    /// Analyze timing patterns in normalized events.
+    pub fn analyze_timing_events(&self, events: &[NormalizedEvent]) -> Result<TimingAnalysis> {
+        if events.is_empty() {
             return Ok(TimingAnalysis::default());
         }
 
@@ -68,26 +76,26 @@ impl TimingAnalyzer {
         let mut peak_hours = Vec::new();
 
         // Process each entry
-        for entry in entries {
-            if let Some(duration) = entry.duration {
+        for event in events {
+            if let Some(duration) = event.duration_ms() {
                 response_times.push(duration);
 
                 // Group by hour
-                let hour = entry.timestamp.hour();
+                let hour = event.timestamp.hour();
                 let current_duration = hourly_patterns.entry(hour).or_insert(0.0);
                 *current_duration += duration;
 
                 // Group by day of week
-                let day = entry.timestamp.weekday().num_days_from_monday();
+                let day = event.timestamp.weekday().num_days_from_monday();
                 let current_day_duration = daily_patterns.entry(day).or_insert(0.0);
                 *current_day_duration += duration;
             }
 
             // Analyze connection patterns if enabled
             if self.config.include_connections
-                && entry.message.to_lowercase().contains("connection")
+                && event.message().to_lowercase().contains("connection")
             {
-                let hour = entry.timestamp.hour();
+                let hour = event.timestamp.hour();
                 *connection_patterns.entry(hour).or_insert(0) += 1;
             }
         }
@@ -477,6 +485,44 @@ mod tests {
         assert_eq!(result.total_queries, 3);
         assert_eq!(result.total_duration, 600.0);
         assert_eq!(result.average_response_time.num_milliseconds(), 200);
+    }
+
+    #[test]
+    fn test_analyze_timing_events_matches_log_entry_analysis() {
+        let analyzer = TimingAnalyzer::new();
+        let now = Utc::now();
+
+        let entries = vec![
+            create_test_entry(now, LogLevel::Statement, Some(100.0), "statement: SELECT 1"),
+            create_test_entry(
+                now + Duration::seconds(1),
+                LogLevel::Statement,
+                Some(250.0),
+                "statement: SELECT 2",
+            ),
+            create_test_entry(
+                now + Duration::seconds(2),
+                LogLevel::Log,
+                None,
+                "connection received",
+            ),
+        ];
+
+        let events = normalize_log_entries(&entries, EventSourceKind::Stderr);
+        let entry_result = analyzer.analyze_timing(&entries).unwrap();
+        let event_result = analyzer.analyze_timing_events(&events).unwrap();
+
+        assert_eq!(event_result.total_queries, entry_result.total_queries);
+        assert_eq!(event_result.total_duration, entry_result.total_duration);
+        assert_eq!(
+            event_result.average_response_time,
+            entry_result.average_response_time
+        );
+        assert_eq!(event_result.hourly_patterns, entry_result.hourly_patterns);
+        assert_eq!(
+            event_result.connection_patterns,
+            entry_result.connection_patterns
+        );
     }
 
     #[test]

@@ -10,12 +10,17 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 pub mod analytics;
+pub mod events;
 pub mod output;
 pub mod parsers;
 pub mod sql;
 
 // Re-export commonly used items
 pub use analytics::{QueryAnalyzer, TimingAnalysis, TimingAnalyzer};
+pub use events::{
+    normalize_log_entries, DurationEvent, ErrorEvent, EventKind, EventSourceKind, NormalizedEvent,
+    SessionIdentity, SourceReference, StatementEvent,
+};
 pub use output::{JsonFormatter, TextFormatter};
 pub use parsers::StderrParser;
 pub use sql::{Query, QueryType};

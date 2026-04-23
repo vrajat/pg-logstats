@@ -2,8 +2,8 @@ use clap::{Parser, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use pg_logstats::{
-    JsonFormatter, PgLogstatsError, QueryAnalyzer, Result, StderrParser, TextFormatter,
-    TimingAnalyzer,
+    normalize_log_entries, EventSourceKind, JsonFormatter, PgLogstatsError, QueryAnalyzer, Result,
+    StderrParser, TextFormatter, TimingAnalyzer,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -341,15 +341,16 @@ fn run_analytics(
     _args: &Arguments,
 ) -> Result<pg_logstats::AnalysisResult> {
     info!("Running analytics on {} entries", entries.len());
+    let events = normalize_log_entries(entries, EventSourceKind::Stderr);
 
     let query_analyzer = QueryAnalyzer::new();
     let timing_analyzer = TimingAnalyzer::new();
 
     // Run query analysis
-    let analysis_result = query_analyzer.analyze(entries)?;
+    let analysis_result = query_analyzer.analyze_events(&events)?;
 
     // Run timing analysis
-    let _timing_analysis = timing_analyzer.analyze_timing(entries)?;
+    let _timing_analysis = timing_analyzer.analyze_timing_events(&events)?;
 
     Ok(analysis_result)
 }

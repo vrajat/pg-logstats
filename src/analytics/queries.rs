@@ -1,6 +1,9 @@
 //! Query analysis functionality for PostgreSQL logs
 
-use crate::{AnalysisResult, LogEntry, QueryType, Result};
+use crate::{
+    normalize_log_entries, AnalysisResult, EventSourceKind, LogEntry, NormalizedEvent, QueryType,
+    Result,
+};
 use chrono::{DateTime, Timelike, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
@@ -116,7 +119,13 @@ impl QueryAnalyzer {
 
     /// Analyze queries from log entries
     pub fn analyze(&self, entries: &[LogEntry]) -> Result<AnalysisResult> {
-        if entries.is_empty() {
+        let events = normalize_log_entries(entries, EventSourceKind::Stderr);
+        self.analyze_events(&events)
+    }
+
+    /// Analyze queries from normalized events.
+    pub fn analyze_events(&self, events: &[NormalizedEvent]) -> Result<AnalysisResult> {
+        if events.is_empty() {
             return Ok(AnalysisResult::new());
         }
 
@@ -129,11 +138,11 @@ impl QueryAnalyzer {
         let mut error_count = 0;
         let mut connection_count = 0;
 
-        for entry in entries {
-            if entry.is_query() {
-                let duration = entry.duration.unwrap_or(0.0);
-                let normalized_concat = entry.normalized_query();
-                if let Some(queries) = &entry.queries {
+        for event in events {
+            if event.is_query() {
+                let duration = event.duration_ms().unwrap_or(0.0);
+                let normalized_concat = event.normalized_query();
+                if let Some(queries) = event.queries() {
                     for query in queries {
                         let normalized_query = query.normalized_query.clone();
                         let query_type = &query.query_type;
@@ -154,7 +163,7 @@ impl QueryAnalyzer {
                 }
 
                 // Update hourly statistics
-                let hour = entry.timestamp.hour();
+                let hour = event.timestamp.hour();
                 let hourly = hourly_stats.entry(hour).or_insert_with(|| HourlyStats {
                     hour,
                     query_count: 0,
@@ -167,9 +176,9 @@ impl QueryAnalyzer {
                 result.total_queries += 1;
                 query_durations.push(duration);
                 result.total_duration += duration;
-            } else if entry.is_error() {
+            } else if event.is_error() {
                 error_count += 1;
-            } else if entry.message.to_lowercase().contains("connection") {
+            } else if event.message().to_lowercase().contains("connection") {
                 connection_count += 1;
             }
         }
@@ -206,7 +215,7 @@ impl QueryAnalyzer {
             .collect();
 
         // Calculate queries per second for hourly buckets
-        self.calculate_queries_per_second(&mut hourly_stats, entries);
+        self.calculate_queries_per_second(&mut hourly_stats, events);
 
         Ok(result)
     }
@@ -291,18 +300,18 @@ impl QueryAnalyzer {
     fn calculate_queries_per_second(
         &self,
         hourly_stats: &mut HashMap<u32, HourlyStats>,
-        entries: &[LogEntry],
+        events: &[NormalizedEvent],
     ) {
         // Group entries by hour to calculate time spans
         let mut hourly_entries: HashMap<u32, Vec<DateTime<Utc>>> = HashMap::new();
 
-        for entry in entries {
-            if entry.is_query() {
-                let hour = entry.timestamp.hour();
+        for event in events {
+            if event.is_query() {
+                let hour = event.timestamp.hour();
                 hourly_entries
                     .entry(hour)
                     .or_default()
-                    .push(entry.timestamp);
+                    .push(event.timestamp);
             }
         }
 
@@ -342,11 +351,19 @@ impl QueryAnalyzer {
 
     /// Get query type distribution
     pub fn get_query_type_distribution(&self, entries: &[LogEntry]) -> HashMap<QueryType, u64> {
+        let events = normalize_log_entries(entries, EventSourceKind::Stderr);
+        self.get_query_type_distribution_for_events(&events)
+    }
+
+    pub fn get_query_type_distribution_for_events(
+        &self,
+        events: &[NormalizedEvent],
+    ) -> HashMap<QueryType, u64> {
         let mut distribution = HashMap::new();
 
-        for entry in entries {
-            if entry.is_query() {
-                if let Some(queries) = &entry.queries {
+        for event in events {
+            if event.is_query() {
+                if let Some(queries) = event.queries() {
                     for query in queries {
                         *distribution.entry(query.query_type.clone()).or_insert(0) += 1;
                     }
@@ -359,12 +376,17 @@ impl QueryAnalyzer {
 
     /// Calculate error rate
     pub fn calculate_error_rate(&self, entries: &[LogEntry]) -> f64 {
-        let total_entries = entries.len() as f64;
+        let events = normalize_log_entries(entries, EventSourceKind::Stderr);
+        self.calculate_error_rate_for_events(&events)
+    }
+
+    pub fn calculate_error_rate_for_events(&self, events: &[NormalizedEvent]) -> f64 {
+        let total_entries = events.len() as f64;
         if total_entries == 0.0 {
             return 0.0;
         }
 
-        let error_count = entries.iter().filter(|e| e.is_error()).count() as f64;
+        let error_count = events.iter().filter(|event| event.is_error()).count() as f64;
         error_count / total_entries
     }
 }
@@ -511,6 +533,69 @@ mod tests {
         // Check query type distribution
         assert_eq!(result.query_types.get("SELECT"), Some(&2));
         assert_eq!(result.query_types.get("INSERT"), Some(&1));
+    }
+
+    #[test]
+    fn test_analyze_events_matches_log_entry_analysis() {
+        let analyzer = QueryAnalyzer::with_settings(100.0, 5, 5);
+        let now = Utc::now();
+
+        let entries = vec![
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("SELECT * FROM users WHERE id = 1".to_string()),
+                Some(150.0),
+            ),
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("INSERT INTO users VALUES (1)".to_string()),
+                Some(50.0),
+            ),
+            create_test_entry(now, LogLevel::Error, None, None),
+            create_test_entry(now, LogLevel::Log, None, None),
+        ];
+
+        let events = normalize_log_entries(&entries, EventSourceKind::Stderr);
+        let entry_result = analyzer.analyze(&entries).unwrap();
+        let event_result = analyzer.analyze_events(&events).unwrap();
+
+        assert_eq!(event_result.total_queries, entry_result.total_queries);
+        assert_eq!(event_result.total_duration, entry_result.total_duration);
+        assert_eq!(event_result.error_count, entry_result.error_count);
+        assert_eq!(event_result.query_types, entry_result.query_types);
+        assert_eq!(event_result.slowest_queries, entry_result.slowest_queries);
+    }
+
+    #[test]
+    fn test_event_native_distribution_and_error_rate() {
+        let analyzer = QueryAnalyzer::new();
+        let now = Utc::now();
+        let entries = vec![
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("SELECT * FROM users".to_string()),
+                Some(10.0),
+            ),
+            create_test_entry(
+                now,
+                LogLevel::Statement,
+                Some("UPDATE users SET name = 'Jane'".to_string()),
+                Some(20.0),
+            ),
+            create_test_entry(now, LogLevel::Error, None, None),
+            create_test_entry(now, LogLevel::Warning, None, None),
+        ];
+        let events = normalize_log_entries(&entries, EventSourceKind::Stderr);
+
+        let distribution = analyzer.get_query_type_distribution_for_events(&events);
+        let error_rate = analyzer.calculate_error_rate_for_events(&events);
+
+        assert_eq!(distribution.get(&QueryType::Select), Some(&1));
+        assert_eq!(distribution.get(&QueryType::Update), Some(&1));
+        assert_eq!(error_rate, 0.25);
     }
 
     #[test]
