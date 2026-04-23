@@ -168,6 +168,9 @@ fn create_test_finding_set() -> FindingSet {
             correlated_execution_count: 2,
             uncorrelated_execution_count: 0,
         },
+        baseline: None,
+        target: None,
+        delta: None,
         evidence: vec![SourceReference {
             source_kind: pg_logstats::EventSourceKind::Stderr,
             record_index: 7,
