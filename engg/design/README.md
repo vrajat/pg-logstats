@@ -6,6 +6,7 @@ Living design docs for `pg-logstats`.
 
 - [Implementation Plan](implementation-plan.md)
 - [Investigate New Slow Queries](investigate-new-slow-queries.md)
+- [Release And Usability Plan](release-and-usability-plan.md)
 
 ## Design Doc Expectations
 
