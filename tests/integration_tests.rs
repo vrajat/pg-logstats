@@ -63,6 +63,10 @@ fn finding_id_for_users_select() -> &'static str {
     "query_family:queryid=|db=testdb|user=testuser|app=psql|sql=SELECT * FROM users WHERE id = ?"
 }
 
+fn repo_fixture(path: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
+}
+
 #[test]
 fn test_cli_help() {
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
@@ -70,12 +74,14 @@ fn test_cli_help() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "A fast PostgreSQL log analysis tool",
+            "A PostgreSQL log investigation CLI",
         ))
         .stdout(predicate::str::contains("--output-format"))
         .stdout(predicate::str::contains("top"))
         .stdout(predicate::str::contains("slow-queries"))
-        .stdout(predicate::str::contains("suggest-sql"));
+        .stdout(predicate::str::contains("suggest-sql"))
+        .stdout(predicate::str::contains("Perl module JSON::XS").not())
+        .stdout(predicate::str::contains("out.html").not());
 }
 
 #[test]
@@ -512,6 +518,94 @@ fn test_progress_bar_enabled_by_default() {
         .success();
     // Note: Progress bar output is complex to test in integration tests
     // This mainly verifies the command completes successfully
+}
+
+#[test]
+fn test_global_flags_work_after_subcommand() {
+    let fixture = repo_fixture("examples/logs/sample_stderr.log");
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.arg("top")
+        .arg("query-families")
+        .arg("--quiet")
+        .arg("--output-format")
+        .arg("json")
+        .arg(fixture.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"kind\": \"query_family\""));
+}
+
+#[test]
+fn test_checked_in_top_query_families_fixture_smoke() {
+    let fixture = repo_fixture("examples/logs/sample_stderr.log");
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.arg("top")
+        .arg("query-families")
+        .arg("--quiet")
+        .arg(fixture.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Findings"))
+        .stdout(predicate::str::contains("SELECT * FROM users WHERE id = ?"))
+        .stdout(predicate::str::contains("44.000 ms total runtime"));
+}
+
+#[test]
+fn test_checked_in_slow_query_diff_fixture_smoke() {
+    let baseline = repo_fixture("examples/logs/diff_baseline.log");
+    let target = repo_fixture("examples/logs/diff_target.log");
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.arg("slow-queries")
+        .arg("diff")
+        .arg("--quiet")
+        .arg("--output-format")
+        .arg("json")
+        .arg("--baseline")
+        .arg(baseline.to_str().unwrap())
+        .arg("--target")
+        .arg(target.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"kind\": \"slow_query_regression\"",
+        ))
+        .stdout(predicate::str::contains("\"p95_regressed\""));
+}
+
+#[test]
+fn test_checked_in_suggest_sql_happy_path() {
+    let fixture = repo_fixture("examples/logs/sample_stderr.log");
+    let temp_dir = TempDir::new().unwrap();
+    let findings_file = temp_dir.path().join("findings.json");
+
+    Command::cargo_bin("pg-logstats")
+        .unwrap()
+        .arg("top")
+        .arg("query-families")
+        .arg("--quiet")
+        .arg("--output-format")
+        .arg("json")
+        .arg("--outfile")
+        .arg(findings_file.to_str().unwrap())
+        .arg(fixture.to_str().unwrap())
+        .assert()
+        .success();
+
+    Command::cargo_bin("pg-logstats")
+        .unwrap()
+        .arg("suggest-sql")
+        .arg("--quiet")
+        .arg("--findings-file")
+        .arg(findings_file.to_str().unwrap())
+        .arg("--rank")
+        .arg("1")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pg_stat_statements"))
+        .stdout(predicate::str::contains("SELECT * FROM users WHERE id = ?"));
 }
 
 #[test]

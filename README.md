@@ -22,18 +22,22 @@ git clone https://github.com/yourusername/pg-logstats.git
 cd pg-logstats
 cargo install --path .
 
-# Rank the top slow query families in a log file
-pg-logstats top query-families /var/log/postgresql/postgresql.log
+# Rank the top slow query families in a checked-in fixture
+pg-logstats top query-families examples/logs/sample_stderr.log
 
-# Analyze a directory and emit findings as JSON
-pg-logstats --output-format json top query-families --log-dir /var/log/postgresql
+# Save findings JSON from the same fixture corpus
+pg-logstats top query-families \
+  --output-format json \
+  --outfile findings.json \
+  examples/logs/sample_stderr.log
 
-# Diff a target window against a baseline window
-pg-logstats --output-format json slow-queries diff \
-  --baseline /var/log/postgresql/baseline \
-  --target /var/log/postgresql/target
+# Diff a target fixture window against a baseline fixture window
+pg-logstats slow-queries diff \
+  --output-format json \
+  --baseline examples/logs/diff_baseline.log \
+  --target examples/logs/diff_target.log
 
-# Print suggested follow-up SQL for the top finding
+# Print suggested follow-up SQL for the top finding in saved findings JSON
 pg-logstats suggest-sql --findings-file findings.json --rank 1
 ```
 
@@ -156,22 +160,24 @@ pg-logstats suggest-sql --findings-file findings.json --rank 1
 ### Example 1: Top Query Families
 
 ```bash
-$ pg-logstats top query-families sample.log
+$ pg-logstats top query-families examples/logs/sample_stderr.log
 Findings
 Schema Version: 1
 
-#1 [query_family:queryid=|db=app|user=web|app=api|sql=SELECT * FROM orders WHERE id = ?]
+#1 [query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?]
 Query family with high total runtime
-Reason: 42 executions contributed 2876.120 ms total runtime; max execution was 241.551 ms
-Score: 2876.120  Confidence: High
-Query Family: queryid=|db=app|user=web|app=api|sql=SELECT * FROM orders WHERE id = ?
-SQL: SELECT * FROM orders WHERE id = ?
+Reason: 2 executions contributed 44.000 ms total runtime; max execution was 24.000 ms
+Score: 44.000  Confidence: High
+Query Family: queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?
+SQL: SELECT * FROM users WHERE id = ?
 ```
 
 ### Example 2: JSON Findings Output
 
 ```bash
-$ pg-logstats --output-format json top query-families sample.log | jq '.findings[0]'
+$ pg-logstats top query-families \
+    --output-format json \
+    examples/logs/sample_stderr.log | jq '.findings[0]'
 {
   "kind": "query_family",
   "rank": 1,
@@ -182,9 +188,10 @@ $ pg-logstats --output-format json top query-families sample.log | jq '.findings
 ### Example 3: Baseline Versus Target Diff
 
 ```bash
-$ pg-logstats --output-format json slow-queries diff \
-    --baseline baseline.log \
-    --target target.log \
+$ pg-logstats slow-queries diff \
+    --output-format json \
+    --baseline examples/logs/diff_baseline.log \
+    --target examples/logs/diff_target.log \
     --min-target-count 3
 
 {
@@ -204,9 +211,9 @@ $ pg-logstats --output-format json slow-queries diff \
 
 ```bash
 $ pg-logstats suggest-sql --findings-file findings.json --rank 1
-#1 [query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM orders WHERE id = ?]
+#1 [query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?]
 Query family with high total runtime
-select queryid, calls, total_exec_time, mean_exec_time, rows, query from pg_stat_statements where query ilike '%SELECT * FROM orders WHERE id = ?%' order by total_exec_time desc limit 20;
+select queryid, calls, total_exec_time, mean_exec_time, rows, query from pg_stat_statements where query ilike '%SELECT * FROM users WHERE id = ?%' order by total_exec_time desc limit 20;
 select pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query from pg_stat_activity where datname = 'appdb' and usename = 'app' and application_name = 'api' order by query_start desc nulls last limit 20;
 ```
 
