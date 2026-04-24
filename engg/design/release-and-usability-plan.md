@@ -225,8 +225,8 @@ Tasks:
 
 Constraint:
 
-- Buildkite should call the local task runner, not re-specify all raw cargo
-  commands inline
+- CI should call the local task runner, not re-specify all raw cargo commands
+  inline
 
 ### Phase 6: Release Readiness
 
