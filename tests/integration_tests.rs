@@ -522,7 +522,7 @@ fn test_progress_bar_enabled_by_default() {
 
 #[test]
 fn test_global_flags_work_after_subcommand() {
-    let fixture = repo_fixture("examples/logs/sample_stderr.log");
+    let fixture = repo_fixture("tests/fixtures/cli/sample_stderr.log");
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg("top")
@@ -538,7 +538,7 @@ fn test_global_flags_work_after_subcommand() {
 
 #[test]
 fn test_checked_in_top_query_families_fixture_smoke() {
-    let fixture = repo_fixture("examples/logs/sample_stderr.log");
+    let fixture = repo_fixture("tests/fixtures/cli/sample_stderr.log");
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg("top")
@@ -554,8 +554,8 @@ fn test_checked_in_top_query_families_fixture_smoke() {
 
 #[test]
 fn test_checked_in_slow_query_diff_fixture_smoke() {
-    let baseline = repo_fixture("examples/logs/diff_baseline.log");
-    let target = repo_fixture("examples/logs/diff_target.log");
+    let baseline = repo_fixture("tests/fixtures/cli/diff_baseline.log");
+    let target = repo_fixture("tests/fixtures/cli/diff_target.log");
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     cmd.arg("slow-queries")
@@ -577,7 +577,7 @@ fn test_checked_in_slow_query_diff_fixture_smoke() {
 
 #[test]
 fn test_checked_in_suggest_sql_happy_path() {
-    let fixture = repo_fixture("examples/logs/sample_stderr.log");
+    let fixture = repo_fixture("tests/fixtures/cli/sample_stderr.log");
     let temp_dir = TempDir::new().unwrap();
     let findings_file = temp_dir.path().join("findings.json");
 
