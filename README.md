@@ -22,20 +22,20 @@ git clone https://github.com/yourusername/pg-logstats.git
 cd pg-logstats
 cargo install --path .
 
-# Rank the top slow query families in a checked-in test fixture
-pg-logstats top query-families tests/fixtures/cli/sample_stderr.log
+# Rank the top slow query families in a checked-in example log
+pg-logstats top query-families examples/logs/sample_stderr.log
 
 # Save findings JSON from the same fixture corpus
 pg-logstats top query-families \
   --output-format json \
   --outfile findings.json \
-  tests/fixtures/cli/sample_stderr.log
+  examples/logs/sample_stderr.log
 
 # Diff a target fixture window against a baseline fixture window
 pg-logstats slow-queries diff \
   --output-format json \
-  --baseline tests/fixtures/cli/diff_baseline.log \
-  --target tests/fixtures/cli/diff_target.log
+  --baseline examples/logs/diff_baseline.log \
+  --target examples/logs/diff_target.log
 
 # Print suggested follow-up SQL for the top finding in saved findings JSON
 pg-logstats suggest-sql --findings-file findings.json --rank 1
@@ -160,7 +160,7 @@ pg-logstats suggest-sql --findings-file findings.json --rank 1
 ### Example 1: Top Query Families
 
 ```bash
-$ pg-logstats top query-families tests/fixtures/cli/sample_stderr.log
+$ pg-logstats top query-families examples/logs/sample_stderr.log
 Findings
 Schema Version: 1
 
@@ -177,7 +177,7 @@ SQL: SELECT * FROM users WHERE id = ?
 ```bash
 $ pg-logstats top query-families \
     --output-format json \
-    tests/fixtures/cli/sample_stderr.log | jq '.findings[0]'
+    examples/logs/sample_stderr.log | jq '.findings[0]'
 {
   "kind": "query_family",
   "rank": 1,
@@ -190,8 +190,8 @@ $ pg-logstats top query-families \
 ```bash
 $ pg-logstats slow-queries diff \
     --output-format json \
-    --baseline tests/fixtures/cli/diff_baseline.log \
-    --target tests/fixtures/cli/diff_target.log \
+    --baseline examples/logs/diff_baseline.log \
+    --target examples/logs/diff_target.log \
     --min-target-count 3
 
 {
