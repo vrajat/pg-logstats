@@ -71,16 +71,26 @@ Observed problems:
 
 ## Guiding Decisions
 
-### 1. CI Follows The Local Validation Contract
+### 1. Buildkite Follows The Local Validation Contract
 
-Use whichever CI system the repo prefers, but make it call the same local
-validation entry points contributors use.
+Use Buildkite for CI, and make it call the same local validation entry points
+contributors use.
+
+The target shape should emulate the infrastructure approach in `~/code/pgqrs`:
+
+- keep a checked-in `.buildkite/pipeline.yml`
+- keep the pipeline thin by delegating to local task-runner commands
+- separate bootstrap and environment setup from the validation commands
+- avoid CI-only command definitions that diverge from local usage
 
 Reasoning:
 
 - it keeps release automation separate from day-to-day validation
 - it avoids CI-only behavior
-- it makes Buildkite versus GitHub Actions a secondary implementation detail
+- it keeps `pg-logstats` aligned with the existing infra direction used in
+  `pgqrs`
+- it makes Buildkite the canonical CI surface instead of an interchangeable
+  implementation detail
 
 ### 2. `crates.io` Before Homebrew
 
@@ -202,19 +212,21 @@ Goal: make CI reflect the authoritative local validation path.
 
 Tasks:
 
-- add or update CI configuration
+- add or update `.buildkite/pipeline.yml`
 - add steps for:
   - format
   - tests
   - clippy
   - demo smoke
   - package smoke
-- keep the CI configuration thin by having it call the local task runner
+- keep the Buildkite configuration thin by having it call the local task runner
+- mirror the `pgqrs` split between bootstrap/setup steps and validation steps
+  where that structure makes sense for `pg-logstats`
 
 Constraint:
 
-- CI should call the local task runner, not re-specify all raw cargo commands
-  inline
+- Buildkite should call the local task runner, not re-specify all raw cargo
+  commands inline
 
 ### Phase 6: Release Readiness
 
