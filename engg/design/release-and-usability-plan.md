@@ -31,7 +31,7 @@ another medium-capability model or engineer.
 
 The only decisions that need to be locked for this slice are:
 
-1. Buildkite becomes the primary CI system.
+1. CI should follow the canonical local validation path.
 2. Installation should follow `crates.io` first, then Homebrew formula.
 3. The default demo should work without PostgreSQL; the Docker demo becomes
    optional and secondary.
@@ -65,21 +65,22 @@ Observed problems:
 - some CLI help text still reflects inherited `pgBadger` wording
 - README, examples, and demo docs describe commands and flags that do not exist
 - demo scripts still call older CLI shapes
-- there is no Buildkite pipeline yet
+- some internal project references point at `engg/design/product-requirements.md`,
+  which is currently missing
 - installation and release metadata are not yet ready for public distribution
 
 ## Guiding Decisions
 
-### 1. Buildkite As Primary CI
+### 1. CI Follows The Local Validation Contract
 
-Use Buildkite as the primary CI system for routine validation. Keep GitHub
-Actions for release jobs or manual fallback jobs.
+Use whichever CI system the repo prefers, but make it call the same local
+validation entry points contributors use.
 
 Reasoning:
 
-- it matches the intended repo direction
 - it keeps release automation separate from day-to-day validation
-- it follows a pattern already used successfully in a nearby project
+- it avoids CI-only behavior
+- it makes Buildkite versus GitHub Actions a secondary implementation detail
 
 ### 2. `crates.io` Before Homebrew
 
@@ -120,6 +121,8 @@ Tasks:
 - align checked-in sample logs with the parser currently exercised in tests
 - make sure the primary README commands work against checked-in fixtures
 - clean up stale CLI help text inherited from report-oriented tooling
+- prefer duplicating high-frequency UX flags such as `--quiet` on workflow
+  commands if practical; if not, document global flag placement explicitly
 
 Expected outcome:
 
@@ -141,6 +144,8 @@ Tasks:
   - `demo/README.md`
   - `demo/docker/README.md`
   - any example recipes that still use stale flags
+- fix or replace internal references that still point at the missing
+  `engg/design/product-requirements.md`
 
 Rules for this phase:
 
@@ -191,25 +196,25 @@ Suggested targets:
 
 `check` should be the command both humans and CI can trust.
 
-### Phase 5: Add Buildkite
+### Phase 5: Align CI With The Local Contract
 
-Goal: make Buildkite the authoritative CI path.
+Goal: make CI reflect the authoritative local validation path.
 
 Tasks:
 
-- add `.buildkite/pipeline.yml`
+- add or update CI configuration
 - add steps for:
   - format
   - tests
   - clippy
   - demo smoke
   - package smoke
-- keep GitHub Actions for release or manual use until Buildkite is trusted
+- keep the CI configuration thin by having it call the local task runner
 
 Constraint:
 
-- Buildkite should call the local task runner, not re-specify all raw cargo
-  commands inline
+- CI should call the local task runner, not re-specify all raw cargo commands
+  inline
 
 ### Phase 6: Release Readiness
 
@@ -278,6 +283,10 @@ Do not copy:
 
 These are mismatched with `pg-logstats`.
 
+For this slice, keep the import narrow: prefer 2 to 3 high-signal fixtures that
+protect the current parser and workflow surface, rather than a broad corpus
+import.
+
 ### Borrow Now
 
 #### `t/fixtures/stmt_type.log`
@@ -335,7 +344,6 @@ Source test:
 Use for:
 
 - future temp-file workflow
-- near-term fixture corpus expansion
 - future demo material
 
 Adaptation:
@@ -419,9 +427,10 @@ The `README.md` in that directory should record:
 1. fix checked-in fixture compatibility and CLI wording
 2. rewrite README and example docs around the current CLI
 3. add offline demo script and smoke test
-4. import trimmed `pgbadger`-derived parser fixtures and regression tests
+4. import 2 to 3 trimmed high-signal `pgbadger`-derived parser fixtures and
+   regression tests
 5. add local task runner
-6. add Buildkite
+6. align CI with the canonical validation path
 7. finish crate packaging and release prep
 8. add Homebrew formula after crate publication is credible
 
@@ -431,7 +440,7 @@ The `README.md` in that directory should record:
 - the default demo works without PostgreSQL
 - stale flags and outputs are removed from docs and scripts
 - adapted `pgbadger` fixtures are imported with provenance notes
-- Buildkite runs the canonical validation path
+- CI runs the canonical validation path
 - package and install smoke checks pass locally and in CI
 
 ## Open Questions
