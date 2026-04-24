@@ -63,14 +63,20 @@ Observed problems:
 
 - checked-in sample data does not fully align with the current parser shape
 - some CLI help text still reflects inherited `pgBadger` wording
+<<<<<<< HEAD
 - README and older docs describe commands and flags that do not exist
 - demo scripts call older CLI shapes and do not showcase the tool well
+=======
+- README, examples, and demo docs describe commands and flags that do not exist
+- demo scripts still call older CLI shapes
+>>>>>>> 7c61127 (Refine release and usability plan scope)
 - some internal project references point at `engg/design/product-requirements.md`,
   which is currently missing
 - installation and release metadata are not yet ready for public distribution
 
 ## Guiding Decisions
 
+<<<<<<< HEAD
 ### 1. Buildkite Follows The Local Validation Contract
 
 Use Buildkite for CI, and make it call the same local validation entry points
@@ -82,15 +88,25 @@ The target shape should emulate the infrastructure approach in `~/code/pgqrs`:
 - keep the pipeline thin by delegating to local task-runner commands
 - separate bootstrap and environment setup from the validation commands
 - avoid CI-only command definitions that diverge from local usage
+=======
+### 1. CI Follows The Local Validation Contract
+
+Use whichever CI system the repo prefers, but make it call the same local
+validation entry points contributors use.
+>>>>>>> 7c61127 (Refine release and usability plan scope)
 
 Reasoning:
 
 - it keeps release automation separate from day-to-day validation
 - it avoids CI-only behavior
+<<<<<<< HEAD
 - it keeps `pg-logstats` aligned with the existing infra direction used in
   `pgqrs`
 - it makes Buildkite the canonical CI surface instead of an interchangeable
   implementation detail
+=======
+- it makes Buildkite versus GitHub Actions a secondary implementation detail
+>>>>>>> 7c61127 (Refine release and usability plan scope)
 
 ### 2. `crates.io` Before Homebrew
 
@@ -202,15 +218,23 @@ Goal: make CI reflect the authoritative local validation path.
 
 Tasks:
 
+<<<<<<< HEAD
 - add or update `.buildkite/pipeline.yml`
+=======
+- add or update CI configuration
+>>>>>>> 7c61127 (Refine release and usability plan scope)
 - add steps for:
   - format
   - tests
   - clippy
   - package smoke
+<<<<<<< HEAD
 - keep the Buildkite configuration thin by having it call the local task runner
 - mirror the `pgqrs` split between bootstrap/setup steps and validation steps
   where that structure makes sense for `pg-logstats`
+=======
+- keep the CI configuration thin by having it call the local task runner
+>>>>>>> 7c61127 (Refine release and usability plan scope)
 
 Constraint:
 
