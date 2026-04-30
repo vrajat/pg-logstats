@@ -67,6 +67,21 @@ fn repo_fixture(path: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(path)
 }
 
+fn golden_fixture(path: &str) -> std::path::PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/golden")
+        .join(path)
+}
+
+fn normalize_findings_json(mut value: serde_json::Value) -> serde_json::Value {
+    if let Some(metadata) = value.get_mut("metadata") {
+        if let Some(timestamp) = metadata.get_mut("analysis_timestamp") {
+            *timestamp = serde_json::Value::String("<timestamp>".to_string());
+        }
+    }
+    value
+}
+
 #[test]
 fn test_cli_help() {
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
@@ -605,6 +620,68 @@ fn test_checked_in_suggest_sql_happy_path() {
         .assert()
         .success()
         .stdout(predicate::str::contains("pg_stat_statements"))
+        .stdout(predicate::str::contains("SELECT * FROM users WHERE id = ?"));
+}
+
+#[test]
+fn test_top_query_families_text_golden() {
+    let fixture = repo_fixture("tests/fixtures/cli/sample_stderr.log");
+    let expected = fs::read_to_string(golden_fixture("top_query_families_sample.txt")).unwrap();
+
+    let output = Command::cargo_bin("pg-logstats")
+        .unwrap()
+        .arg("top")
+        .arg("query-families")
+        .arg("--quiet")
+        .arg(fixture.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), expected);
+}
+
+#[test]
+fn test_top_query_families_json_golden() {
+    let fixture = repo_fixture("tests/fixtures/cli/sample_stderr.log");
+    let expected: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(golden_fixture("top_query_families_sample.json")).unwrap(),
+    )
+    .unwrap();
+
+    let output = Command::cargo_bin("pg-logstats")
+        .unwrap()
+        .arg("top")
+        .arg("query-families")
+        .arg("--quiet")
+        .arg("--output-format")
+        .arg("json")
+        .arg(fixture.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let actual: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be JSON");
+    assert_eq!(normalize_findings_json(actual), expected);
+}
+
+#[test]
+fn test_suggest_sql_from_checked_in_findings_json() {
+    let findings = golden_fixture("top_query_families_sample.json");
+
+    Command::cargo_bin("pg-logstats")
+        .unwrap()
+        .arg("suggest-sql")
+        .arg("--quiet")
+        .arg("--findings-file")
+        .arg(findings.to_str().unwrap())
+        .arg("--rank")
+        .arg("1")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("pg_stat_statements"))
+        .stdout(predicate::str::contains("pg_stat_activity"))
         .stdout(predicate::str::contains("SELECT * FROM users WHERE id = ?"));
 }
 

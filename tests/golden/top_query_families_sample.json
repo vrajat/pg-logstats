@@ -1,0 +1,150 @@
+{
+  "findings": [
+    {
+      "confidence": "high",
+      "evidence": [
+        {
+          "record_index": 0,
+          "source_kind": "Stderr"
+        },
+        {
+          "record_index": 1,
+          "source_kind": "Stderr"
+        },
+        {
+          "record_index": 2,
+          "source_kind": "Stderr"
+        }
+      ],
+      "finding_id": "query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?",
+      "kind": "query_family",
+      "metrics": {
+        "avg_duration_ms": 22.0,
+        "correlated_execution_count": 2,
+        "execution_count": 2,
+        "max_duration_ms": 24.0,
+        "total_duration_ms": 44.0,
+        "uncorrelated_execution_count": 0
+      },
+      "next_sql": [
+        "select queryid, calls, total_exec_time, mean_exec_time, rows, query from pg_stat_statements where query ilike '%SELECT * FROM users WHERE id = ?%' order by total_exec_time desc limit 20;",
+        "select pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query from pg_stat_activity where datname = 'appdb' and usename = 'app' and application_name = 'api' order by query_start desc nulls last limit 20;"
+      ],
+      "query_family": {
+        "application_name": "api",
+        "database": "appdb",
+        "normalized_sql": "SELECT * FROM users WHERE id = ?",
+        "query_family_id": "queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?",
+        "queryid": null,
+        "user": "app"
+      },
+      "rank": 1,
+      "reason": "2 executions contributed 44.000 ms total runtime; max execution was 24.000 ms",
+      "reason_codes": [
+        "high_total_duration",
+        "high_max_duration",
+        "correlated_duration"
+      ],
+      "schema_version": 1,
+      "score": 44.0,
+      "title": "Query family with high total runtime"
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        {
+          "record_index": 6,
+          "source_kind": "Stderr"
+        },
+        {
+          "record_index": 7,
+          "source_kind": "Stderr"
+        }
+      ],
+      "finding_id": "query_family:queryid=|db=analytics|user=reporting|app=psql|sql=SELECT COUNT(*) FROM orders WHERE created_at >= ?",
+      "kind": "query_family",
+      "metrics": {
+        "avg_duration_ms": 18.0,
+        "correlated_execution_count": 1,
+        "execution_count": 1,
+        "max_duration_ms": 18.0,
+        "total_duration_ms": 18.0,
+        "uncorrelated_execution_count": 0
+      },
+      "next_sql": [
+        "select queryid, calls, total_exec_time, mean_exec_time, rows, query from pg_stat_statements where query ilike '%SELECT COUNT(*) FROM orders WHERE created\\_at >= ?%' order by total_exec_time desc limit 20;",
+        "select pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query from pg_stat_activity where datname = 'analytics' and usename = 'reporting' and application_name = 'psql' order by query_start desc nulls last limit 20;"
+      ],
+      "query_family": {
+        "application_name": "psql",
+        "database": "analytics",
+        "normalized_sql": "SELECT COUNT(*) FROM orders WHERE created_at >= ?",
+        "query_family_id": "queryid=|db=analytics|user=reporting|app=psql|sql=SELECT COUNT(*) FROM orders WHERE created_at >= ?",
+        "queryid": null,
+        "user": "reporting"
+      },
+      "rank": 2,
+      "reason": "1 executions contributed 18.000 ms total runtime; max execution was 18.000 ms",
+      "reason_codes": [
+        "high_total_duration",
+        "high_max_duration",
+        "correlated_duration"
+      ],
+      "schema_version": 1,
+      "score": 18.0,
+      "title": "Query family with high total runtime"
+    },
+    {
+      "confidence": "high",
+      "evidence": [
+        {
+          "record_index": 4,
+          "source_kind": "Stderr"
+        },
+        {
+          "record_index": 5,
+          "source_kind": "Stderr"
+        }
+      ],
+      "finding_id": "query_family:queryid=|db=appdb|user=app|app=worker|sql=UPDATE users SET last_login = NOW() WHERE id = ?",
+      "kind": "query_family",
+      "metrics": {
+        "avg_duration_ms": 9.0,
+        "correlated_execution_count": 1,
+        "execution_count": 1,
+        "max_duration_ms": 9.0,
+        "total_duration_ms": 9.0,
+        "uncorrelated_execution_count": 0
+      },
+      "next_sql": [
+        "select queryid, calls, total_exec_time, mean_exec_time, rows, query from pg_stat_statements where query ilike '%UPDATE users SET last\\_login = NOW() WHERE id = ?%' order by total_exec_time desc limit 20;",
+        "select pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query from pg_stat_activity where datname = 'appdb' and usename = 'app' and application_name = 'worker' order by query_start desc nulls last limit 20;"
+      ],
+      "query_family": {
+        "application_name": "worker",
+        "database": "appdb",
+        "normalized_sql": "UPDATE users SET last_login = NOW() WHERE id = ?",
+        "query_family_id": "queryid=|db=appdb|user=app|app=worker|sql=UPDATE users SET last_login = NOW() WHERE id = ?",
+        "queryid": null,
+        "user": "app"
+      },
+      "rank": 3,
+      "reason": "1 executions contributed 9.000 ms total runtime; max execution was 9.000 ms",
+      "reason_codes": [
+        "high_total_duration",
+        "high_max_duration",
+        "correlated_duration"
+      ],
+      "schema_version": 1,
+      "score": 9.0,
+      "title": "Query family with high total runtime"
+    }
+  ],
+  "metadata": {
+    "analysis_timestamp": "<timestamp>",
+    "log_files_processed": [],
+    "tool_version": "0.1.0",
+    "total_log_entries": 9
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,21 @@
+Findings
+Schema Version: 1
+
+#1 [query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?] Query family with high total runtime
+Reason: 2 executions contributed 44.000 ms total runtime; max execution was 24.000 ms
+Score: 44.000  Confidence: High
+Query Family: queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?
+SQL: SELECT * FROM users WHERE id = ?
+
+#2 [query_family:queryid=|db=analytics|user=reporting|app=psql|sql=SELECT COUNT(*) FROM orders WHERE created_at >= ?] Query family with high total runtime
+Reason: 1 executions contributed 18.000 ms total runtime; max execution was 18.000 ms
+Score: 18.000  Confidence: High
+Query Family: queryid=|db=analytics|user=reporting|app=psql|sql=SELECT COUNT(*) FROM orders WHERE created_at >= ?
+SQL: SELECT COUNT(*) FROM orders WHERE created_at >= ?
+
+#3 [query_family:queryid=|db=appdb|user=app|app=worker|sql=UPDATE users SET last_login = NOW() WHERE id = ?] Query family with high total runtime
+Reason: 1 executions contributed 9.000 ms total runtime; max execution was 9.000 ms
+Score: 9.000  Confidence: High
+Query Family: queryid=|db=appdb|user=app|app=worker|sql=UPDATE users SET last_login = NOW() WHERE id = ?
+SQL: UPDATE users SET last_login = NOW() WHERE id = ?
+

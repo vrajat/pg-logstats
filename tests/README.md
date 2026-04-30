@@ -22,6 +22,11 @@ The test suite is organized into several categories:
 - Expected output files for validation
 - Edge cases including empty files, malformed lines, and large files
 
+### 4. Golden Output (`tests/golden/`)
+- Stable CLI output snapshots for checked-in fixtures
+- Text and JSON findings output regression coverage
+- Checked-in findings JSON for `suggest-sql` smoke tests
+
 ## Running Tests
 
 ### Basic Test Execution
@@ -73,6 +78,9 @@ cargo test file_processing_tests
 cargo test error_handling_tests
 cargo test performance_tests
 ```
+
+Golden output tests live in the integration suite. Update golden files only when
+the CLI output contract intentionally changes.
 
 ### Property-Based Tests
 
