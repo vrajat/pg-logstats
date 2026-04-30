@@ -2,10 +2,11 @@
 name = "pg-logstats"
 version = "0.1.0"
 edition = "2021"
-authors = ["Rajat Venkatesh <your.email@example.com>"]
-description = "A fast PostgreSQL log analysis tool written in Rust"
+authors = ["Rajat Venkatesh"]
+description = "PostgreSQL log investigation CLI for query-family findings and follow-up SQL"
 license = "MIT"
 repository = "https://github.com/vrajat/pg-logstats"
+homepage = "https://github.com/vrajat/pg-logstats"
 keywords = ["postgresql", "logs", "analysis", "database", "performance"]
 categories = ["command-line-utilities", "database", "development-tools"]
 readme = "README.md"
