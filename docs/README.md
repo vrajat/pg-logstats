@@ -32,5 +32,5 @@ When adding new features to pg-logstats:
 
 1. Update the relevant module documentation in the source code
 2. Update this API.md file if new public APIs are added
-3. Add usage examples to the `examples/` directory
+3. Add fixture-backed usage examples to the root README or `demo/`
 4. Update the main README.md if necessary

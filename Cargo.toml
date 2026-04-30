@@ -40,7 +40,3 @@ path = "tests/unit/analytics_tests.rs"
 [[test]]
 name = "output_tests"
 path = "tests/unit/output_tests.rs"
-
-[[example]]
-name = "basic_usage"
-path = "examples/basic_usage.rs"

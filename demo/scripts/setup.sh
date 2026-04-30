@@ -222,13 +222,13 @@ show_next_steps() {
     echo "   ./scripts/run-workload.sh"
     echo ""
     echo "3. Analyze logs with pg-logstats:"
-    echo "   cargo run -- demo/logs/*.log"
+    echo "   cargo run -- top query-families --log-dir demo/logs"
     echo ""
     echo "4. Clean up when done:"
     echo "   ./scripts/cleanup.sh"
     echo ""
-    echo "For a complete automated demo, run:"
-    echo "   ./scripts/docker-demo.sh full-demo"
+    echo "For the fixture walkthrough, run:"
+    echo "   ./scripts/run-demo.sh"
 }
 
 # Parse command line arguments
