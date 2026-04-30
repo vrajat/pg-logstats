@@ -1,292 +1,153 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Docker Demo Script for pg-logstats
-# This script helps users quickly set up and test the Docker environment
-
-set -e
+set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DOCKER_DIR="$SCRIPT_DIR/../docker"
-PROJECT_ROOT="$SCRIPT_DIR/../.."
+DOCKER_DIR="$(cd "$SCRIPT_DIR/../docker" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+usage() {
+    cat <<'EOF'
+pg-logstats Docker demo helper
 
-# Function to print colored output
-print_status() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+Usage:
+  demo/scripts/docker-demo.sh start
+  demo/scripts/docker-demo.sh workload [type] [iterations] [delay]
+  demo/scripts/docker-demo.sh extract [output-dir]
+  demo/scripts/docker-demo.sh analyze [log-dir] [output-file]
+  demo/scripts/docker-demo.sh stop
+  demo/scripts/docker-demo.sh cleanup
+
+Commands:
+  start       Start PostgreSQL.
+  workload    Run the workload container. Type: basic, intensive, errors, mixed.
+  extract     Copy PostgreSQL logs from the Docker volume to a host directory.
+  analyze     Run top query-families on copied logs and write findings JSON.
+  stop        Stop containers.
+  cleanup     Stop containers and remove volumes.
+EOF
 }
 
-print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+compose() {
+    if command -v docker-compose >/dev/null 2>&1; then
+        docker-compose "$@"
+    else
+        docker compose "$@"
+    fi
 }
 
-print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Function to check if Docker is running
-check_docker() {
+require_docker() {
     if ! docker info >/dev/null 2>&1; then
-        print_error "Docker is not running. Please start Docker and try again."
+        echo "Docker is not running." >&2
         exit 1
     fi
-    print_success "Docker is running"
 }
 
-# Function to check if docker-compose is available
-check_docker_compose() {
-    if ! command -v docker-compose >/dev/null 2>&1; then
-        print_error "docker-compose is not installed. Please install docker-compose and try again."
-        exit 1
-    fi
-    print_success "docker-compose is available"
-}
-
-# Function to build and start the environment
-start_environment() {
-    print_status "Starting PostgreSQL Docker environment..."
+start() {
+    require_docker
     cd "$DOCKER_DIR"
-
-    # Build images
-    print_status "Building Docker images..."
-    docker-compose build
-
-    # Start PostgreSQL
-    print_status "Starting PostgreSQL service..."
-    docker-compose up -d postgres
-
-    # Wait for PostgreSQL to be ready
-    print_status "Waiting for PostgreSQL to be ready..."
-    timeout=60
-    counter=0
-    while ! docker-compose exec -T postgres pg_isready -U testuser -d testdb >/dev/null 2>&1; do
-        if [ $counter -ge $timeout ]; then
-            print_error "PostgreSQL failed to start within $timeout seconds"
-            docker-compose logs postgres
-            exit 1
-        fi
-        sleep 2
-        counter=$((counter + 2))
-        echo -n "."
-    done
-    echo
-    print_success "PostgreSQL is ready!"
+    compose up -d postgres
 }
 
-# Function to run workload
-run_workload() {
-    local workload_type=${1:-basic}
-    local iterations=${2:-5}
-    local delay=${3:-2}
+workload() {
+    require_docker
+    local workload_type="${1:-basic}"
+    local iterations="${2:-5}"
+    local delay="${3:-2}"
 
-    print_status "Running $workload_type workload ($iterations iterations, ${delay}s delay)..."
+    case "$workload_type" in
+        basic|intensive|errors|mixed) ;;
+        *)
+            echo "Invalid workload type: $workload_type" >&2
+            exit 2
+            ;;
+    esac
+
     cd "$DOCKER_DIR"
-
-    docker-compose run --rm \
+    compose run --rm \
         -e WORKLOAD_TYPE="$workload_type" \
         -e WORKLOAD_ITERATIONS="$iterations" \
         -e WORKLOAD_DELAY="$delay" \
         workload
-
-    print_success "Workload completed!"
 }
 
-# Function to extract logs
 extract_logs() {
-    local output_dir=${1:-./logs}
-
-    print_status "Extracting PostgreSQL logs to $output_dir..."
-
-    # Create output directory
+    require_docker
+    local output_dir="${1:-$PROJECT_ROOT/demo/output/docker-logs}"
     mkdir -p "$output_dir"
 
-    # Extract logs from Docker volume
     docker run --rm \
-        -v docker_postgres_logs:/logs:ro \
-        -v "$(realpath "$output_dir"):/output" \
+        -v pg-logstats_postgres_logs:/logs:ro \
+        -v "$(cd "$output_dir" && pwd):/output" \
         alpine \
-        sh -c "cp -r /logs/* /output/ 2>/dev/null || echo 'No log files found'"
+        sh -c "cp -r /logs/. /output/ 2>/dev/null || true"
 
-    # Check if logs were extracted
-    if [ "$(ls -A "$output_dir" 2>/dev/null)" ]; then
-        print_success "Logs extracted to $output_dir"
-        ls -la "$output_dir"
-    else
-        print_warning "No log files found. Make sure PostgreSQL has been running and generating logs."
+    if [[ -z "$(find "$output_dir" -type f -print -quit)" ]]; then
+        echo "No log files were copied into $output_dir" >&2
+        exit 1
     fi
+
+    echo "Copied logs to $output_dir"
 }
 
-# Function to analyze logs with pg-logstats
-analyze_logs() {
-    local log_dir=${1:-./logs}
-    local output_file=${2:-analysis.json}
+analyze() {
+    local log_dir="${1:-$PROJECT_ROOT/demo/output/docker-logs}"
+    local output_file="${2:-$PROJECT_ROOT/demo/output/docker-findings.json}"
 
-    print_status "Analyzing logs with pg-logstats..."
-
-    if [ ! -d "$log_dir" ] || [ -z "$(ls -A "$log_dir" 2>/dev/null)" ]; then
-        print_error "Log directory $log_dir is empty or doesn't exist. Run extract_logs first."
-        return 1
+    if [[ ! -d "$log_dir" ]]; then
+        echo "Log directory does not exist: $log_dir" >&2
+        exit 1
     fi
 
     cd "$PROJECT_ROOT"
+    cargo run --quiet -- \
+        --quiet \
+        top query-families \
+        --log-dir "$log_dir" \
+        --output-format json \
+        --outfile "$output_file"
 
-    # Build pg-logstats if needed
-    if [ ! -f "target/release/pg-logstats" ] && [ ! -f "target/debug/pg-logstats" ]; then
-        print_status "Building pg-logstats..."
-        cargo build --release
-    fi
-
-    # Run analysis
-    print_status "Running pg-logstats analysis..."
-    cargo run --release -- \
-        --input "$log_dir"/postgresql-*.log \
-        --output "$output_file" \
-        --extension json
-
-    print_success "Analysis completed! Results saved to $output_file"
+    echo "Wrote $output_file"
 }
 
-# Function to stop and clean up
+stop() {
+    cd "$DOCKER_DIR"
+    compose down
+}
+
 cleanup() {
-    print_status "Stopping and cleaning up Docker environment..."
     cd "$DOCKER_DIR"
-
-    docker-compose down
-    print_success "Environment stopped"
-
-    if [ "$1" = "--volumes" ]; then
-        print_warning "Removing all volumes (this will delete all data and logs)..."
-        docker-compose down -v
-        print_success "Volumes removed"
-    fi
+    compose down -v
 }
 
-# Function to show logs
-show_logs() {
-    local service=${1:-postgres}
-    cd "$DOCKER_DIR"
+command="${1:-help}"
+shift || true
 
-    print_status "Showing logs for $service service..."
-    docker-compose logs -f "$service"
-}
-
-# Function to connect to PostgreSQL
-connect_db() {
-    cd "$DOCKER_DIR"
-
-    print_status "Connecting to PostgreSQL..."
-    print_status "Database: testdb, User: testuser, Password: testpass"
-    docker-compose exec postgres psql -U testuser -d testdb
-}
-
-# Function to show help
-show_help() {
-    cat << EOF
-PostgreSQL Docker Demo Script for pg-logstats
-
-Usage: $0 <command> [options]
-
-Commands:
-    start                           Start PostgreSQL environment
-    workload [type] [iter] [delay]  Run workload (type: basic|intensive|errors|mixed)
-    extract [output_dir]            Extract logs from Docker volume
-    analyze [log_dir] [output_file] Analyze logs with pg-logstats
-    full-demo                       Run complete demo (start + workload + extract + analyze)
-    logs [service]                  Show service logs (postgres|workload)
-    connect                         Connect to PostgreSQL database
-    stop                            Stop environment
-    cleanup [--volumes]             Stop and optionally remove volumes
-    help                            Show this help
-
-Examples:
-    $0 start                                    # Start PostgreSQL
-    $0 workload intensive 10 1                 # Run intensive workload, 10 iterations, 1s delay
-    $0 extract ./my-logs                       # Extract logs to ./my-logs
-    $0 analyze ./my-logs results.json          # Analyze logs and save to results.json
-    $0 full-demo                               # Run complete demonstration
-    $0 cleanup --volumes                       # Clean up everything including data
-
-Environment Variables:
-    WORKLOAD_TYPE       Type of workload (basic|intensive|errors|mixed)
-    WORKLOAD_ITERATIONS Number of iterations
-    WORKLOAD_DELAY      Delay between iterations in seconds
-EOF
-}
-
-# Function to run full demo
-full_demo() {
-    print_status "Running full pg-logstats Docker demonstration..."
-
-    # Start environment
-    start_environment
-
-    # Run mixed workload
-    run_workload "mixed" 10 2
-
-    # Extract logs
-    extract_logs "./demo-logs"
-
-    # Analyze logs
-    analyze_logs "./demo-logs" "demo-analysis.json"
-
-    print_success "Full demonstration completed!"
-    print_status "Check demo-analysis.json for results"
-    print_status "Log files are in ./demo-logs/"
-    print_status "Run '$0 connect' to explore the database"
-    print_status "Run '$0 cleanup' when done"
-}
-
-# Main script logic
-case "${1:-help}" in
-    "start")
-        check_docker
-        check_docker_compose
-        start_environment
+case "$command" in
+    start)
+        start "$@"
         ;;
-    "workload")
-        check_docker
-        run_workload "$2" "$3" "$4"
+    workload)
+        workload "$@"
         ;;
-    "extract")
-        check_docker
-        extract_logs "$2"
+    extract)
+        extract_logs "$@"
         ;;
-    "analyze")
-        analyze_logs "$2" "$3"
+    analyze)
+        analyze "$@"
         ;;
-    "full-demo")
-        check_docker
-        check_docker_compose
-        full_demo
+    stop)
+        stop "$@"
         ;;
-    "logs")
-        check_docker
-        show_logs "$2"
+    cleanup)
+        cleanup "$@"
         ;;
-    "connect")
-        check_docker
-        connect_db
+    -h|--help|help)
+        usage
         ;;
-    "stop")
-        check_docker
-        cd "$DOCKER_DIR"
-        docker-compose stop
-        print_success "Environment stopped"
-        ;;
-    "cleanup")
-        check_docker
-        cleanup "$2"
-        ;;
-    "help"|*)
-        show_help
+    *)
+        echo "Unknown command: $command" >&2
+        usage
+        exit 2
         ;;
 esac

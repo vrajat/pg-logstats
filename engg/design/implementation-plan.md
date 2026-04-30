@@ -331,7 +331,7 @@ Use small deterministic fixtures for:
 
 ### Fixture Strategy
 
-Prefer compact fixtures in `examples/logs/` or test fixtures that cover:
+Prefer compact fixtures in `demo/logs/` or test fixtures that cover:
 
 - stable fast queries
 - stable slow queries

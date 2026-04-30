@@ -28,7 +28,7 @@
 - `src/analytics/queries.rs` - query analysis and aggregation
 - `src/analytics/timing.rs` - timing analysis
 - `src/output/json.rs` - structured output
-- `engg/design/product-requirements.md` - current product target
+- `engg/design/release-and-usability-plan.md` - current release/usability handoff
 
 ## Directional Guardrails
 

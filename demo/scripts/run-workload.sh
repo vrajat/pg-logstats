@@ -264,7 +264,7 @@ show_results() {
     echo "   ./scripts/docker-demo.sh extract ./logs"
     echo ""
     echo "2. Analyze logs with pg-logstats:"
-    echo "   cargo run -- ./logs/*.log"
+    echo "   cargo run -- top query-families --log-dir ./logs"
     echo ""
     echo "3. Or run full analysis:"
     echo "   ./scripts/docker-demo.sh analyze ./logs results.json"

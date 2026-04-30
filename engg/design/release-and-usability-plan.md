@@ -150,7 +150,6 @@ Tasks:
 - rewrite the README around the three supported workflows
 - explicitly document the currently supported log format(s)
 - remove references to unsupported flags or outputs from:
-  - `examples/README.md`
   - `demo/README.md`
   - `demo/docker/README.md`
   - any example recipes that still use stale flags

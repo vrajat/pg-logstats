@@ -14,7 +14,7 @@ Shared development process and conventions for `pg-logstats`.
 - Prefer PostgreSQL-specific functionality over generic log-tool features.
 - Do not copy `pgBadger` options or report sections without a clear product reason.
 - Favor structured event models and reusable output schemas over one-off formatting logic.
-- When changing parser behavior, add or update fixtures in `examples/logs/` or tests.
+- When changing parser behavior, add or update fixtures in `demo/logs/` or tests.
 - When changing JSON output, update tests and any docs that describe the schema.
 
 ## Related Files
