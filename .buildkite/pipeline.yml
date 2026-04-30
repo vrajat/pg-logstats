@@ -1,0 +1,35 @@
+steps:
+  - label: ":rust: format"
+    key: "format"
+    agents:
+      queue: "getafix"
+    command:
+      - ".buildkite/scripts/bootstrap.sh"
+      - "mise exec -- make fmt-check"
+
+  - label: ":rust: test"
+    key: "test"
+    depends_on: "format"
+    agents:
+      queue: "getafix"
+    command:
+      - ".buildkite/scripts/bootstrap.sh"
+      - "mise exec -- make test"
+
+  - label: ":rust: clippy"
+    key: "clippy"
+    depends_on: "format"
+    agents:
+      queue: "getafix"
+    command:
+      - ".buildkite/scripts/bootstrap.sh"
+      - "mise exec -- make clippy"
+
+  - label: ":package: package smoke"
+    key: "package-smoke"
+    depends_on: "format"
+    agents:
+      queue: "getafix"
+    command:
+      - ".buildkite/scripts/bootstrap.sh"
+      - "mise exec -- make package-smoke"
