@@ -154,4 +154,4 @@ Most public methods return `Result<T>` where errors are `PgLogstatsError` varian
 
 ## Examples
 
-See the root README and `demo/` directory for CLI usage examples.
+See the root README for CLI usage examples.

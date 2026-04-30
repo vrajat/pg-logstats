@@ -11,7 +11,7 @@ Choose the smallest validation set that proves the change.
 
 When touching log parsing:
 
-- add or update fixtures in `demo/logs/`
+- add or update fixtures in `tests/fixtures/cli/`
 - run unit tests for parser coverage
 - run integration tests that exercise the CLI path
 

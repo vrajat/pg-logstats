@@ -95,18 +95,6 @@ cargo test memory_usage
 cargo test benchmark
 ```
 
-### Docker Environment Tests
-
-```bash
-# Run Docker-related tests (requires Docker)
-cargo test docker_tests
-
-# Run with Docker environment setup
-./demo/scripts/setup.sh
-cargo test docker_tests
-./demo/scripts/cleanup.sh
-```
-
 ## Test Configuration
 
 ### Environment Variables
@@ -152,7 +140,7 @@ Expected shape:
 
 - Buildkite bootstrap/setup stays in pipeline or helper scripts
 - validation runs through canonical local commands such as `make check`
-- demo and packaging smoke checks are first-class CI steps once added
+- packaging smoke checks are first-class CI steps once added
 
 ### Test Coverage
 
