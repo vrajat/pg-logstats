@@ -143,12 +143,12 @@ impl TextFormatter {
                 message: e.to_string(),
                 context: Some("text formatting".to_string()),
             })?;
-            writeln!(output, "  {:>4}  {:>12}  {}", "#", "Duration (ms)", "Query").map_err(
-                |e| PgLogstatsError::Unexpected {
+            writeln!(output, "  {:>4}  {:>12}  Query", "#", "Duration (ms)").map_err(|e| {
+                PgLogstatsError::Unexpected {
                     message: e.to_string(),
                     context: Some("text formatting".to_string()),
-                },
-            )?;
+                }
+            })?;
             for (i, (query, duration)) in analysis.slowest_queries.iter().enumerate() {
                 writeln!(output, "  {:>4}  {:>12.2}  {}", i + 1, duration, query).map_err(|e| {
                     PgLogstatsError::Unexpected {
@@ -169,7 +169,7 @@ impl TextFormatter {
                 message: e.to_string(),
                 context: Some("text formatting".to_string()),
             })?;
-            writeln!(output, "  {:>4}  {:>8}  {}", "#", "Count", "Query").map_err(|e| {
+            writeln!(output, "  {:>4}  {:>8}  Query", "#", "Count").map_err(|e| {
                 PgLogstatsError::Unexpected {
                     message: e.to_string(),
                     context: Some("text formatting".to_string()),

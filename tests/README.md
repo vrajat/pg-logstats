@@ -27,8 +27,11 @@ The test suite is organized into several categories:
 ### Basic Test Execution
 
 ```bash
+# Run the canonical local validation path
+make check
+
 # Run all tests
-cargo test
+make test
 
 # Run tests with output
 cargo test -- --nocapture

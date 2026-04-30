@@ -177,9 +177,8 @@ used by the commands above.
 ## Development
 
 ```bash
-cargo fmt
-cargo test
-cargo clippy
+make fmt
+make check
 ```
 
 Run a smoke command during local development:
