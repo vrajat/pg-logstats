@@ -5,7 +5,7 @@ steps:
       queue: "getafix"
     command:
       - ".buildkite/scripts/bootstrap.sh"
-      - "make fmt-check"
+      - "mise --no-config exec rust@stable -- make fmt-check"
 
   - label: ":rust: test"
     key: "test"
@@ -14,7 +14,7 @@ steps:
       queue: "getafix"
     command:
       - ".buildkite/scripts/bootstrap.sh"
-      - "make test"
+      - "mise --no-config exec rust@stable -- make test"
 
   - label: ":rust: clippy"
     key: "clippy"
@@ -23,7 +23,7 @@ steps:
       queue: "getafix"
     command:
       - ".buildkite/scripts/bootstrap.sh"
-      - "make clippy"
+      - "mise --no-config exec rust@stable -- make clippy"
 
   - label: ":package: package smoke"
     key: "package-smoke"
@@ -32,4 +32,4 @@ steps:
       queue: "getafix"
     command:
       - ".buildkite/scripts/bootstrap.sh"
-      - "make package-smoke"
+      - "mise --no-config exec rust@stable -- make package-smoke"
