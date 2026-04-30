@@ -29,7 +29,7 @@ That corresponds to a PostgreSQL `log_line_prefix` similar to:
 ## Quick Start
 
 ```bash
-cargo install --path .
+cargo install pg-logstats
 
 pg-logstats top query-families tests/fixtures/cli/sample_stderr.log
 
@@ -49,6 +49,13 @@ Global flags such as `--output-format`, `--outfile`, `--outdir`, and `--quiet`
 can be placed before or after the workflow command.
 
 ## Installation
+
+From crates.io:
+
+```bash
+cargo install pg-logstats
+pg-logstats --version
+```
 
 From a local checkout:
 
