@@ -7,6 +7,7 @@ use crate::{
 use chrono::{DateTime, Timelike, Utc};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::cmp::Reverse;
 use std::collections::HashMap;
 
 /// Query performance metrics
@@ -201,7 +202,7 @@ impl QueryAnalyzer {
 
         // Find top most frequent queries
         let mut frequent_queries: Vec<_> = query_counts.into_iter().collect();
-        frequent_queries.sort_by(|a, b| b.1.cmp(&a.1));
+        frequent_queries.sort_by_key(|query| Reverse(query.1));
         result.most_frequent_queries = frequent_queries
             .into_iter()
             .take(self.max_frequent_queries)
