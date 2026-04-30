@@ -6,4 +6,4 @@ if ! command -v mise >/dev/null 2>&1; then
   exit 1
 fi
 
-mise --no-config install rust@stable
+mise install
