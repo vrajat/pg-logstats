@@ -12,6 +12,7 @@ Use this directory for:
 
 Current documents:
 
+- [Agent workflow value layers](agent-workflow-value-layers.md)
 - [PostgreSQL logging landscape](postgres-logging-landscape.md)
 - [pg-logstats and LLM-first investigation](pg-loggrep-llm-direction.md)
 - [First workflow candidates](first-workflow-candidates.md)
