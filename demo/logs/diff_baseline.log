@@ -1,6 +1,0 @@
-2024-01-15 10:00:00.000 UTC [3001] app@appdb api: LOG:  statement: SELECT * FROM users WHERE id = 1;
-2024-01-15 10:00:00.025 UTC [3001] app@appdb api: LOG:  duration: 25.000 ms
-2024-01-15 10:00:01.000 UTC [3002] app@appdb api: LOG:  statement: SELECT * FROM users WHERE id = 2;
-2024-01-15 10:00:01.030 UTC [3002] app@appdb api: LOG:  duration: 30.000 ms
-2024-01-15 10:00:02.000 UTC [3003] app@appdb worker: LOG:  statement: UPDATE users SET last_login = NOW() WHERE id = 42;
-2024-01-15 10:00:02.008 UTC [3003] app@appdb worker: LOG:  duration: 8.000 ms

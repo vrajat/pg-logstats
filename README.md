@@ -31,16 +31,16 @@ That corresponds to a PostgreSQL `log_line_prefix` similar to:
 ```bash
 cargo install --path .
 
-pg-logstats top query-families demo/logs/sample_stderr.log
+pg-logstats top query-families tests/fixtures/cli/sample_stderr.log
 
 pg-logstats top query-families \
   --output-format json \
   --outfile findings.json \
-  demo/logs/sample_stderr.log
+  tests/fixtures/cli/sample_stderr.log
 
 pg-logstats slow-queries diff \
-  --baseline demo/logs/diff_baseline.log \
-  --target demo/logs/diff_target.log
+  --baseline tests/fixtures/cli/diff_baseline.log \
+  --target tests/fixtures/cli/diff_target.log
 
 pg-logstats suggest-sql --findings-file findings.json --rank 1
 ```
@@ -62,7 +62,7 @@ pg-logstats --version
 From source without installing:
 
 ```bash
-cargo run -- top query-families demo/logs/sample_stderr.log
+cargo run -- top query-families tests/fixtures/cli/sample_stderr.log
 ```
 
 ## Commands
@@ -72,19 +72,19 @@ cargo run -- top query-families demo/logs/sample_stderr.log
 Rank normalized query families in one log window:
 
 ```bash
-pg-logstats top query-families demo/logs/sample_stderr.log
+pg-logstats top query-families tests/fixtures/cli/sample_stderr.log
 ```
 
 Analyze every `.log` or `.txt` file in a directory:
 
 ```bash
-pg-logstats top query-families --log-dir demo/logs
+pg-logstats top query-families --log-dir tests/fixtures/cli
 ```
 
 Limit the number of emitted findings:
 
 ```bash
-pg-logstats top query-families --limit 5 demo/logs/sample_stderr.log
+pg-logstats top query-families --limit 5 tests/fixtures/cli/sample_stderr.log
 ```
 
 Write JSON findings for shell or agent workflows:
@@ -93,7 +93,7 @@ Write JSON findings for shell or agent workflows:
 pg-logstats top query-families \
   --output-format json \
   --outfile findings.json \
-  demo/logs/sample_stderr.log
+  tests/fixtures/cli/sample_stderr.log
 ```
 
 ### Slow Query Diff
@@ -102,16 +102,16 @@ Compare a target log window with a baseline log window:
 
 ```bash
 pg-logstats slow-queries diff \
-  --baseline demo/logs/diff_baseline.log \
-  --target demo/logs/diff_target.log
+  --baseline tests/fixtures/cli/diff_baseline.log \
+  --target tests/fixtures/cli/diff_target.log
 ```
 
 Apply eligibility thresholds:
 
 ```bash
 pg-logstats slow-queries diff \
-  --baseline demo/logs/diff_baseline.log \
-  --target demo/logs/diff_target.log \
+  --baseline tests/fixtures/cli/diff_baseline.log \
+  --target tests/fixtures/cli/diff_target.log \
   --min-target-count 2 \
   --min-target-total-ms 100 \
   --min-p95-delta-ms 10
@@ -140,7 +140,7 @@ JSON output is centered on findings:
 ```bash
 pg-logstats top query-families \
   --output-format json \
-  demo/logs/sample_stderr.log | jq '.findings[0]'
+  tests/fixtures/cli/sample_stderr.log | jq '.findings[0]'
 ```
 
 Useful fields include:
@@ -169,12 +169,10 @@ Useful fields include:
 For diff findings, each finding also includes `baseline`, `target`, and `delta`
 duration summaries.
 
-## Demo Fixtures
+## Fixture Logs
 
-[demo/logs](demo/logs/) contains the checked-in fixture logs used by the
-commands above. [demo/](demo/) contains a guided walkthrough for showing the CLI
-end to end. The Docker demo is available when you want to generate fresh
-PostgreSQL logs.
+[tests/fixtures/cli](tests/fixtures/cli/) contains the checked-in fixture logs
+used by the commands above.
 
 ## Development
 
@@ -187,7 +185,7 @@ cargo clippy
 Run a smoke command during local development:
 
 ```bash
-cargo run -- top query-families demo/logs/sample_stderr.log
+cargo run -- top query-families tests/fixtures/cli/sample_stderr.log
 ```
 
 ## Troubleshooting

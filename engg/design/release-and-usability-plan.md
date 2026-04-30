@@ -8,8 +8,8 @@ Date: 2026-04-24
 This note is a handoff plan for the next `pg-logstats` work slice.
 
 The goal is not to expand product scope. The goal is to make the current
-investigation-first CLI easier to trust, easier to install, easier to demo, and
-better protected by tests.
+investigation-first CLI easier to trust, easier to install, and better protected
+by tests.
 
 The codebase has already landed most of the architectural shift:
 
@@ -33,13 +33,13 @@ The only decisions that need to be locked for this slice are:
 
 1. CI should follow the canonical local validation path.
 2. Installation should follow `crates.io` first, then Homebrew formula.
-3. The default demo should work without PostgreSQL; the Docker demo becomes
-   optional and secondary.
+3. Do not ship a weak demo. Keep checked-in fixtures for smoke tests and README
+   commands, and defer a showcase demo until it can demonstrate real depth.
 
 ## Goals
 
-- Make the checked-in examples and docs match the shipped CLI.
-- Make the default demo path work without running PostgreSQL.
+- Make the checked-in fixtures and docs match the shipped CLI.
+- Remove the weak demo surface until a compelling showcase exists.
 - Add CI structure that reflects the local validation contract.
 - Improve release readiness for publishing to `crates.io`.
 - Expand tests with a small borrowed corpus from `pgbadger`, adapted to
@@ -63,8 +63,8 @@ Observed problems:
 
 - checked-in sample data does not fully align with the current parser shape
 - some CLI help text still reflects inherited `pgBadger` wording
-- README, examples, and demo docs describe commands and flags that do not exist
-- demo scripts still call older CLI shapes
+- README and older docs describe commands and flags that do not exist
+- demo scripts call older CLI shapes and do not showcase the tool well
 - some internal project references point at `engg/design/product-requirements.md`,
   which is currently missing
 - installation and release metadata are not yet ready for public distribution
@@ -106,18 +106,16 @@ Reasoning:
 - Homebrew should sit on top of a release process that already produces tagged,
   trustworthy binaries and metadata
 
-### 3. Fixture Demo First
+### 3. No Weak Demo
 
-The default demo path should run entirely on checked-in fixture data.
+Do not present a tiny fixture script as the product demo.
 
 Reasoning:
 
-- it is faster to demo
-- it is easier to trust in CI
-- it avoids requiring PostgreSQL just to prove the core CLI experience
-
-The Docker/PostgreSQL demo remains useful, but only as an optional second-tier
-demo after the fixture demo is stable.
+- a 10-line fixture is useful for tests, but it undersells the tool
+- a real demo should show realistic volume, regression, noise, and follow-up SQL
+- screenshots or screencasts are better than a clunky local demo
+- until a one-command compelling showcase exists, docs should avoid demo claims
 
 ## Implementation Plan
 
@@ -162,23 +160,18 @@ Rules for this phase:
 - do not document features that are not in the CLI
 - do not preserve old docs "just in case"
 
-### Phase 3: Add An Offline Demo
+### Phase 3: Remove The Weak Demo Surface
 
-Goal: make demoing possible without PostgreSQL.
+Goal: avoid shipping a demo that makes the product look smaller than it is.
 
 Tasks:
 
-- add one fixture-based demo script under `demo/`
-- make it show:
-  - `top query-families`
-  - `slow-queries diff`
-  - `suggest-sql`
-- make the script produce stable output suitable for manual demo and CI smoke use
-
-Secondary tasks:
-
-- reduce the Docker demo to an optional advanced path
-- update or remove Docker scripts that still call obsolete CLI arguments
+- remove `demo/` and stale demo scripts
+- keep small checked-in logs only as CLI test fixtures
+- update README commands to use `tests/fixtures/cli`
+- remove docs that imply a demo exists
+- defer any showcase demo until it can be one-command, realistic, and visually
+  compelling
 
 ### Phase 4: Add Local Validation Entry Points
 
@@ -191,7 +184,6 @@ Tasks:
   - formatting
   - tests
   - clippy
-  - demo smoke
   - package smoke
 
 Suggested targets:
@@ -199,7 +191,6 @@ Suggested targets:
 - `fmt`
 - `test`
 - `clippy`
-- `demo-smoke`
 - `package-smoke`
 - `check`
 
@@ -216,7 +207,6 @@ Tasks:
   - format
   - tests
   - clippy
-  - demo smoke
   - package smoke
 - keep the Buildkite configuration thin by having it call the local task runner
 - mirror the `pgqrs` split between bootstrap/setup steps and validation steps
@@ -256,7 +246,6 @@ This slice should add tests in four groups.
 
 - README command smoke tests
 - checked-in fixture smoke tests
-- offline demo script smoke tests
 - CLI help text regression tests
 
 ### 2. Parser Regression Tests
@@ -350,22 +339,6 @@ Source test:
 
 - `t/04_advanced.t`
 
-#### `t/fixtures/tempfile_only.log.gz`
-
-Use for:
-
-- future temp-file workflow
-- future demo material
-
-Adaptation:
-
-- keep as a trimmed plain-text source fixture if possible
-- do not build temp-file product surface in this slice unless explicitly chosen
-
-Source test:
-
-- `t/04_advanced.t`
-
 #### `t/fixtures/queryid.log.gz`
 
 Use for:
@@ -436,8 +409,8 @@ The `README.md` in that directory should record:
 ## Suggested Execution Order
 
 1. fix checked-in fixture compatibility and CLI wording
-2. rewrite README and example docs around the current CLI
-3. add offline demo script and smoke test
+2. rewrite README and docs around the current CLI
+3. remove the weak demo surface
 4. import 2 to 3 trimmed high-signal `pgbadger`-derived parser fixtures and
    regression tests
 5. add local task runner
@@ -448,7 +421,7 @@ The `README.md` in that directory should record:
 ## Definition Of Done
 
 - checked-in README commands work against checked-in fixtures
-- the default demo works without PostgreSQL
+- weak demo scripts and docs are removed
 - stale flags and outputs are removed from docs and scripts
 - adapted `pgbadger` fixtures are imported with provenance notes
 - CI runs the canonical validation path
