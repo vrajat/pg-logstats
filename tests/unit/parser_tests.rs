@@ -165,7 +165,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_parse_multi_line_statement() {
-        let lines = vec![
+        let lines = [
             "2024-08-15 10:30:19.678 UTC [12349] postgres@testdb psql: LOG:  statement: SELECT u.name, p.title",
             "    FROM users u",
             "    JOIN posts p ON u.id = p.user_id",
@@ -294,7 +294,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_parse_lines_with_mixed_content() {
-        let lines = vec![
+        let lines = [
             "2024-08-15 10:30:15.123 UTC [12345] postgres@testdb psql: LOG:  statement: SELECT * FROM users;",
             "This is not a valid log line",
             "",
@@ -463,7 +463,7 @@ mod parser_unit_tests {
         let queries = entry.queries.unwrap();
         assert_eq!(queries.len(), 1);
         // Query should be normalized and not cause memory issues
-        assert!(queries[0].normalized_query.len() > 0);
+        assert!(!queries[0].normalized_query.is_empty());
     }
 }
 
@@ -503,7 +503,7 @@ mod property_based_tests {
     /// Property: Parser should handle any sequence of valid log lines
     #[test]
     fn property_parser_handles_any_valid_sequence() {
-        let base_lines = vec![
+        let base_lines = [
             "2024-08-15 10:30:15.123 UTC [12345] postgres@testdb psql: LOG:  statement: SELECT * FROM users;",
             "2024-08-15 10:30:15.456 UTC [12345] postgres@testdb psql: LOG:  duration: 45.123 ms",
             "2024-08-15 10:30:16.789 UTC [12346] admin@analytics pgbench: ERROR:  relation \"missing_table\" does not exist",

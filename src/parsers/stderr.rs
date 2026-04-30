@@ -187,10 +187,7 @@ impl StderrParser {
         // For now, always create a statement entry
         // Multi-line handling will be done by continuation lines
         let queries = crate::Query::from_sql(query);
-        let normalized_queries = match queries {
-            Ok(qs) => Some(qs),
-            Err(_) => None,
-        };
+        let normalized_queries = queries.ok();
 
         let entry = LogEntry {
             timestamp,
@@ -401,7 +398,7 @@ mod tests {
 
     #[test]
     fn test_parse_multi_line_statement() {
-        let lines = vec![
+        let lines = [
             "2024-08-14 10:30:18.000 UTC [12348] postgres@testdb psql: LOG:  statement: SELECT u.name, p.title",
             "    FROM users u",
             "    JOIN posts p ON u.id = p.user_id",
@@ -446,7 +443,7 @@ mod tests {
 
     #[test]
     fn test_parse_lines_with_errors() {
-        let lines = vec![
+        let lines = [
             "2024-08-14 10:30:15.123 UTC [12345] postgres@testdb psql: LOG:  statement: SELECT * FROM users;",
             "This is not a valid log line",
             "2024-08-14 10:30:15.456 UTC [12345] postgres@testdb psql: LOG:  duration: 45.123 ms",

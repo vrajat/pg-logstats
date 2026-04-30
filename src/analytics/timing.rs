@@ -160,7 +160,7 @@ impl TimingAnalyzer {
 
         let mut result = Vec::new();
         for &percentile in percentiles {
-            if percentile < 0.0 || percentile > 1.0 {
+            if !(0.0..=1.0).contains(&percentile) {
                 return Err(analytics_error(
                     &format!("Invalid percentile: {}", percentile),
                     "calculate_percentiles",
@@ -611,7 +611,7 @@ mod tests {
         assert_eq!(result.max_queries_per_hour, 10);
         // The busiest hour depends on the current time, so we'll just check it's one of the expected hours
         assert!(result.busiest_hour.is_some());
-        assert!(result.peak_hours.len() > 0);
+        assert!(!result.peak_hours.is_empty());
     }
 
     #[test]

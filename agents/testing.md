@@ -4,8 +4,9 @@ Choose the smallest validation set that proves the change.
 
 ## Default Commands
 
-- `cargo test`
-- `cargo test --test integration_tests`
+- `make check`
+- `make test`
+- `cargo test --test integration_tests` for targeted integration coverage
 
 ## Parser Changes
 

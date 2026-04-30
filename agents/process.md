@@ -32,8 +32,7 @@ Shared development process and conventions for `pg-logstats`.
 
 When the environment allows it, prefer:
 
-- `cargo fmt`
-- `cargo test`
-- `cargo clippy`
+- `make fmt`
+- `make check`
 
 If sandbox or dependency constraints block validation, say so clearly and include the concrete failure mode.
