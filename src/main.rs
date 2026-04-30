@@ -16,26 +16,26 @@ use std::time::Instant;
 #[clap(
     name = "pg-logstats",
     version,
-    about = "A fast PostgreSQL log analysis tool"
+    about = "A PostgreSQL log investigation CLI for top query families, slow-query diffs, and follow-up SQL"
 )]
 struct Arguments {
     #[clap(subcommand)]
     command: Command,
 
     /// Output format for results
-    #[clap(long, value_enum, default_value = "text")]
+    #[clap(long, global = true, value_enum, default_value = "text")]
     output_format: OutputFormat,
 
-    /// define the filename for the output. Default depends on the output format: out.html, out.txt, out.bin, out.json or out.tsung. This option can be used multiple time to output several format. To use json output the Perl module JSON::XS must be installed, To dump output to stdout use - as filename.
-    #[clap(short = 'o', long, value_name = "outfile")]
+    /// Write results to a file. Use `-` to force stdout.
+    #[clap(short = 'o', long, global = true, value_name = "PATH")]
     outfile: Option<String>,
 
-    /// directory where out file must be saved.
-    #[clap(short = 'O', long, value_name = "outdir")]
+    /// Directory to prepend to `--outfile`
+    #[clap(short = 'O', long, global = true, value_name = "DIR")]
     outdir: Option<String>,
 
-    /// don't print anything to stdout, not even a progress bar.
-    #[clap(short = 'q', long, value_name = "quiet")]
+    /// Suppress progress output and the completion footer
+    #[clap(short = 'q', long, global = true)]
     quiet: bool,
 }
 
@@ -745,8 +745,13 @@ fn write_or_print_output(output: String, args: &Arguments) -> Result<()> {
         if outfile == "-" {
             println!("{}", output);
         } else {
-            fs::write(outfile, output)?;
-            info!("Results written to {}", outfile);
+            let output_path = if let Some(outdir) = &args.outdir {
+                Path::new(outdir).join(outfile)
+            } else {
+                PathBuf::from(outfile)
+            };
+            fs::write(&output_path, output)?;
+            info!("Results written to {}", output_path.display());
         }
     } else {
         println!("{}", output);

@@ -139,25 +139,20 @@ cargo test edge_case_tests
 
 ## Continuous Integration
 
-### GitHub Actions / CI Pipeline
+### Buildkite Pipeline
 
-```yaml
-# Example CI configuration
-name: Tests
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - name: Run tests
-        run: |
-          cargo test --verbose
-          cargo test --release --verbose
-```
+`pg-logstats` should use Buildkite as its CI surface, matching the infra
+direction used in `~/code/pgqrs`.
+
+When CI is added or updated, prefer a checked-in `.buildkite/pipeline.yml` that
+delegates to the same local validation commands developers run manually. Avoid
+re-stating raw cargo commands inline when a local task runner exists.
+
+Expected shape:
+
+- Buildkite bootstrap/setup stays in pipeline or helper scripts
+- validation runs through canonical local commands such as `make check`
+- demo and packaging smoke checks are first-class CI steps once added
 
 ### Test Coverage
 
