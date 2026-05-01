@@ -5,140 +5,195 @@ Parent: [Database Operations Service Engagement](README.md)
 
 ## Design Partner Goal
 
-The design partner should help us discover the real operational workflow, not
-validate a prebuilt tool demo.
+- Validate whether production Postgres database operations is a professional
+  services problem.
+- Validate whether OSS scripts and tools can speed up intake and machine
+  evidence assembly.
+- Validate whether agents can speed up steps across the engagement without
+  creating unbounded, unverifiable, or unsafe work.
+- Use `pg-logstats` as the first concrete OSS trial, not as the full service
+  boundary.
 
-The goal is to observe how an expert team currently investigates difficult
-database incidents, then identify where a fast evidence-plus-agent workflow can
-compress time-to-understanding and time-to-decision.
+## Core Questions
+
+| Question | What We Need To Learn | Evidence |
+| --- | --- | --- |
+| Does Postgres db-ops require professional services? | Whether hard incidents depend on missing context, expert judgment, cross-team coordination, and action framing that tooling alone cannot provide. | Historical incidents where internal teams struggled, delayed, or produced unclear recommendations. |
+| Do OSS scripts speed up intake and engagement? | Whether customer-run tools can produce trusted machine evidence before experts join. | Time to install/run, evidence completeness, parseability, quality of findings, and privacy/access friction. |
+| Do agents speed up the complete engagement? | Whether agents reduce time across intake, collection, analysis, context capture, diagnosis, and recommendations while staying bounded and reviewable. | Per-step timing, artifact quality, human corrections, risk scores, and operator trust. |
 
 ## Design Partner Profile
 
-Strong candidates have:
+- Strong candidates:
+  - production Postgres at meaningful scale
+  - recurring SLA, cost, uptime, replica, CDC, or query-performance incidents
+  - internal team has already tried to diagnose hard cases
+  - access to historical incident artifacts
+  - willingness to run OSS tools locally
+  - named operators available for walkthroughs and validation
+  - ability to share sanitized logs, metrics, timelines, docs, and runbooks
+- Weak candidates:
+  - toy workloads
+  - generic observability interest without incident pain
+  - no historical incidents
+  - no access to raw or sanitized evidence
+  - no operator availability
+  - desire for a generic dashboard or report
 
-- production Postgres at meaningful scale
-- recurring SLA, cost, uptime, replica, CDC, or query-performance incidents
-- a team that has already tried internal diagnosis
-- access to historical incident artifacts
-- willingness to share anonymized logs, metrics, timelines, and runbooks
-- named operators who can walk through their real investigation process
+## Trial Shape
 
-Weak candidates have:
+- Start with one or two historical incidents.
+  - The internal team should have struggled or taken longer than desired.
+  - Ground truth should exist or be reconstructable.
+  - Historical incidents reduce live-incident risk while preserving realism.
+- Repeat later on a live or near-live degradation.
+  - Use this only after the historical workflow has produced useful artifacts.
+  - Test speed under pressure, trust, and data-access friction.
 
-- only toy workloads
-- only greenfield observability interests
-- no incident history
-- no access to raw evidence
-- desire for a generic dashboard or report
+## Phase 1: Professional Services Need
 
-## Requested Workflow
+- Goal:
+  - determine whether the incident class requires services, not just tooling
+- Request:
+  - incident summary
+  - original timeline
+  - internal RCA or unresolved questions
+  - what the team tried
+  - where the team got stuck
+  - who needed to be involved
+  - what decision was hard to make
+- Evaluate:
+  - was the hard part machine evidence, context, prioritization, or action
+    framing?
+  - did the team need cross-functional ownership or business tradeoffs?
+  - did generic tooling already exist but fail to produce a decision?
+  - would a recommendation brief have been valuable during the incident?
+- Success signal:
+  - the partner can name incidents where faster expert diagnosis and decision
+    framing would have materially helped.
 
-### 1. Pre-Engagement Audit
+## Phase 2: OSS Script Trial
 
-Ask the design partner to pick one or two recent incidents where the internal
-team struggled.
+- Goal:
+  - determine whether customer-run OSS tools can speed up intake and machine
+    evidence assembly
+- Ask the partner to run the OSS path locally:
+  - install or build `pg-logstats`
+  - run it against sanitized incident and baseline windows
+  - generate findings
+  - generate parseability and completeness notes where available
+  - record setup time, run time, failures, and missing data
+- Measure:
+  - time from instructions to first usable artifact
+  - whether logs were parseable
+  - whether baseline windows were easy to provide
+  - whether redaction preserved useful grouping
+  - whether findings were specific enough for intake
+  - whether the customer avoided sharing raw logs
+- Success signal:
+  - OSS output makes intake more concrete and reduces expert time spent on
+    basic evidence readiness.
+- Failure signal:
+  - setup, log format, redaction, or missing data makes the OSS path slower than
+    a guided services workflow.
 
-Request:
+## Phase 3: Agent Acceleration Trial
 
-- incident summary
-- incident timeline
-- production topology
-- logs and metrics for incident and baseline windows
-- relevant deploy, migration, feature-flag, or job timeline
-- runbooks used during the incident
-- final internal RCA or unresolved questions
-- current pain points in the investigation workflow
+- Goal:
+  - determine whether agents speed up the full engagement while staying
+    bounded, checkable, structured, and verifiable
+- Run the same incident through the staged workflow:
+  - intake and triage
+  - machine evidence assembly
+  - deterministic analysis
+  - context evidence capture
+  - company-aware diagnosis
+  - recommendation framing
+- For each stage, record:
+  - agent task
+  - `No risk`, `Risk`, or `Unknown` score
+  - human corrections
+  - time saved or time added
+  - artifact quality
+  - missing structure or missing evidence
+- Success signal:
+  - agents reduce operator and expert time without hiding assumptions or
+    producing unverifiable claims.
+- Failure signal:
+  - agents produce broad narrative, unsupported claims, unsafe action framing,
+    or require more correction than the time they save.
 
-The audit should include a live walkthrough with the people who did the work.
-The point is to capture the actual workflow, including undocumented steps,
-Slack queries, dashboards, shell commands, and judgment calls.
+## Phase 4: Ground Truth Review
 
-### 2. Evidence Package Trial
+- Goal:
+  - compare the service workflow against what actually happened
+- Ask:
+  - did OSS findings surface the important machine signals?
+  - did the agent-generated intake brief focus the discussion?
+  - did the context pack capture the facts operators considered decisive?
+  - did the diagnosis prioritize the right issue?
+  - did the recommendation separate mitigation, repair, deferral, and actions
+    to avoid?
+  - which agent steps were reliable?
+  - which agent steps required too much correction?
+  - where did human judgment remain essential?
+- Required outputs:
+  - corrected artifacts
+  - timing comparison
+  - agent risk-score revisions
+  - list of scripts or docs needed before the next trial
 
-Ask the partner to provide a sanitized evidence package for one incident.
+## Phase 5: Live Or Near-Live Trial
 
-The package should be complete enough that an external investigator can work
-without broad production access:
+- Goal:
+  - test the workflow under realistic time pressure
+- Preconditions:
+  - historical trial produced a useful recommendation artifact
+  - OSS evidence path is documented enough to run quickly
+  - context pack shape is understood
+  - human approval boundaries are explicit
+- Measure:
+  - time to intake state
+  - time to evidence bundle
+  - time to ranked findings
+  - time to context pack
+  - time to diagnosis
+  - time to recommendation brief
+  - operator trust in the artifact
 
-- logs
-- metrics exports or screenshots with timestamps
-- SQL snapshots where available
-- topology notes
-- application ownership notes
-- known noise filters
-- incident channel transcript or summarized decision log
+## Metrics To Track
 
-Measure how long it takes the partner to assemble this package. That assembly
-time is part of the product and service design problem.
+- Professional services need:
+  - incident duration before useful diagnosis
+  - number of teams involved
+  - unresolved RCA questions
+  - decisions that were delayed or contentious
+- OSS script value:
+  - setup time
+  - run time
+  - parseability success
+  - completeness score
+  - redaction success
+  - usefulness of findings for intake
+- Agent acceleration:
+  - time saved per workflow stage
+  - number of human corrections
+  - risk score per agent step
+  - unsupported claims caught
+  - operator trust score
+  - artifact reuse in incident channel or follow-up tickets
 
-### 3. Timed Investigation Trial
+## Initial Hypotheses
 
-Run a timed investigation against the evidence package.
-
-Rules:
-
-- no production changes
-- human approval for any live SQL
-- all claims tied to evidence
-- recommendations separated into immediate, short-term, and structural
-- unknowns called out explicitly
-
-Target output within a few hours:
-
-- ranked findings
-- likely causal chain
-- action recommendation
-- data that would change the recommendation
-- follow-up instrumentation or policy suggestions
-
-### 4. Review Against Ground Truth
-
-Review the output with the design partner.
-
-Ask:
-
-- did the workflow identify the real issue faster than the team did?
-- did it surface anything the team missed?
-- were the recommendations too generic or actually actionable?
-- did it correctly avoid unsafe actions?
-- what internal context was required to make the answer useful?
-- what part of the evidence package was hardest to assemble?
-- what would make this trustworthy during a live incident?
-
-### 5. Repeat On A Live Or Near-Live Case
-
-After one historical trial, repeat on a fresh incident or near-live degradation.
-
-The goal is to test:
-
-- speed under pressure
-- data access friction
-- operator trust
-- quality of recommendations before the team knows the answer
-- usefulness of the final artifact in an incident channel
-
-## What We Need To Learn From The Design Partner
-
-- Which incident classes are painful enough to pay for?
-- Which evidence is always available, sometimes available, or usually missing?
-- Which recommendations are considered high value by senior operators?
-- Which actions require explicit approval boundaries?
-- Which company-specific context changes the diagnosis?
-- How much of the workflow can be deterministic?
-- Where does model judgment actually belong?
-- What artifact format is most useful: incident brief, action tree, RCA addendum,
-  runbook patch, or ticket list?
-- How fast can evidence be safely packaged?
-
-## Initial Trial Hypotheses
-
-- The highest-value service is not log reporting; it is rapid diagnosis plus
-  decision framing.
-- The first durable product primitive is an evidence package, not an agent UI.
-- `pg-logstats` is useful if it creates compact, stable, machine-readable
-  findings that feed the engagement.
-- The workflow should be mostly deterministic until the diagnosis and
-  recommendation stage.
-- Company context matters most for ownership, noise suppression, business
-  impact, and mitigation choice.
-- A design partner will reveal that evidence assembly is a major bottleneck.
+- Postgres db-ops at scale is often a services problem because the hard part is
+  joining machine evidence with company context and action tradeoffs.
+- OSS scripts can materially speed up intake and machine evidence assembly if
+  they are easy to run locally and produce stable, shareable findings.
+- Agents can speed up the engagement when the work is bounded, checkable,
+  structured, and verifiable.
+- Agents are most reliable for summarization, routing, collection walkthroughs,
+  source-linked extraction, and artifact drafting.
+- Agents are riskiest when they choose branches, tune thresholds, suppress
+  findings, weight priorities, or frame production-impacting actions.
+- The design partner trial should produce evidence about which agent steps are
+  reliable, risky, or still unknown.

@@ -119,41 +119,41 @@
   really a generic health check, or the customer expects autonomous production
   changes.
 
+## Differentiation
+
+- OSS scripts speed up intake and engagement.
+  - Customers can run tools locally before granting broad access.
+  - Machine evidence becomes concrete before expert time starts.
+  - Parseability, completeness, redaction, and basic ranking become
+    deterministic and reviewable.
+  - `pg-logstats` is the first concrete trial of this pattern.
+- Agents speed up the complete engagement when work is bounded, checkable,
+  structured, and verifiable.
+  - Agents guide collection walkthroughs and reduce customer/operator friction.
+  - Agents drive deterministic tool loops without becoming the source of truth.
+  - Agents gather docs, links, exports, and commentary into reviewable context
+    packs.
+  - Agents draft diagnosis and recommendation artifacts, while humans validate
+    weighting, safety, and action choices.
+
 ## Design Partner Workflow
 
-- The design partner goal is to discover the real operational workflow. We are
-  not trying to validate a polished demo; we are trying to learn how expert
-  teams actually investigate hard database incidents.
+- The design partner goal is to validate three claims:
+  - production Postgres db-ops requires professional services for hard
+    incidents
+  - OSS scripts speed up intake and machine evidence assembly
+  - agents speed up the complete engagement when their work is bounded,
+    checkable, structured, and verifiable
 - A strong design partner has meaningful production scale, recurring database
   operations pain, access to historical incident artifacts, and named operators
   who can walk through real investigations.
-- The first trial should use one or two historical incidents where the internal
-  team struggled. Historical incidents let us compare the service output against
-  ground truth without adding live-incident risk.
-- Request the artifacts needed to reconstruct the investigation:
-  - incident timeline
-  - production topology
-  - logs and metrics
-  - SQL snapshots
-  - deploy and migration history
-  - runbooks
-  - incident notes
-  - unresolved questions
-- Require a walkthrough with the people who did the work. The decisive context
-  often lives in undocumented Slack habits, dashboard sequences, shell commands,
-  ownership conventions, and judgment calls.
-- Run an evidence-package trial before the timed investigation. The partner
-  should assemble a sanitized incident package, and we should measure how long
-  that takes. Evidence assembly time is part of the service design problem.
-- Run the timed investigation with clear safety boundaries:
-  - no autonomous production changes
-  - human approval for live SQL
-  - every claim tied to evidence
-  - immediate actions separated from short-term and structural actions
-  - unknowns called out explicitly
-- Review the output against ground truth. The review should answer whether the
-  workflow found the issue faster, surfaced missed context, avoided unsafe
-  actions, and produced recommendations that senior operators would use.
+- The trial should start with historical incidents, then move to live or
+  near-live cases only after the workflow produces useful, reviewable artifacts.
+- The design partner review should measure:
+  - whether services would have materially helped
+  - whether OSS findings made intake faster and more concrete
+  - whether agents saved time or added correction burden at each stage
+  - which agent steps should be `No risk`, `Risk`, or `Unknown`
 - The core learning goals are:
   - which evidence is always available
   - which evidence is missing or unreliable
