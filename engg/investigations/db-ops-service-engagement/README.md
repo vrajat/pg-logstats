@@ -24,6 +24,7 @@
   - [Successful engagement criteria, workflow, and timeline](successful-engagement.md)
   - [Design partner workflow](design-partner-workflow.md)
 - Level 3 deep dives:
+  - [Intake and triage](deep-dives/intake-and-triage.md)
   - [Evidence required before diagnosis](deep-dives/evidence-required-before-diagnosis.md)
 - Supporting notes:
   - [Research notes](research-notes.md)
@@ -52,13 +53,17 @@
   - deterministic analysis
   - company-aware diagnosis
   - recommendation and decision framing
+- Intake should use OSS-generated machine evidence as a case-shaping input, not
+  as the final decision. The intake decision still needs human judgment on
+  severity, service fit, operator availability, production safety, and whether
+  recommendations would be actionable.
 - The workflow should keep rule-based evidence collection separate from LLM or
   human judgment. This avoids "AI everywhere" architecture and makes the service
   easier to trust.
 
 | Stage | Mostly deterministic | LLM or judgment useful for | Human approval boundary |
 | --- | --- | --- | --- |
-| Intake | classify incident type; check evidence readiness | infer likely first investigation branch from symptoms | accept or reject engagement scope |
+| Intake | parse OSS findings; classify incident type; check evidence readiness | detect contradictions; draft targeted questions; suggest first branch | accept, reject, or re-scope engagement |
 | Evidence assembly | collect logs, stats, metrics; score bundle completeness | identify missing context; generate targeted follow-ups | approve data sharing and redaction |
 | Deterministic analysis | rank query families, waits, errors, lag, pool saturation | summarize patterns; compare plausible explanations | none if read-only or offline |
 | Company-aware diagnosis | join known service names, deploy timestamps, runbooks | reason over ownership, business impact, prior incidents | validate context and causal chain |

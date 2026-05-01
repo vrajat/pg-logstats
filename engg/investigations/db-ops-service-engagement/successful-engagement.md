@@ -135,24 +135,35 @@ The evidence package must distinguish observed facts from operator guesses.
 
 ### 0. Intake And Triage
 
+Deep dive: [Intake and triage](deep-dives/intake-and-triage.md)
+
 Goal: decide whether the case is eligible for a high-speed engagement.
 This step prevents wasting the engagement on cases that lack severity, evidence,
 or access to the people who can validate context.
 
 Work:
 
+- review OSS-generated findings or machine-evidence summaries when available
 - identify the incident class: latency, saturation, replication/CDC, storage,
   failover, migration, cost, or unknown
 - confirm production scale and severity
-- confirm access to logs, metrics, and operators
+- confirm machine-evidence readiness: logs, stats, metrics, baselines, and
+  parseability
+- confirm context-evidence readiness: owners, deploy history, runbooks,
+  business impact, and operator availability
 - identify any active safety constraints
 - choose the first investigation branch
+- decide whether the case is ready, needs machine evidence, needs context
+  evidence, or should be rejected/re-scoped
 
 Exit artifact:
 
 - one-page intake brief
-- evidence checklist
+- machine-evidence readiness score
+- context-evidence readiness score
 - initial hypothesis map
+- intake state: `Ready`, `Needs machine evidence`, `Needs context evidence`, or
+  `Reject / re-scope`
 
 ### 1. Machine Evidence Assembly
 
@@ -275,7 +286,7 @@ package quickly.
 
 | Time | Activity | Output |
 | --- | --- | --- |
-| T+0 to T+30m | Intake and scope gate | Case accepted or rejected, first branch selected |
+| T+0 to T+30m | Intake and scope gate | Intake state, evidence readiness, first branch selected |
 | T+30m to T+90m | Machine evidence assembly | Evidence manifest, timeline v0, topology v0 |
 | T+90m to T+150m | Deterministic analysis | Ranked findings and missing evidence |
 | T+150m to T+210m | Context evidence capture | Context pack, ownership map, validated timeline |
