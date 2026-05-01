@@ -25,6 +25,7 @@
   - [Design partner workflow](design-partner-workflow.md)
 - Level 3 deep dives:
   - [Intake and triage](deep-dives/intake-and-triage.md)
+  - [Machine evidence assembly](deep-dives/machine-evidence-assembly.md)
   - [Evidence required before diagnosis](deep-dives/evidence-required-before-diagnosis.md)
 - Supporting notes:
   - [Research notes](research-notes.md)
@@ -47,42 +48,39 @@
   should identify what is likely happening, what evidence supports it, what to
   do now, what not to do yet, what evidence could change the recommendation,
   and what permanent changes should follow.
-- The workflow has five stages:
-  - intake and scope gate
-  - evidence assembly
-  - deterministic analysis
-  - company-aware diagnosis
-  - recommendation and decision framing
-- Intake should use OSS-generated machine evidence as a case-shaping input, not
-  as the final decision. The intake decision still needs human judgment on
-  severity, service fit, operator availability, production safety, and whether
-  recommendations would be actionable.
-- The workflow should keep rule-based evidence collection separate from LLM or
-  human judgment. This avoids "AI everywhere" architecture and makes the service
-  easier to trust.
+- The operating model is layered. Scripts and OSS tooling create trusted
+  machine evidence; agents reduce walkthrough and context-gathering friction;
+  humans own severity, safety, validation, and production-impacting decisions.
 
-| Stage | Mostly deterministic | LLM or judgment useful for | Human approval boundary |
-| --- | --- | --- | --- |
-| Intake | parse OSS findings; classify incident type; check evidence readiness | detect contradictions; draft targeted questions; suggest first branch | accept, reject, or re-scope engagement |
-| Evidence assembly | collect logs, stats, metrics; score bundle completeness | identify missing context; generate targeted follow-ups | approve data sharing and redaction |
-| Deterministic analysis | rank query families, waits, errors, lag, pool saturation | summarize patterns; compare plausible explanations | none if read-only or offline |
-| Company-aware diagnosis | join known service names, deploy timestamps, runbooks | reason over ownership, business impact, prior incidents | validate context and causal chain |
-| Recommendation framing | list candidate mitigations and known risk classes | prioritize actions; frame reversibility; decide what not to do | approve any production-impacting action |
+| Step | Evidence or insight | Primary accelerator | Human boundary | Output |
+| --- | --- | --- | --- | --- |
+| Intake and scope gate | Case readiness and likely incident class | OSS findings plus agent-generated intake brief | Accept, reject, or re-scope | Intake state and first branch |
+| Machine evidence assembly | Logs, metrics, stats, pooler, replica, CDC, baseline windows | OSS collectors and scripts; agent-guided collection walkthrough | Data sharing, redaction, live SQL safety | Evidence bundle and completeness report |
+| Deterministic analysis | Ranked machine findings | Scripts and utilities such as `pg-logstats` | None if offline/read-only | Ranked findings and missing evidence |
+| Context evidence capture | Owners, deploys, runbooks, business impact, operator heuristics | Agent-assisted doc review, walkthroughs, contradiction detection, targeted questions | Context validation by operators | Context pack and ownership map |
+| Company-aware diagnosis | Joined machine and context evidence | Agent-assisted synthesis plus expert review | Validate causal chain and confidence | Diagnosis memo |
+| Recommendation framing | Action choice, risk, reversibility, deferral, permanent change | Agent-assisted decision framing plus senior judgment | Approve any production-impacting action | Recommendation brief and follow-up plan |
 
-- Deterministic analysis should compress machine evidence into ranked findings.
-  Inputs include logs, metrics, system views, pooler data, replication state,
-  CDC state, and baseline comparisons.
-- Company-aware diagnosis should join those findings with context that machines
-  do not naturally know: application ownership, deploy history, runbooks,
-  product criticality, known noisy jobs, previous incidents, and operator
-  heuristics.
+- OSS tooling speeds up the machine-evidence side because the customer can run
+  it locally before the engagement. This reduces access friction, preserves
+  privacy, makes the case concrete, and prevents expert time from being spent on
+  parseability, completeness, or basic log triage.
+- Agents are useful where the workflow is structured but customer-specific.
+  They can guide provider-specific evidence collection, turn messy notes into
+  an intake brief, extract claims from docs, detect contradictions, and ask
+  targeted follow-up questions during operator walkthroughs.
+- Humans remain the control point for judgment. They decide whether the case is
+  valuable, whether the evidence is good enough, whether context is accurate,
+  whether a recommendation is safe, and whether production-impacting action is
+  approved.
 - The time target assumes the evidence package is ready:
   - T+0 to T+30m: intake and scope gate
-  - T+30m to T+90m: evidence assembly
+  - T+30m to T+90m: machine evidence assembly
   - T+90m to T+150m: deterministic analysis
-  - T+150m to T+210m: diagnosis
-  - T+210m to T+270m: recommendation draft
-  - T+270m to T+360m: customer review and revision
+  - T+150m to T+210m: context evidence capture
+  - T+210m to T+270m: diagnosis
+  - T+270m to T+330m: recommendation draft
+  - T+330m to T+360m: customer review and revision
 - One day remains the outer bound when evidence is incomplete, causal chains are
   ambiguous, or ownership context is hard to reconstruct.
 - Re-scope the engagement when the customer cannot provide logs or metrics for

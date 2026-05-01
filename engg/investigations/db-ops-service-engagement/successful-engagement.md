@@ -133,6 +133,14 @@ The evidence package must distinguish observed facts from operator guesses.
 
 ## Engagement Workflow
 
+Step tags:
+
+- `[script]`: deterministic collection, validation, scoring, or transformation
+- `[agent]`: guided workflow, summarization, contradiction detection, or
+  targeted follow-up generation
+- `[human]`: severity judgment, context validation, safety approval, or
+  engagement decision
+
 ### 0. Intake And Triage
 
 Deep dive: [Intake and triage](deep-dives/intake-and-triage.md)
@@ -143,17 +151,22 @@ or access to the people who can validate context.
 
 Work:
 
-- review OSS-generated findings or machine-evidence summaries when available
-- identify the incident class: latency, saturation, replication/CDC, storage,
-  failover, migration, cost, or unknown
-- confirm production scale and severity
-- confirm machine-evidence readiness: logs, stats, metrics, baselines, and
+- `[script]` review OSS-generated findings or machine-evidence summaries when
+  available
+- `[agent]` summarize customer notes and machine findings into a structured
+  intake brief
+- `[agent]` identify the likely incident class: latency, saturation,
+  replication/CDC, storage, failover, migration, cost, or unknown
+- `[human]` confirm production scale, severity, and service fit
+- `[script]` confirm machine-evidence readiness: logs, stats, metrics, baselines, and
   parseability
-- confirm context-evidence readiness: owners, deploy history, runbooks,
+- `[agent]` detect contradictions or gaps between the customer narrative and
+  the machine-evidence packet
+- `[human]` confirm context-evidence readiness: owners, deploy history, runbooks,
   business impact, and operator availability
-- identify any active safety constraints
-- choose the first investigation branch
-- decide whether the case is ready, needs machine evidence, needs context
+- `[human]` identify any active safety constraints
+- `[agent]` suggest the first investigation branch
+- `[human]` decide whether the case is ready, needs machine evidence, needs context
   evidence, or should be rejected/re-scoped
 
 Exit artifact:
@@ -167,22 +180,36 @@ Exit artifact:
 
 ### 1. Machine Evidence Assembly
 
+Deep dive: [Machine evidence assembly](deep-dives/machine-evidence-assembly.md)
+
 Goal: make the machine side of the problem bounded, checkable, structured, and
 reviewable. This step creates the raw factual base for deterministic analysis.
+It should be deterministic collection with agent-guided walkthrough support for
+exceptions, provider-specific paths, redaction choices, and missing artifacts.
 
 Work:
 
-- collect logs and metrics into a shared evidence folder
-- normalize timezones and incident windows
-- separate target and baseline windows
-- build topology notes for primary, replicas, CDC, poolers, and major clients
-- identify missing or low-trust signals
+- `[agent]` guide the operator through the correct collection recipe for the
+  provider, topology, and available data sources
+- `[script]` collect logs and metrics into a shared evidence folder
+- `[script]` normalize timezones and incident windows
+- `[script]` separate target and baseline windows
+- `[agent]` suggest fallback baseline windows when none were provided
+- `[script]` build topology notes for primary, replicas, CDC, poolers, and major
+  clients from collected metadata where possible
+- `[human]` approve data sharing, live read-only SQL, and redaction boundaries
+- `[script]` apply and record redaction policy
+- `[script]` validate parseability and completeness
+- `[agent]` explain missing or low-trust signals and route context gaps to
+  context evidence capture
 
 Exit artifact:
 
 - evidence manifest
 - timeline v0
 - topology v0
+- redaction report
+- parseability and completeness report
 
 ### 2. Deterministic Analysis Of Machine Evidence
 
