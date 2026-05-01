@@ -26,6 +26,7 @@
 - Level 3 deep dives:
   - [Intake and triage](deep-dives/intake-and-triage.md)
   - [Machine evidence assembly](deep-dives/machine-evidence-assembly.md)
+  - [Deterministic analysis of machine evidence](deep-dives/deterministic-analysis-of-machine-evidence.md)
   - [Evidence required before diagnosis](deep-dives/evidence-required-before-diagnosis.md)
 - Supporting notes:
   - [Research notes](research-notes.md)
@@ -56,7 +57,7 @@
 | --- | --- | --- | --- | --- |
 | Intake and scope gate | Case readiness and likely incident class | OSS findings plus agent-generated intake brief | Accept, reject, or re-scope | Intake state and first branch |
 | Machine evidence assembly | Logs, metrics, stats, pooler, replica, CDC, baseline windows | OSS collectors and scripts; agent-guided collection walkthrough | Data sharing, redaction, live SQL safety | Evidence bundle and completeness report |
-| Deterministic analysis | Ranked machine findings | Scripts and utilities such as `pg-logstats` | None if offline/read-only | Ranked findings and missing evidence |
+| Deterministic analysis | Ranked machine findings | Scripts and utilities such as `pg-logstats`; agent-driven tool loop | Artifact review and live SQL approval | Ranked findings and missing evidence |
 | Context evidence capture | Owners, deploys, runbooks, business impact, operator heuristics | Agent-assisted doc review, walkthroughs, contradiction detection, targeted questions | Context validation by operators | Context pack and ownership map |
 | Company-aware diagnosis | Joined machine and context evidence | Agent-assisted synthesis plus expert review | Validate causal chain and confidence | Diagnosis memo |
 | Recommendation framing | Action choice, risk, reversibility, deferral, permanent change | Agent-assisted decision framing plus senior judgment | Approve any production-impacting action | Recommendation brief and follow-up plan |
@@ -67,8 +68,9 @@
   parseability, completeness, or basic log triage.
 - Agents are useful where the workflow is structured but customer-specific.
   They can guide provider-specific evidence collection, turn messy notes into
-  an intake brief, extract claims from docs, detect contradictions, and ask
-  targeted follow-up questions during operator walkthroughs.
+  an intake brief, drive deterministic tools like `pg-logstats`, extract claims
+  from docs, detect contradictions, and ask targeted follow-up questions during
+  operator walkthroughs.
 - Humans remain the control point for judgment. They decide whether the case is
   valuable, whether the evidence is good enough, whether context is accurate,
   whether a recommendation is safe, and whether production-impacting action is

@@ -213,19 +213,33 @@ Exit artifact:
 
 ### 2. Deterministic Analysis Of Machine Evidence
 
+Deep dive: [Deterministic analysis of machine evidence](deep-dives/deterministic-analysis-of-machine-evidence.md)
+
 Goal: compress raw evidence into ranked findings.
 This step turns high-volume machine data into a small set of findings that can
 be inspected, challenged, and joined with context.
+The scripts produce the findings; the agent drives the tool loop and prepares a
+walkthrough; humans review the artifact before it feeds diagnosis.
 
 Work:
 
-- rank query families by total time, count, max, p95, and change from baseline
-- identify lock waits, temp files, errors, autovacuum/checkpoint signals, and
-  replication-related warnings
-- correlate query families with database, user, `application_name`, process,
-  client, and time window
-- compare primary and replica symptoms where data exists
-- produce suggested follow-up SQL and system-view checks
+- `[agent]` choose which deterministic tools and windows to run from the
+  evidence bundle
+- `[script]` rank query families by total time, count, max, p95, and change from
+  baseline
+- `[script]` identify lock waits, temp files, errors, autovacuum/checkpoint
+  signals, replication warnings, CDC lag, and pool saturation
+- `[script]` correlate findings with database, user, `application_name`,
+  process, client, replica, and time window
+- `[agent]` compare outputs across baseline windows and adjust thresholds when
+  the first pass is too noisy or empty
+- `[script]` generate stable finding IDs, source references, and machine-readable
+  output
+- `[agent]` prepare a findings walkthrough and separate findings from hypotheses
+- `[human]` review the artifact for credibility, collection artifacts, and live
+  SQL safety
+- `[agent]` route missing evidence and context questions to the next workflow
+  step
 
 `pg-logstats` can be one tool in this phase, especially for compact log-derived
 findings. It should not be the only evidence path.
@@ -234,7 +248,10 @@ Exit artifact:
 
 - ranked evidence table
 - finding IDs with source references
+- analysis windows, thresholds, and filters used
 - unanswered-data list
+- suggested follow-up SQL
+- context questions generated from machine findings
 
 ### 3. Context Evidence Capture
 
