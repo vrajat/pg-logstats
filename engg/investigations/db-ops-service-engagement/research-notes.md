@@ -3,6 +3,59 @@
 Status: living investigation notes  
 Parent: [Database Operations Service Engagement](README.md)
 
+## Authoring Guidance From Discussion
+
+- Maintain this investigation as a running document set.
+  - Rewrite or overwrite as the thinking changes.
+  - Commit only when the user calls a checkpoint.
+  - Keep checkpoint commits focused on the current discussion unit.
+- Use a three-level structure.
+  - `README.md`: executive summary and navigation.
+  - Level 2 docs: one document per primary section.
+  - Level 3 docs: deep dives for individual workflow steps or subtopics.
+- Keep the README useful as an executive summary.
+  - Prefer bullets and tables over long prose.
+  - Full sentences are fine when they clarify the point.
+  - Avoid making it so terse that the meaning is lost.
+  - Use notes below tables when the table needs interpretation.
+  - Bubble up the most important conclusions from deep dives.
+- Do not cross-link deep dives to each other by default.
+  - Bring ideas together in the higher-level summaries instead.
+- Keep the writing direct and engineering-oriented.
+  - Be succinct.
+  - Avoid marketing language.
+  - Avoid generic AI claims.
+  - Use concrete workflow steps, artifacts, and boundaries.
+- Do not overfit to `pg-logstats`.
+  - Treat it as the first concrete trial and example.
+  - Keep the broader target as database operations across Postgres, data
+    integration, analytics, key-value stores, and similar production systems.
+- Do not shoehorn agent workflows.
+  - Clearly separate what should be scripts, OSS tooling, agents, and humans.
+  - Use agents only where they reduce real workflow friction or improve
+    context handling.
+- Preserve the machine evidence vs context evidence distinction.
+  - Machine evidence: logs, metrics, stats, pooler state, replica state, CDC,
+    and deterministic findings.
+  - Context evidence: ownership, apps, runbooks, deploys, docs, operator
+    heuristics, business impact, and safety boundaries.
+- Tag reviewed workflow sub-steps when helpful.
+  - `[script]`: deterministic collection, validation, scoring, or
+    transformation.
+  - `[agent]`: guided workflow, tool-loop driving, summarization, gathering,
+    contradiction detection, or targeted follow-up generation.
+  - `[human]`: severity judgment, context validation, safety approval,
+    weighting approval, or action decision.
+- For deep dives, clarify:
+  - what is deterministic
+  - where agents help
+  - where humans must approve or validate
+  - what artifact the step produces
+  - examples when the work is abstract
+- Keep standardization tentative unless explicitly decided.
+  - Use example shapes to crystallize the work.
+  - Avoid prematurely locking a schema.
+
 ## Current Open Questions
 
 - Should the first design partner trial focus on a historical incident or a
