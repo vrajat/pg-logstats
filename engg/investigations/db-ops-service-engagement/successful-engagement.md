@@ -255,22 +255,31 @@ Exit artifact:
 
 ### 3. Context Evidence Capture
 
+Deep dive: [Context evidence capture](deep-dives/context-evidence-capture.md)
+
 Goal: capture the app, ownership, operational, and business context needed to
 interpret the machine findings. This step keeps the workflow from guessing what
 the database signals mean inside the company.
+Agents gather semi-structured sources and draft a context pack; humans validate
+the facts before they are used for diagnosis.
 
 Work:
 
-- ingest runbooks, incident notes, topology docs, deploy timelines, and service
-  ownership docs
-- extract candidate facts and mark them confirmed, likely, stale, contradicted,
-  or unknown
-- collect operator commentary through a walkthrough, voice notes, or typed
-  corrections
-- map `application_name`, database users, service names, jobs, and query
+- `[agent]` request relevant docs, PDFs, links, exports, screenshots, or narrow
+  auth based on the machine findings
+- `[agent]` ingest runbooks, incident notes, topology docs, deploy timelines,
+  service ownership docs, and operator commentary
+- `[agent]` extract candidate facts and mark them confirmed, likely, stale,
+  contradicted, or unknown
+- `[agent]` collect operator commentary through a walkthrough, voice notes, or
+  typed corrections
+- `[agent]` map `application_name`, database users, service names, jobs, and query
   families to owners and product paths
-- capture known noisy workloads, safe throttles, business priorities, and
-  approval boundaries
+- `[agent]` draft a small context pack with source references and open questions
+- `[human]` validate ownership, doc freshness, business criticality, safe
+  throttles, and approval boundaries
+- `[human]` confirm which context unknowns could change the diagnosis or
+  recommendation
 
 Exit artifact:
 
