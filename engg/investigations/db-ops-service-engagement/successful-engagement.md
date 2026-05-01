@@ -291,25 +291,39 @@ Exit artifact:
 
 ### 4. Company-Aware Diagnosis
 
+Deep dive: [Company-aware diagnosis](deep-dives/company-aware-diagnosis.md)
+
 Goal: translate database evidence into application and operational meaning.
 This step joins machine evidence with context evidence to produce the causal
 chain and confidence level.
+Scripts provide the machine diagnosis; agents join and prioritize against
+context evidence; humans validate the weighting and causal interpretation.
 
 Work:
 
-- map findings to services, jobs, tenants, endpoints, product workflows, or data
+- `[script]` provide machine-ranked findings, severity metrics, deltas, source
+  references, and evidence confidence
+- `[agent]` map findings to services, jobs, tenants, endpoints, product workflows, or data
   pipelines
-- compare against deploy, migration, feature-flag, maintenance, and bulk-job
+- `[agent]` compare against deploy, migration, feature-flag, maintenance, and bulk-job
   timelines
-- identify known-benign noise and exclude it only when reversible and explicit
-- choose the most likely causal chain
-- identify what would falsify the diagnosis
+- `[agent]` identify likely secondary effects and known-benign noise, but keep
+  exclusions explicit and reversible
+- `[agent]` propose a priority order that weighs machine severity against
+  business impact, ownership, known noise, and timing
+- `[agent]` identify assumptions, unknowns, and falsification checks for each
+  candidate diagnosis
+- `[human]` validate whether the weighting matches operator knowledge and
+  business priorities
+- `[human]` approve the causal chain and confidence level before recommendations
 
 Exit artifact:
 
-- diagnosis memo
+- prioritized diagnosis memo
 - causal chain
+- machine and context evidence summary
 - confidence and falsification notes
+- operator validation notes
 
 ### 5. Recommendation And Decision Framing
 

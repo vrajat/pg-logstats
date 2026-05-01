@@ -28,6 +28,7 @@
   - [Machine evidence assembly](deep-dives/machine-evidence-assembly.md)
   - [Deterministic analysis of machine evidence](deep-dives/deterministic-analysis-of-machine-evidence.md)
   - [Context evidence capture](deep-dives/context-evidence-capture.md)
+  - [Company-aware diagnosis](deep-dives/company-aware-diagnosis.md)
   - [Evidence required before diagnosis](deep-dives/evidence-required-before-diagnosis.md)
 - Supporting notes:
   - [Research notes](research-notes.md)
@@ -60,7 +61,7 @@
 | Machine evidence assembly | Logs, metrics, stats, pooler, replica, CDC, baseline windows | OSS collectors and scripts; agent-guided collection walkthrough | Data sharing, redaction, live SQL safety | Evidence bundle and completeness report |
 | Deterministic analysis | Ranked machine findings | Scripts and utilities such as `pg-logstats`; agent-driven tool loop | Artifact review and live SQL approval | Ranked findings and missing evidence |
 | Context evidence capture | Owners, deploys, runbooks, business impact, operator heuristics | Agent-assisted gathering from docs, links, exports, walkthroughs, and targeted questions | Context validation by operators | Context pack and ownership map |
-| Company-aware diagnosis | Joined machine and context evidence | Agent-assisted synthesis plus expert review | Validate causal chain and confidence | Diagnosis memo |
+| Company-aware diagnosis | Joined machine and context evidence; prioritized causal chain | Agent-assisted synthesis and weighting loop | Validate priority, causal chain, and confidence | Diagnosis memo |
 | Recommendation framing | Action choice, risk, reversibility, deferral, permanent change | Agent-assisted decision framing plus senior judgment | Approve any production-impacting action | Recommendation brief and follow-up plan |
 
 - OSS tooling speeds up the machine-evidence side because the customer can run
@@ -76,6 +77,10 @@
   valuable, whether the evidence is good enough, whether context is accurate,
   whether a recommendation is safe, and whether production-impacting action is
   approved.
+- Diagnosis should not blindly follow the highest machine-severity finding. The
+  priority comes from a loop that weighs deterministic machine findings against
+  ownership, business impact, deploy timing, known noise, and operator
+  validation.
 - The time target assumes the evidence package is ready:
   - T+0 to T+30m: intake and scope gate
   - T+30m to T+90m: machine evidence assembly
