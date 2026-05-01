@@ -327,17 +327,31 @@ Exit artifact:
 
 ### 5. Recommendation And Decision Framing
 
+Deep dive: [Recommendation and decision framing](deep-dives/recommendation-and-decision-framing.md)
+
 Goal: convert diagnosis into high-value action guidance.
 This step turns the insight into decisions: what to do now, what to defer, what
 to avoid, and what to change permanently.
+Scripts provide reusable action facts; agents structure the tradeoff space;
+humans approve the final action path and any production-impacting changes.
 
 Work:
 
-- separate immediate mitigation from root-cause repair
-- call out action reversibility, blast radius, and likely time-to-effect
-- identify actions to avoid
-- identify owners and coordination path
-- recommend follow-up instrumentation, runbook, policy, or architecture changes
+- `[script]` provide known follow-up SQL, affected objects, owner mappings, and
+  reusable mitigation or risk templates where available
+- `[agent]` separate immediate mitigation from root-cause repair, diagnostic
+  follow-up, actions to avoid, and structural changes
+- `[agent]` classify candidate actions by reversibility, blast radius,
+  time-to-effect, owner, and approval boundary
+- `[agent]` compare action options against business priority, safety constraints,
+  and diagnosis confidence
+- `[agent]` identify assumptions that would change the recommendation
+- `[agent]` draft the incident recommendation brief, action tree, and follow-up
+  tickets
+- `[human]` approve the recommended action path, alternatives, and actions to
+  avoid
+- `[human]` approve any production-impacting action or customer-facing
+  degradation
 
 Exit artifact:
 
@@ -345,6 +359,8 @@ Exit artifact:
 - action tree
 - owner map
 - follow-up ticket list
+- actions to avoid
+- approval-boundary notes
 
 ## Target Timeline
 
