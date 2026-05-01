@@ -173,6 +173,32 @@ The recommendation artifact should include:
 - follow-up ticket list
 - runbook, instrumentation, policy, or architecture recommendations
 
+## Agent Step Risk Analysis
+
+Scores:
+
+- `No risk`: bounded, checkable, structured, and verifiable enough for agent
+  acceleration with normal human review.
+- `Risk`: useful, but can bias the engagement if not reviewed or constrained.
+- `Unknown`: not enough examples yet to decide whether the agent role is
+  reliable.
+
+| Agent step | Score | Why |
+| --- | --- | --- |
+| Separate immediate mitigation, root-cause repair, diagnostic follow-up, actions to avoid, and structural changes | No risk | This is a bounded formatting and classification task that improves reviewability. |
+| Classify candidate actions by reversibility, blast radius, time-to-effect, owner, and approval boundary | Risk | Incorrect classification can lead to unsafe actions; humans must validate it. |
+| Compare action options against business priority, safety constraints, and diagnosis confidence | Risk | This is a high-judgment tradeoff and should be treated as a draft for human approval. |
+| Identify assumptions that would change the recommendation | No risk | This makes the recommendation easier to challenge and verify. |
+| Draft the incident recommendation brief, action tree, and follow-up tickets | No risk | Drafting is bounded if every recommendation links to diagnosis, evidence, owner, and approval boundary. |
+
+Information that would improve the scores:
+
+- examples of accepted and rejected recommendations
+- customer runbooks with known action boundaries
+- post-incident reviews showing which recommendations worked
+- approval matrices for production-impacting actions
+- examples of unsafe or premature actions to avoid
+
 ## Working Thesis
 
 Recommendation framing is where the service becomes principal-level rather than

@@ -34,6 +34,16 @@ Parent: [Database Operations Service Engagement](README.md)
   - Clearly separate what should be scripts, OSS tooling, agents, and humans.
   - Use agents only where they reduce real workflow friction or improve
     context handling.
+- Apply the X-reference agent leverage test.
+  - Capable AI has high leverage when work is bounded, checkable, structured,
+    and verifiable.
+  - For each agent responsibility, score the step as `No risk`, `Risk`, or
+    `Unknown`.
+  - Explain the score in terms of boundedness, checkability, structure, and
+    verifiability.
+  - It is acceptable to say the current information is insufficient.
+  - When uncertain, state what examples, thresholds, artifacts, or reviewer
+    feedback would help decide.
 - Preserve the machine evidence vs context evidence distinction.
   - Machine evidence: logs, metrics, stats, pooler state, replica state, CDC,
     and deterministic findings.
@@ -90,3 +100,5 @@ Parent: [Database Operations Service Engagement](README.md)
   <https://www.postgresql.org/docs/current/monitoring.html>
 - PostgreSQL CDC failure modes:
   <https://streams.dbconvert.com/blog/postgresql-cdc-breaks-in-production/>
+- X reference by Vasuman on enterprise AI workflow fit:
+  <https://x.com/vasuman/status/2049659161005470071>

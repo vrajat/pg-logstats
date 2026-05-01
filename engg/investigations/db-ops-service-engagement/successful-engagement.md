@@ -141,6 +141,30 @@ Step tags:
 - `[human]`: severity judgment, context validation, safety approval, or
   engagement decision
 
+Agent-fit scoring:
+
+- Score every reviewed agent step against whether it is bounded, checkable,
+  structured, and verifiable.
+- Use `No risk` when the task is source-linked, reviewable, and cannot directly
+  bias diagnosis or action.
+- Use `Risk` when the task can steer the investigation, hide or amplify a
+  signal, change priority, or affect the action path.
+- Use `Unknown` when design-partner examples are needed before the agent role
+  can be trusted.
+- When a step is `Risk` or `Unknown`, state the human review, artifact shape, or
+  examples needed to make the step safe.
+
+Workflow risk rollup:
+
+| Step | `No risk` agent work | `Risk` agent work | `Unknown` agent work |
+| --- | --- | --- | --- |
+| Intake and triage | Summaries, incident-class labels, contradiction lists | First investigation branch | None identified yet |
+| Machine evidence assembly | Missing-signal explanation, routing context gaps | Provider-specific guidance, fallback baselines | None identified yet |
+| Deterministic analysis | Findings walkthrough, routing follow-ups | Tool/window selection, threshold adjustment | None identified yet |
+| Context evidence capture | Ingestion, commentary structuring, context-pack drafting | Access requests, fact extraction | Ownership and product-path mapping reliability |
+| Company-aware diagnosis | Assumptions, unknowns, falsification checks | Timeline correlation, noise suppression, priority weighting | Service/job/product-path mapping reliability |
+| Recommendation framing | Category separation, assumptions, draft artifacts | Action classification, option comparison | None identified yet |
+
 ### 0. Intake And Triage
 
 Deep dive: [Intake and triage](deep-dives/intake-and-triage.md)

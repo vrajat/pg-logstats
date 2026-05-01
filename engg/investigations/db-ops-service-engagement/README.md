@@ -55,6 +55,9 @@
 - The operating model is layered. Scripts and OSS tooling create trusted
   machine evidence; agents reduce walkthrough and context-gathering friction;
   humans own severity, safety, validation, and production-impacting decisions.
+- Agent work should be scored against the X-reference test: bounded,
+  checkable, structured, and verifiable. Deep dives classify each agent step as
+  `No risk`, `Risk`, or `Unknown`, then explain why.
 
 | Step | Evidence or insight | Primary accelerator | Human boundary | Output |
 | --- | --- | --- | --- | --- |
@@ -64,6 +67,15 @@
 | Context evidence capture | Owners, deploys, runbooks, business impact, operator heuristics | Agent-assisted gathering from docs, links, exports, walkthroughs, and targeted questions | Context validation by operators | Context pack and ownership map |
 | Company-aware diagnosis | Joined machine and context evidence; prioritized causal chain | Agent-assisted synthesis and weighting loop | Validate priority, causal chain, and confidence | Diagnosis memo |
 | Recommendation framing | Action choice, risk, reversibility, deferral, permanent change | Agent-assisted tradeoff framing plus senior judgment | Approve action path and production-impacting changes | Recommendation brief and follow-up plan |
+
+| Step | Agent risk summary |
+| --- | --- |
+| Intake and scope gate | Mostly low risk, except first-branch selection can bias the engagement and needs human approval. |
+| Machine evidence assembly | Collection guidance and fallback baselines are risky until recipes and baseline rules are tested; gap explanation is low risk. |
+| Deterministic analysis | Agent-driven tool loops are useful but risky when selecting windows, thresholds, or filters; summaries are low risk when source-linked. |
+| Context evidence capture | Gathering and drafting are useful, but claim extraction and ownership mapping need validation; local mapping reliability is still unknown. |
+| Company-aware diagnosis | High-risk agent step because weighting machine severity against business context can change priority; humans must validate. |
+| Recommendation framing | High-risk where actions are classified or compared; lower risk for formatting briefs and listing assumptions. |
 
 - OSS tooling speeds up the machine-evidence side because the customer can run
   it locally before the engagement. This reduces access friction, preserves
@@ -85,6 +97,13 @@
 - Recommendations should separate immediate mitigation, root-cause repair,
   diagnostic follow-up, actions to avoid, and structural changes. The agent can
   frame the tradeoffs quickly, but humans own the final action path.
+- The current scoring pattern is intentional:
+  - `No risk`: summary, routing, formatting, and question-generation tasks that
+    are source-linked and reviewable.
+  - `Risk`: branch selection, baseline choice, threshold tuning, suppression,
+    weighting, and action tradeoffs that can bias the engagement.
+  - `Unknown`: local mappings or reusable context packs where design-partner
+    evidence is needed before deciding reliability.
 - The time target assumes the evidence package is ready:
   - T+0 to T+30m: intake and scope gate
   - T+30m to T+90m: machine evidence assembly

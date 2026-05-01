@@ -205,6 +205,32 @@ Additional mechanisms worth exploring:
 - customer-specific suppression rules that are reversible and auditable
 - service-level agreements for human context availability during the engagement
 
+## Agent Step Risk Analysis
+
+Scores:
+
+- `No risk`: bounded, checkable, structured, and verifiable enough for agent
+  acceleration with normal human review.
+- `Risk`: useful, but can bias the engagement if not reviewed or constrained.
+- `Unknown`: not enough examples yet to decide whether the agent role is
+  reliable.
+
+| Agent step | Score | Why |
+| --- | --- | --- |
+| Help assemble the minimum evidence package | No risk | This is bounded by the explicit machine and context evidence lists. |
+| Draft an operational model from artifacts and machine evidence | Risk | The draft can overstate stale or incomplete context; it must be source-linked and corrected by operators. |
+| Generate targeted follow-up questions from missing evidence | No risk | Questions are reviewable and do not decide diagnosis. |
+| Maintain a reusable customer context pack | Unknown | The value depends on update frequency, freshness labels, and whether customers will maintain corrections. |
+| Propose customer-specific suppression rules | Risk | Suppression can hide real incidents unless rules are reversible, auditable, and human-approved. |
+
+Information that would improve the scores:
+
+- minimum viable evidence package examples
+- machine evidence completeness thresholds
+- context evidence pack examples
+- source and freshness requirements
+- examples where missing evidence changed the diagnosis
+
 ## Working Thesis
 
 Machine evidence can be made mostly self-serve. Context evidence is the real

@@ -165,6 +165,34 @@ The context evidence artifact should include:
 - context unknowns
 - source references
 
+## Agent Step Risk Analysis
+
+Scores:
+
+- `No risk`: bounded, checkable, structured, and verifiable enough for agent
+  acceleration with normal human review.
+- `Risk`: useful, but can bias the engagement if not reviewed or constrained.
+- `Unknown`: not enough examples yet to decide whether the agent role is
+  reliable.
+
+| Agent step | Score | Why |
+| --- | --- | --- |
+| Request relevant docs, PDFs, links, exports, screenshots, or narrow auth | Risk | The agent can over-request sensitive material; requests must be scoped to the incident and approved. |
+| Ingest approved docs and commentary | No risk | Ingestion is bounded if sources are explicitly approved and tracked. |
+| Extract candidate facts and label confidence or freshness | Risk | Extraction can be wrong or stale; claims must remain source-linked and operator-validated. |
+| Collect operator commentary through walkthroughs, voice notes, or typed corrections | No risk | The agent is structuring human-provided context, not deciding truth. |
+| Map `application_name`, database users, service names, jobs, and query families to owners and product paths | Unknown | This depends on local naming quality and service catalogs; design-partner examples are needed. |
+| Draft a small context pack with source references and open questions | No risk | The artifact is reviewable if every claim has a source and validation status. |
+
+Information that would improve the scores:
+
+- example context packs from historical incidents
+- a small tentative claim schema
+- source-linking requirements
+- freshness labels for docs
+- operator correction logs
+- examples of claims that changed diagnosis or mitigation
+
 ## Working Thesis
 
 Agents can materially speed context evidence capture because most of the work is

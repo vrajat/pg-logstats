@@ -101,6 +101,31 @@ The deterministic analysis artifact should include:
 - suggested follow-up SQL
 - context questions generated from machine findings
 
+## Agent Step Risk Analysis
+
+Scores:
+
+- `No risk`: bounded, checkable, structured, and verifiable enough for agent
+  acceleration with normal human review.
+- `Risk`: useful, but can bias the engagement if not reviewed or constrained.
+- `Unknown`: not enough examples yet to decide whether the agent role is
+  reliable.
+
+| Agent step | Score | Why |
+| --- | --- | --- |
+| Choose which deterministic tools and windows to run | Risk | Tool and window choice can shape the findings, so commands, windows, and rationale must be saved. |
+| Compare outputs across baseline windows and adjust thresholds | Risk | Threshold changes can hide or exaggerate signals; every change must be recorded and reviewable. |
+| Prepare a findings walkthrough and separate findings from hypotheses | No risk | This is checkable against deterministic artifacts if every claim links back to a finding or source. |
+| Route missing evidence and context questions to the next step | No risk | This produces follow-up questions, not causal claims. |
+
+Information that would improve the scores:
+
+- stable JSON output from analysis tools
+- saved commands, windows, thresholds, and filters
+- expected-output examples for known incidents
+- reviewer labels for noisy, useful, and misleading findings
+- tests that compare agent summaries to deterministic artifacts
+
 ## Working Thesis
 
 This step benefits from agents as operators of deterministic tools. The agent

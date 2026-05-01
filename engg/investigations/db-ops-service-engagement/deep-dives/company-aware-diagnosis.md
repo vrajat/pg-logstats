@@ -169,6 +169,32 @@ The diagnosis artifact should include:
 - findings treated as secondary or noisy
 - operator validation notes
 
+## Agent Step Risk Analysis
+
+Scores:
+
+- `No risk`: bounded, checkable, structured, and verifiable enough for agent
+  acceleration with normal human review.
+- `Risk`: useful, but can bias the engagement if not reviewed or constrained.
+- `Unknown`: not enough examples yet to decide whether the agent role is
+  reliable.
+
+| Agent step | Score | Why |
+| --- | --- | --- |
+| Map findings to services, jobs, tenants, endpoints, product workflows, or data pipelines | Unknown | The reliability depends on the customer's naming conventions, service catalog, and ownership docs. |
+| Compare findings against deploy, migration, feature-flag, maintenance, and bulk-job timelines | Risk | Temporal correlation can be misleading; the agent must state assumptions and alternatives. |
+| Identify likely secondary effects and known-benign noise | Risk | Suppressing the wrong signal can hide the real incident; exclusions must be reversible and human-reviewed. |
+| Propose a priority order that weighs machine severity against context impact | Risk | This is the core fuzzy judgment loop and requires operator validation. |
+| Identify assumptions, unknowns, and falsification checks | No risk | This makes the diagnosis easier to challenge and does not by itself choose the answer. |
+
+Information that would improve the scores:
+
+- historical diagnosis memos and ground truth
+- examples where high machine severity was low business priority
+- examples where moderate machine severity was high business priority
+- operator review notes on weighting mistakes
+- explicit confidence and falsification templates
+
 ## Working Thesis
 
 Company-aware diagnosis is where agent and human judgment become central, but

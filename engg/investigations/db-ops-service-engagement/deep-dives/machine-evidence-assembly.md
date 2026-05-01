@@ -128,6 +128,31 @@ Machine evidence assembly is complete when:
 - missing context has been routed to context evidence capture
 - a human has approved any data-sharing or live-query boundary
 
+## Agent Step Risk Analysis
+
+Scores:
+
+- `No risk`: bounded, checkable, structured, and verifiable enough for agent
+  acceleration with normal human review.
+- `Risk`: useful, but can bias the engagement if not reviewed or constrained.
+- `Unknown`: not enough examples yet to decide whether the agent role is
+  reliable.
+
+| Agent step | Score | Why |
+| --- | --- | --- |
+| Guide the operator through the provider and topology-specific collection recipe | Risk | Provider details vary and bad guidance can waste time or collect the wrong data; tested recipes and human approval reduce the risk. |
+| Suggest fallback baseline windows when none were provided | Risk | Baseline choice can bias analysis, so the suggestion must be recorded and approved. |
+| Explain missing or low-trust signals | No risk | This is bounded by deterministic completeness and parseability reports. |
+| Route context gaps to context evidence capture | No risk | This only creates follow-up questions and does not decide the diagnosis. |
+
+Information that would improve the scores:
+
+- provider-specific collector recipes
+- a minimum evidence bundle schema
+- parseability and completeness tests
+- redaction validation examples
+- sample bundles from real incidents
+
 ## Working Thesis
 
 Machine evidence assembly does not need diagnostic judgment. It needs

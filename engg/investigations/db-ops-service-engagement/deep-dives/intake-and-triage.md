@@ -145,6 +145,31 @@ It should include:
 - final intake state
 - rationale for acceptance, rejection, or re-scope
 
+## Agent Step Risk Analysis
+
+Scores:
+
+- `No risk`: bounded, checkable, structured, and verifiable enough for agent
+  acceleration with normal human review.
+- `Risk`: useful, but can bias the engagement if not reviewed or constrained.
+- `Unknown`: not enough examples yet to decide whether the agent role is
+  reliable.
+
+| Agent step | Score | Why |
+| --- | --- | --- |
+| Summarize customer notes and machine findings into a structured intake brief | No risk | The task is bounded by a fixed brief template and can be checked against source notes and OSS findings. |
+| Identify the likely incident class | No risk | This is a fixed taxonomy decision and remains reviewable by a human before scope is accepted. |
+| Detect contradictions or gaps between customer narrative and machine evidence | No risk | The output is a list of checkable discrepancies, not a final decision. |
+| Suggest the first investigation branch | Risk | This can bias the whole engagement path, so the agent must show evidence and a human must approve the branch. |
+
+Information that would improve the scores:
+
+- sample historical intake packets
+- accepted, rejected, and re-scoped case examples
+- required intake fields
+- evidence readiness thresholds
+- human reviewer feedback on false accepts and false rejects
+
 ## Working Thesis
 
 OSS tooling can make intake faster and more concrete by producing local,
