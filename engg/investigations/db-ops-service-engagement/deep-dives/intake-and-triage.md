@@ -5,177 +5,51 @@ Parent: [Successful engagement criteria, workflow, and timeline](../successful-e
 
 ## Question
 
-How should intake decide whether a production database operations case is a good
-fit for a few-hour professional service engagement?
+How should intake decide whether a production database operations case is worth
+a fast professional service engagement?
 
-## Current Framing
+## Framing
 
-Intake is a readiness gate, not just a sales qualification step.
+Intake is a readiness gate. It should answer whether the case is severe enough,
+evidence-backed enough, and staffed enough to start the engagement clock.
 
-The goal is to decide whether the case has enough severity, evidence, context
-access, and operator availability to justify starting the engagement clock. An
-OSS evidence tool like `pg-logstats` can shape the case, but it should not make
-the final engagement decision.
+An OSS tool such as `pg-logstats` can help by giving the customer a local,
+shareable machine-evidence packet. That packet can make the conversation more
+concrete, but it cannot decide whether the engagement is valuable.
 
-## Role Of OSS Evidence Tooling
+## Keep
 
-An OSS tool can help intake by producing a quick machine-evidence packet that
-the customer can generate locally.
+- deterministic checks for parseability, incident-window coverage, baselines,
+  missing evidence, and redaction quality
+- a short intake brief that summarizes the customer narrative, machine signals,
+  contradictions, missing context, and proposed first branch
+- a human decision on severity, service fit, operator availability, safety
+  boundaries, and whether the case should proceed
 
-Useful outputs:
+## Cut Or Be Skeptical Of
 
-- parseability check for logs or exports
-- incident-window coverage check
-- baseline-window coverage check
-- top changed query families
-- top errors, waits, temp files, replication warnings, or pool signals
-- evidence completeness score
-- missing-evidence report
-- redaction report
-- suggested next data to collect
-- stable JSON findings that can be shared without raw logs
+- treating the first incident label as a meaningful agent task
+- starting the clock before evidence and operator availability are clear
+- accepting cases that are really broad health checks or requests for guaranteed
+  root cause
 
-This is machine evidence and scripting. It should be deterministic,
-explainable, and runnable without giving external parties production access.
+## Example
 
-## What OSS Tooling Cannot Decide
+A customer reports checkout latency. The evidence packet shows logs from an
+analytics replica and no read-routing context. Intake should not proceed as a
+checkout diagnosis. It should route the case to `Needs context evidence` until
+the operator can explain which traffic uses that replica.
 
-The tool output is not enough to decide whether the engagement is valuable.
+## Agent Risk
 
-Human judgment is still required for:
-
-- whether the incident is important enough
-- whether the customer already tried the obvious fixes
-- whether there is customer, revenue, or executive pressure
-- whether the pain is recurring or one-off
-- whether the right expert or operator is available
-- whether recommendations would be actionable in the customer's organization
-- whether the real issue is probably outside the database
-- whether the customer wants diagnosis, validation, a second opinion, or
-  political cover
-
-These are context and service-fit questions. They can be structured, but they
-should not be fully automated.
-
-## Agent Workflow Opportunity
-
-The agent should reduce expert time in intake, not replace expert judgment.
-
-Useful agent work:
-
-- review the OSS evidence packet
-- turn messy customer notes into a structured intake brief
-- generate targeted context questions
-- identify contradictions between machine evidence and customer narrative
-- distinguish missing machine evidence from missing context evidence
-- suggest the first investigation branch
-- prepare a reviewer packet for a human expert
-
-Example contradictions:
-
-- the incident is described as checkout latency, but the logs are from an
-  analytics replica
-- the customer says there was no deploy, but the timeline includes a migration
-- the customer claims high QPS, but provided logs only include sampled slow
-  statements
-- the evidence packet shows replica lag, but no read-routing context is present
-
-## Human Touch Required
-
-A human reviewer should own the final intake decision.
-
-The reviewer should decide:
-
-- accept or reject the case
-- whether the clock can start
-- whether more machine evidence is required first
-- whether more context evidence is required first
-- whether the case should be re-scoped away from database operations
-- whether the customer's expectations are aligned with what the service can
-  responsibly deliver
-
-The human touch matters because intake includes severity, trust, actionability,
-politics, and safety boundaries.
-
-## Intake Decision Matrix
-
-| Intake question | Evidence type | Best mechanism |
-| --- | --- | --- |
-| Are logs parseable? | machine | OSS tool |
-| Is the incident window covered? | machine | OSS tool |
-| Is there a baseline? | machine | OSS tool |
-| What changed in database signals? | machine | OSS tool plus scripts |
-| What data is missing? | machine and context | completeness report plus agent |
-| Is this likely database-centered? | mixed | agent draft, human review |
-| Is this high-value enough? | context | human |
-| Is the operator available? | context | human |
-| Are recommendations likely actionable? | context | human |
-| What should the first branch be? | mixed | agent recommendation, human approval |
-
-## Intake Outcomes
-
-Every intake should end in one of four states:
-
-- `Ready`: enough machine evidence and context access exist to start the
-  engagement clock.
-- `Needs machine evidence`: the customer should run the collector, provide logs,
-  add a baseline, or export stats before the engagement starts.
-- `Needs context evidence`: the customer should provide ownership, deploy
-  history, runbooks, operator walkthroughs, or business-impact context before
-  the engagement starts.
-- `Reject / re-scope`: the case is not production-impacting, too generic,
-  missing access, outside the database operations boundary, or based on
-  unrealistic expectations.
-
-## Intake Artifact
-
-The intake artifact should be short and reviewable.
-
-It should include:
-
-- case summary
-- severity and business impact
-- machine-evidence readiness
-- context-evidence readiness
-- likely incident class
-- first recommended investigation branch
-- missing evidence
-- safety boundaries
-- operator availability
-- final intake state
-- rationale for acceptance, rejection, or re-scope
-
-## Agent Step Risk Analysis
-
-Scores:
-
-- `No risk`: bounded, checkable, structured, and verifiable enough for agent
-  acceleration with normal human review.
-- `Risk`: useful, but can bias the engagement if not reviewed or constrained.
-- `Unknown`: not enough examples yet to decide whether the agent role is
-  reliable.
-
-| Agent step | Score | Why |
-| --- | --- | --- |
-| Summarize customer notes and machine findings into a structured intake brief | No risk | The task is bounded by a fixed brief template and can be checked against source notes and OSS findings. |
-| Identify the likely incident class | No risk | This is a fixed taxonomy decision and remains reviewable by a human before scope is accepted. |
-| Detect contradictions or gaps between customer narrative and machine evidence | No risk | The output is a list of checkable discrepancies, not a final decision. |
-| Suggest the first investigation branch | Risk | This can bias the whole engagement path, so the agent must show evidence and a human must approve the branch. |
-
-Information that would improve the scores:
-
-- sample historical intake packets
-- accepted, rejected, and re-scoped case examples
-- required intake fields
-- evidence readiness thresholds
-- human reviewer feedback on false accepts and false rejects
+- Low risk: summarize notes, machine signals, contradictions, and missing
+  evidence into a reviewable brief.
+- Risk: suggesting the first investigation branch can bias the engagement path;
+  it needs evidence and human approval.
+- Not worth it: obvious incident labeling if a human can do it in minutes.
 
 ## Working Thesis
 
-OSS tooling can make intake faster and more concrete by producing local,
-deterministic machine evidence. An agent workflow can organize the packet,
-surface contradictions, and generate better questions.
-
-The final intake decision should remain human-owned because the hard decision is
-not only "is there a database signal?" but "is this a valuable, safe, and
-actionable engagement?"
+Good intake prevents the service from spending expert time on unready cases.
+Scripts make readiness concrete; agents may organize the packet; humans decide
+whether the engagement is valuable and safe.

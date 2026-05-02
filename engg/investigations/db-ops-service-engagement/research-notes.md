@@ -28,15 +28,14 @@ Parent: [Database Operations Service Engagement](README.md)
   - Use concrete workflow steps, artifacts, and boundaries.
 - Do not overfit to `pg-logstats`.
   - Treat it as the first concrete trial and example.
-  - Keep the broader target as database operations across Postgres, data
-    integration, analytics, key-value stores, and similar production systems.
+  - Keep the broader target tentative until design-partner evidence supports it.
 - Do not shoehorn agent workflows.
   - Clearly separate what should be scripts, OSS tooling, agents, and humans.
   - Use agents only where they reduce real workflow friction or improve
     context handling.
 - Apply the X-reference agent leverage test.
-  - Capable AI has high leverage when work is bounded, checkable, structured,
-    and verifiable.
+  - Agent leverage should be tested where work is bounded, checkable,
+    structured, and verifiable.
   - For each agent responsibility, score the step as `No risk`, `Risk`, or
     `Unknown`.
   - Explain the score in terms of boundedness, checkability, structure, and
@@ -81,6 +80,28 @@ Parent: [Database Operations Service Engagement](README.md)
 
 ## External Inputs Reviewed
 
+- Pythian database performance services:
+  <https://services.pythian.com/database/performance>
+- Pythian Database Health Check:
+  <https://services.pythian.com/database-health-check>
+- Pythian managed database services:
+  <https://www.pythian.com/managed-it-services/database-managed-services>
+- Pythian on-demand webinar, "The Power of PostgreSQL":
+  <https://services.pythian.com/webinar/the-power-of-postgresql-pythian>
+- Pythian FYI Docs PostgreSQL performance and cloud-spend case study:
+  <https://www.pythian.com/customer-success-stories/fyi-docs-optimizes-postgresql-database-performance>
+- Pythian Ruby Play Network PostgreSQL/Aurora case study:
+  <https://www.pythian.com/customer-success-stories/ruby-play-network-postgresql-optimization-aws-aurora-with-pythian>
+- Percona PostgreSQL support and services:
+  <https://www.percona.com/postgresql/support-and-services>
+- Percona database performance tuning and assessment:
+  <https://learn.percona.com/database-performance-tuning>
+- EDB Postgres optimization and performance tuning service:
+  <https://www.enterprisedb.com/packaged-services/postgres-optimization-and-performance-tuning>
+- AWS RDS best practices:
+  <https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/CHAP_BestPractices.html>
+- AWS Prescriptive Guidance for PostgreSQL query performance:
+  <https://docs.aws.amazon.com/prescriptive-guidance/latest/postgresql-query-tuning/introduction.html>
 - pgBadger documentation: <https://access.crunchydata.com/documentation/pgbadger/latest/>
 - pgBadger incremental reports announcement:
   <https://www.postgresql.org/about/news/pgbadger-5-analyze-your-logs-daily-with-the-incremental-mode-1505/>

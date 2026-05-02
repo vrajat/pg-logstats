@@ -5,8 +5,8 @@ Parent: [Database Operations Service Engagement](README.md)
 
 ## Goal
 
-Define the criteria, workflow, and timeline for a professional service
-engagement that can deliver high-value production database operations
+Define the criteria, workflow, and timeline for testing whether a professional
+service engagement can deliver high-value production database operations
 recommendations in a few hours, with one day as the outer bound.
 
 ## Operating Definition
@@ -30,10 +30,9 @@ or chronic production pain involving:
 
 ### Production Installation
 
-The target environment is not a small application database. Assume:
+The target environment is not a small application database. It likely includes
+some of:
 
-- terabytes of data
-- many tens of thousands of queries per second
 - read replicas
 - CDC or logical replication
 - connection pooling
@@ -50,7 +49,8 @@ produce senior-level diagnosis, mitigation framing, and investment guidance.
 
 ### Successful Outcome
 
-Success means high-value recommendations in record time.
+Success means high-value recommendations faster than the customer's current
+path.
 
 The output should answer:
 
@@ -68,7 +68,7 @@ best practices, or a list of possible causes without prioritization.
 
 An engagement is successful when it delivers all of the following:
 
-- a ranked diagnosis tied to specific evidence
+- a recommendation brief with diagnosis tied to specific evidence
 - a short list of immediate mitigations with reversibility and risk called out
 - a clear distinction between incident mitigation, root-cause repair, and
   longer-term platform investment
@@ -158,12 +158,10 @@ Workflow risk rollup:
 
 | Step | `No risk` agent work | `Risk` agent work | `Unknown` agent work |
 | --- | --- | --- | --- |
-| Intake and triage | Summaries, incident-class labels, contradiction lists | First investigation branch | None identified yet |
-| Machine evidence assembly | Missing-signal explanation, routing context gaps | Provider-specific guidance, fallback baselines | None identified yet |
-| Deterministic analysis | Findings walkthrough, routing follow-ups | Tool/window selection, threshold adjustment | None identified yet |
-| Context evidence capture | Ingestion, commentary structuring, context-pack drafting | Access requests, fact extraction | Ownership and product-path mapping reliability |
-| Company-aware diagnosis | Assumptions, unknowns, falsification checks | Timeline correlation, noise suppression, priority weighting | Service/job/product-path mapping reliability |
-| Recommendation framing | Category separation, assumptions, draft artifacts | Action classification, option comparison | None identified yet |
+| Intake and triage | Summaries, contradiction lists | First investigation branch | None identified yet |
+| Machine evidence and analysis | Missing-signal explanation, findings walkthrough, routing follow-ups | Provider-specific guidance | None identified yet |
+| Context evidence capture | Ingestion, commentary structuring, context-pack drafting | Fact extraction | Ownership and product-path mapping reliability |
+| Company-aware recommendation | Assumptions, unknowns, falsification checks, draft artifacts | Timeline correlation, noise suppression, priority weighting, action classification | Service/job/product-path mapping reliability |
 
 ### 0. Intake And Triage
 
@@ -177,19 +175,12 @@ Work:
 
 - `[script]` review OSS-generated findings or machine-evidence summaries when
   available
-- `[agent]` summarize customer notes and machine findings into a structured
-  intake brief
-- `[agent]` identify the likely incident class: latency, saturation,
-  replication/CDC, storage, failover, migration, cost, or unknown
-- `[human]` confirm production scale, severity, and service fit
 - `[script]` confirm machine-evidence readiness: logs, stats, metrics, baselines, and
   parseability
-- `[agent]` detect contradictions or gaps between the customer narrative and
-  the machine-evidence packet
-- `[human]` confirm context-evidence readiness: owners, deploy history, runbooks,
-  business impact, and operator availability
-- `[human]` identify any active safety constraints
-- `[agent]` suggest the first investigation branch
+- `[agent]` summarize the case, contradictions, gaps, and first investigation
+  branch
+- `[human]` confirm severity, service fit, context readiness, and safety
+  constraints
 - `[human]` decide whether the case is ready, needs machine evidence, needs context
   evidence, or should be rejected/re-scoped
 
@@ -202,63 +193,23 @@ Exit artifact:
 - intake state: `Ready`, `Needs machine evidence`, `Needs context evidence`, or
   `Reject / re-scope`
 
-### 1. Machine Evidence Assembly
+### 1. Machine Evidence And Analysis
 
-Deep dive: [Machine evidence assembly](deep-dives/machine-evidence-assembly.md)
+Deep dive: [Machine evidence and analysis](deep-dives/machine-evidence-and-analysis.md)
 
 Goal: make the machine side of the problem bounded, checkable, structured, and
-reviewable. This step creates the raw factual base for deterministic analysis.
-It should be deterministic collection with agent-guided walkthrough support for
-exceptions, provider-specific paths, redaction choices, and missing artifacts.
+reviewable. This step collects the evidence, validates it, and compresses it
+into ranked findings that can be inspected and joined with context.
 
 Work:
 
 - `[agent]` guide the operator through the correct collection recipe for the
   provider, topology, and available data sources
-- `[script]` collect logs and metrics into a shared evidence folder
-- `[script]` normalize timezones and incident windows
-- `[script]` separate target and baseline windows
-- `[agent]` suggest fallback baseline windows when none were provided
-- `[script]` build topology notes for primary, replicas, CDC, poolers, and major
-  clients from collected metadata where possible
+- `[script]` assemble an evidence bundle with logs, metrics, normalized
+  windows, baselines, and topology notes
 - `[human]` approve data sharing, live read-only SQL, and redaction boundaries
-- `[script]` apply and record redaction policy
-- `[script]` validate parseability and completeness
-- `[agent]` explain missing or low-trust signals and route context gaps to
-  context evidence capture
-
-Exit artifact:
-
-- evidence manifest
-- timeline v0
-- topology v0
-- redaction report
-- parseability and completeness report
-
-### 2. Deterministic Analysis Of Machine Evidence
-
-Deep dive: [Deterministic analysis of machine evidence](deep-dives/deterministic-analysis-of-machine-evidence.md)
-
-Goal: compress raw evidence into ranked findings.
-This step turns high-volume machine data into a small set of findings that can
-be inspected, challenged, and joined with context.
-The scripts produce the findings; the agent drives the tool loop and prepares a
-walkthrough; humans review the artifact before it feeds diagnosis.
-
-Work:
-
-- `[agent]` choose which deterministic tools and windows to run from the
-  evidence bundle
-- `[script]` rank query families by total time, count, max, p95, and change from
-  baseline
-- `[script]` identify lock waits, temp files, errors, autovacuum/checkpoint
-  signals, replication warnings, CDC lag, and pool saturation
-- `[script]` correlate findings with database, user, `application_name`,
-  process, client, replica, and time window
-- `[agent]` compare outputs across baseline windows and adjust thresholds when
-  the first pass is too noisy or empty
-- `[script]` generate stable finding IDs, source references, and machine-readable
-  output
+- `[script]` validate, redact, and reduce the bundle into ranked,
+  source-linked findings
 - `[agent]` prepare a findings walkthrough and separate findings from hypotheses
 - `[human]` review the artifact for credibility, collection artifacts, and live
   SQL safety
@@ -270,36 +221,26 @@ findings. It should not be the only evidence path.
 
 Exit artifact:
 
-- ranked evidence table
-- finding IDs with source references
-- analysis windows, thresholds, and filters used
-- unanswered-data list
-- suggested follow-up SQL
-- context questions generated from machine findings
+- evidence manifest and quality notes
+- ranked findings with source references
+- missing-evidence list, suggested follow-up SQL, and context questions
 
-### 3. Context Evidence Capture
+### 2. Context Evidence Capture
 
 Deep dive: [Context evidence capture](deep-dives/context-evidence-capture.md)
 
 Goal: capture the app, ownership, operational, and business context needed to
 interpret the machine findings. This step keeps the workflow from guessing what
 the database signals mean inside the company.
-Agents gather semi-structured sources and draft a context pack; humans validate
-the facts before they are used for diagnosis.
+Agents may gather semi-structured sources and draft a context pack; humans
+validate the facts before they are used for diagnosis.
 
 Work:
 
-- `[agent]` request relevant docs, PDFs, links, exports, screenshots, or narrow
-  auth based on the machine findings
-- `[agent]` ingest runbooks, incident notes, topology docs, deploy timelines,
-  service ownership docs, and operator commentary
-- `[agent]` extract candidate facts and mark them confirmed, likely, stale,
-  contradicted, or unknown
-- `[agent]` collect operator commentary through a walkthrough, voice notes, or
-  typed corrections
-- `[agent]` map `application_name`, database users, service names, jobs, and query
-  families to owners and product paths
-- `[agent]` draft a small context pack with source references and open questions
+- `[agent]` gather source artifacts and operator commentary tied to the machine
+  findings
+- `[agent]` draft a context pack with candidate facts, ownership mappings,
+  source references, and open questions
 - `[human]` validate ownership, doc freshness, business criticality, safe
   throttles, and approval boundaries
 - `[human]` confirm which context unknowns could change the diagnosis or
@@ -313,92 +254,42 @@ Exit artifact:
 - known-noise and safe-action notes
 - context unknowns that could change the recommendation
 
-### 4. Company-Aware Diagnosis
+### 3. Company-Aware Recommendation
 
-Deep dive: [Company-aware diagnosis](deep-dives/company-aware-diagnosis.md)
+Deep dive: [Company-aware recommendation](deep-dives/company-aware-recommendation.md)
 
-Goal: translate database evidence into application and operational meaning.
-This step joins machine evidence with context evidence to produce the causal
-chain and confidence level.
-Scripts provide the machine diagnosis; agents join and prioritize against
-context evidence; humans validate the weighting and causal interpretation.
+Goal: turn machine findings and company context into the recommendation brief.
+This step contains the diagnosis, confidence, tradeoffs, actions to take,
+actions to avoid, and follow-up work.
 
 Work:
 
-- `[script]` provide machine-ranked findings, severity metrics, deltas, source
-  references, and evidence confidence
-- `[agent]` map findings to services, jobs, tenants, endpoints, product workflows, or data
-  pipelines
-- `[agent]` compare against deploy, migration, feature-flag, maintenance, and bulk-job
-  timelines
-- `[agent]` identify likely secondary effects and known-benign noise, but keep
-  exclusions explicit and reversible
-- `[agent]` propose a priority order that weighs machine severity against
-  business impact, ownership, known noise, and timing
-- `[agent]` identify assumptions, unknowns, and falsification checks for each
-  candidate diagnosis
-- `[human]` validate whether the weighting matches operator knowledge and
-  business priorities
-- `[human]` approve the causal chain and confidence level before recommendations
-
-Exit artifact:
-
-- prioritized diagnosis memo
-- causal chain
-- machine and context evidence summary
-- confidence and falsification notes
-- operator validation notes
-
-### 5. Recommendation And Decision Framing
-
-Deep dive: [Recommendation and decision framing](deep-dives/recommendation-and-decision-framing.md)
-
-Goal: convert diagnosis into high-value action guidance.
-This step turns the insight into decisions: what to do now, what to defer, what
-to avoid, and what to change permanently.
-Scripts provide reusable action facts; agents structure the tradeoff space;
-humans approve the final action path and any production-impacting changes.
-
-Work:
-
-- `[script]` provide known follow-up SQL, affected objects, owner mappings, and
-  reusable mitigation or risk templates where available
-- `[agent]` separate immediate mitigation from root-cause repair, diagnostic
-  follow-up, actions to avoid, and structural changes
-- `[agent]` classify candidate actions by reversibility, blast radius,
-  time-to-effect, owner, and approval boundary
-- `[agent]` compare action options against business priority, safety constraints,
-  and diagnosis confidence
-- `[agent]` identify assumptions that would change the recommendation
-- `[agent]` draft the incident recommendation brief, action tree, and follow-up
-  tickets
-- `[human]` approve the recommended action path, alternatives, and actions to
-  avoid
-- `[human]` approve any production-impacting action or customer-facing
-  degradation
+- `[agent]` join findings with validated timelines and context to draft
+  priority, assumptions, unknowns, and falsification checks
+- `[agent]` frame candidate actions by mitigation, repair, follow-up, actions
+  to avoid, owner, reversibility, risk, and approval boundary
+- `[agent]` draft the incident recommendation brief and follow-up tickets
+- `[human]` validate priority, causal chain, confidence, action path, and any
+  production-impacting change
 
 Exit artifact:
 
 - incident recommendation brief
-- action tree
-- owner map
-- follow-up ticket list
-- actions to avoid
-- approval-boundary notes
+- action path, actions to avoid, and follow-up tickets
+- confidence and approval-boundary notes
 
 ## Target Timeline
 
 The target is a few hours when the design partner can provide the evidence
-package quickly.
+package quickly. This remains a hypothesis until design-partner trials show the
+evidence and context work can fit inside the window.
 
 | Time | Activity | Output |
 | --- | --- | --- |
 | T+0 to T+30m | Intake and scope gate | Intake state, evidence readiness, first branch selected |
-| T+30m to T+90m | Machine evidence assembly | Evidence manifest, timeline v0, topology v0 |
-| T+90m to T+150m | Deterministic analysis | Ranked findings and missing evidence |
+| T+30m to T+150m | Machine evidence and analysis | Evidence manifest, ranked findings, missing evidence |
 | T+150m to T+210m | Context evidence capture | Context pack, ownership map, validated timeline |
-| T+210m to T+270m | Diagnosis | Causal chain and confidence |
-| T+270m to T+330m | Recommendations | Mitigation and follow-up brief |
+| T+210m to T+330m | Company-aware recommendation | Recommendation brief with diagnosis and action path |
 | T+330m to T+360m | Customer review | Revised final brief |
 
 One day remains the outer bound for cases with slower data access, multiple
