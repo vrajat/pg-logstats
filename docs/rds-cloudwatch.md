@@ -17,17 +17,22 @@ log downloads and keeps each run bounded to an explicit time window.
    /aws/rds/instance/<db-instance-id>/postgresql
    ```
 
-2. Install and authenticate the AWS CLI.
+2. Build with the optional AWS SDK feature.
 
-   `pg-logstats` shells out to:
+   CloudWatch input is intentionally optional so the default crate remains
+   small:
 
    ```bash
-   aws logs filter-log-events
+   cargo install pg-logstats --features aws-sdk
    ```
 
-   This means normal AWS CLI auth, SSO, region, and profile behavior applies.
+3. Configure AWS credentials and region.
 
-3. Use a time-bounded query.
+   CloudWatch input uses the AWS SDK credential and region provider chain. You
+   can use environment variables, shared config files, SSO-backed profiles, or
+   `--aws-profile` and `--aws-region`.
+
+4. Use a time-bounded query.
 
    CloudWatch input defaults to `--since 1h`. Prefer small windows for LLM
    workflows so the CLI can rank evidence before anything reaches the model.
@@ -99,9 +104,9 @@ pg-logstats top query-families \
   --output-format json
 ```
 
-CloudWatch input reads up to `--cloudwatch-max-pages` pages. The default is
-`20`. Increase it only when the time window is too large or CloudWatch returns
-many matching events:
+CloudWatch input calls the CloudWatch Logs `FilterLogEvents` API and reads up to
+`--cloudwatch-max-pages` pages. The default is `20`. Increase it only when the
+time window is too large or CloudWatch returns many matching events:
 
 ```bash
 pg-logstats top query-families \
@@ -165,10 +170,10 @@ pg-logstats --input-format rds top query-families postgresql.log.2026-05-03-10
 
 ## Troubleshooting
 
-- `Failed to run AWS CLI`: install AWS CLI or set `PG_LOGSTATS_AWS_CLI` to a
-  compatible executable.
-- AWS auth errors: run `aws sts get-caller-identity` with the same profile and
-  region.
+- `CloudWatch input requires building pg-logstats with --features aws-sdk`:
+  reinstall or rebuild with `cargo install pg-logstats --features aws-sdk`.
+- AWS auth errors: check the same profile and region with your normal AWS
+  tooling, then rerun with `--aws-profile` or `--aws-region` if needed.
 - No findings: confirm the RDS instance exports PostgreSQL logs to CloudWatch
   and widen `--since`.
 - Too much output or slow runs: reduce the time window, add

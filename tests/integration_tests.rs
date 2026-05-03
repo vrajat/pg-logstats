@@ -15,18 +15,6 @@ fn create_test_log_file(dir: &Path, filename: &str, content: &str) -> std::path:
     file_path
 }
 
-#[cfg(unix)]
-fn create_fake_aws_cli(dir: &Path, content: &str) -> std::path::PathBuf {
-    use std::os::unix::fs::PermissionsExt;
-
-    let script = dir.join("fake-aws");
-    fs::write(&script, content).expect("Failed to write fake AWS CLI");
-    let mut permissions = fs::metadata(&script).unwrap().permissions();
-    permissions.set_mode(0o755);
-    fs::set_permissions(&script, permissions).unwrap();
-    script
-}
-
 /// Helper function to create sample PostgreSQL log content
 fn sample_log_content() -> &'static str {
     r#"2024-01-15 10:00:00.123 UTC [1234] testuser@testdb psql: LOG: statement: SELECT * FROM users WHERE id = 1;
@@ -620,14 +608,13 @@ fn test_checked_in_aws_rds_fixture_explicit_input_format_marks_evidence() {
         .stdout(predicate::str::contains("\"application_name\": null"));
 }
 
-#[cfg(unix)]
 #[test]
-fn test_cloudwatch_rds_input_uses_aws_cli_events() {
+fn test_cloudwatch_rds_input_uses_fixture_events() {
     let temp_dir = TempDir::new().unwrap();
-    let fake_aws = create_fake_aws_cli(
+    let cloudwatch_fixture = create_test_log_file(
         temp_dir.path(),
-        r#"#!/bin/sh
-cat <<'JSON'
+        "cloudwatch-response.json",
+        r#"
 {
   "events": [
     {
@@ -640,12 +627,11 @@ cat <<'JSON'
     }
   ]
 }
-JSON
 "#,
     );
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.env("PG_LOGSTATS_AWS_CLI", fake_aws)
+    cmd.env("PG_LOGSTATS_CLOUDWATCH_FIXTURE", cloudwatch_fixture)
         .arg("top")
         .arg("query-families")
         .arg("--quiet")
@@ -663,7 +649,6 @@ JSON
         .stdout(predicate::str::contains("\"total_duration_ms\": 44.0"));
 }
 
-#[cfg(unix)]
 #[test]
 fn test_cloudwatch_input_rejects_local_files() {
     let temp_dir = TempDir::new().unwrap();

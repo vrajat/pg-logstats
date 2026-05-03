@@ -69,7 +69,16 @@ Global flags such as `--input-format`, `--output-format`, `--outfile`,
 ## CloudWatch Logs Input
 
 For Amazon RDS PostgreSQL instances that publish PostgreSQL logs to CloudWatch
-Logs, `pg-logstats` can read a bounded time window directly through the AWS CLI:
+Logs, `pg-logstats` can read a bounded time window through the optional AWS SDK
+integration.
+
+Build with the optional feature:
+
+```bash
+cargo install pg-logstats --features aws-sdk
+```
+
+Then run:
 
 ```bash
 pg-logstats top query-families \
@@ -93,10 +102,10 @@ pg-logstats top query-families \
   --until 2026-05-03T11:00:00Z
 ```
 
-CloudWatch input uses `aws logs filter-log-events`, so existing AWS CLI
-authentication, SSO, profile, and region behavior applies. Use `--aws-profile`,
-`--aws-region`, `--cloudwatch-filter-pattern`, and `--cloudwatch-max-pages` to
-control the request. Relative `--since` values support `m`, `h`, and `d`.
+CloudWatch input uses the AWS SDK's normal credential and region provider chain.
+Use `--aws-profile`, `--aws-region`, `--cloudwatch-filter-pattern`, and
+`--cloudwatch-max-pages` to control the request. Relative `--since` values
+support `m`, `h`, and `d`.
 
 ## Installation
 

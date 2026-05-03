@@ -11,7 +11,6 @@ use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
-use std::process::Command as ProcessCommand;
 use std::time::Instant;
 
 #[derive(Debug, Parser)]
@@ -79,11 +78,11 @@ struct LogInputArgs {
     #[clap(long, value_name = "N", default_value_t = 20)]
     cloudwatch_max_pages: usize,
 
-    /// AWS region for CloudWatch input
+    /// AWS region for CloudWatch input. Requires --features aws-sdk.
     #[clap(long, value_name = "REGION")]
     aws_region: Option<String>,
 
-    /// AWS profile for CloudWatch input
+    /// AWS profile for CloudWatch input. Requires --features aws-sdk.
     #[clap(long, value_name = "PROFILE")]
     aws_profile: Option<String>,
 
@@ -737,6 +736,10 @@ fn fetch_cloudwatch_events(
     input: &LogInputArgs,
     log_group: &str,
 ) -> Result<Vec<CloudWatchLogEvent>> {
+    if let Some(fixture_response) = read_cloudwatch_fixture_response()? {
+        return Ok(fixture_response.events);
+    }
+
     let start_time = parse_cloudwatch_start_time_ms(&input.since)?;
     let end_time = parse_cloudwatch_end_time_ms(input.until.as_deref())?;
     if end_time <= start_time {
@@ -751,7 +754,7 @@ fn fetch_cloudwatch_events(
     let mut previous_token: Option<String> = None;
 
     for _page in 0..input.cloudwatch_max_pages {
-        let response = run_aws_logs_filter_log_events(
+        let response = filter_cloudwatch_log_events(
             input,
             log_group,
             start_time,
@@ -771,62 +774,104 @@ fn fetch_cloudwatch_events(
     Ok(events)
 }
 
-fn run_aws_logs_filter_log_events(
+fn read_cloudwatch_fixture_response() -> Result<Option<CloudWatchFilterEventsResponse>> {
+    let Some(path) = std::env::var_os("PG_LOGSTATS_CLOUDWATCH_FIXTURE") else {
+        return Ok(None);
+    };
+
+    let content = fs::read(path)?;
+    serde_json::from_slice(&content)
+        .map(Some)
+        .map_err(PgLogstatsError::Serialization)
+}
+
+#[cfg(feature = "aws-sdk")]
+fn filter_cloudwatch_log_events(
     input: &LogInputArgs,
     log_group: &str,
     start_time: i64,
     end_time: i64,
     next_token: Option<&str>,
 ) -> Result<CloudWatchFilterEventsResponse> {
-    let aws_cli = std::env::var("PG_LOGSTATS_AWS_CLI").unwrap_or_else(|_| "aws".to_string());
-    let mut command = ProcessCommand::new(aws_cli);
-    command
-        .arg("logs")
-        .arg("filter-log-events")
-        .arg("--log-group-name")
-        .arg(log_group)
-        .arg("--start-time")
-        .arg(start_time.to_string())
-        .arg("--end-time")
-        .arg(end_time.to_string())
-        .arg("--output")
-        .arg("json")
-        .arg("--no-cli-pager");
+    let runtime = tokio::runtime::Runtime::new().map_err(|err| PgLogstatsError::Unexpected {
+        message: format!("Failed to create async runtime for CloudWatch input: {err}"),
+        context: Some("cloudwatch".to_string()),
+    })?;
+
+    runtime.block_on(filter_cloudwatch_log_events_async(
+        input, log_group, start_time, end_time, next_token,
+    ))
+}
+
+#[cfg(feature = "aws-sdk")]
+async fn filter_cloudwatch_log_events_async(
+    input: &LogInputArgs,
+    log_group: &str,
+    start_time: i64,
+    end_time: i64,
+    next_token: Option<&str>,
+) -> Result<CloudWatchFilterEventsResponse> {
+    use aws_config::BehaviorVersion;
+    use aws_sdk_cloudwatchlogs::config::Region;
+
+    let mut config_loader = aws_config::defaults(BehaviorVersion::latest());
+    if let Some(region) = &input.aws_region {
+        config_loader = config_loader.region(Region::new(region.clone()));
+    }
+    if let Some(profile) = &input.aws_profile {
+        config_loader = config_loader.profile_name(profile);
+    }
+
+    let config = config_loader.load().await;
+    let client = aws_sdk_cloudwatchlogs::Client::new(&config);
+    let mut request = client
+        .filter_log_events()
+        .log_group_name(log_group)
+        .start_time(start_time)
+        .end_time(end_time);
 
     if let Some(filter_pattern) = &input.cloudwatch_filter_pattern {
-        command.arg("--filter-pattern").arg(filter_pattern);
+        request = request.filter_pattern(filter_pattern);
     }
-
-    if let Some(region) = &input.aws_region {
-        command.arg("--region").arg(region);
-    }
-
-    if let Some(profile) = &input.aws_profile {
-        command.arg("--profile").arg(profile);
-    }
-
     if let Some(next_token) = next_token {
-        command.arg("--next-token").arg(next_token);
+        request = request.next_token(next_token);
     }
 
-    let output = command
-        .output()
+    let output = request
+        .send()
+        .await
         .map_err(|err| PgLogstatsError::Configuration {
-            message: format!("Failed to run AWS CLI for CloudWatch input: {err}"),
-            field: Some("aws_cli".to_string()),
+            message: format!("CloudWatch filter-log-events failed: {err}"),
+            field: Some("cloudwatch".to_string()),
         })?;
 
-    if !output.status.success() {
-        return Err(PgLogstatsError::Configuration {
-            message: format!(
-                "AWS CLI CloudWatch query failed: {}",
-                String::from_utf8_lossy(&output.stderr).trim()
-            ),
-            field: Some("cloudwatch".to_string()),
-        });
-    }
+    let events = output
+        .events()
+        .iter()
+        .map(|event| CloudWatchLogEvent {
+            message: event.message().map(str::to_string),
+        })
+        .collect();
 
-    serde_json::from_slice(&output.stdout).map_err(PgLogstatsError::Serialization)
+    Ok(CloudWatchFilterEventsResponse {
+        events,
+        next_token: output.next_token().map(str::to_string),
+    })
+}
+
+#[cfg(not(feature = "aws-sdk"))]
+fn filter_cloudwatch_log_events(
+    _input: &LogInputArgs,
+    _log_group: &str,
+    _start_time: i64,
+    _end_time: i64,
+    _next_token: Option<&str>,
+) -> Result<CloudWatchFilterEventsResponse> {
+    Err(PgLogstatsError::Configuration {
+        message: "CloudWatch input requires building pg-logstats with `--features aws-sdk`"
+            .to_string(),
+        field: Some("cloudwatch".to_string()),
+    })
 }
 
 fn parse_cloudwatch_start_time_ms(value: &str) -> Result<i64> {

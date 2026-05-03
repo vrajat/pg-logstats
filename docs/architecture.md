@@ -155,7 +155,8 @@ Log Directory → File Discovery → Validation → File List
 File List or CloudWatch Events → Format Detection → Line Parsing → LogEntry Stream
 ```
 - Detect log format for each file
-- Fetch bounded CloudWatch Logs windows through the AWS CLI when requested
+- Fetch bounded CloudWatch Logs windows through the optional AWS SDK feature
+  when requested
 - Parse lines with error recovery
 - Handle multi-line statements and continuations
 - Generate stream of structured `LogEntry` objects
