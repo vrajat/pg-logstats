@@ -13,6 +13,17 @@ Complete API documentation for the pg-logstats library, including:
 - Usage examples
 - Error handling
 
+### rds-cloudwatch.md
+
+Operational guide for using `pg-logstats` with Amazon RDS PostgreSQL logs
+published to CloudWatch Logs, including:
+
+- RDS log export prerequisites
+- `--rds-instance` and `--cloudwatch-log-group` usage
+- time windows, filtering, and page limits
+- LLM-friendly JSON workflows
+- local RDS log fallback
+
 ## Building Documentation
 
 To build the documentation locally:

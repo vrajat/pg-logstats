@@ -94,7 +94,8 @@ src/
   }
   ```
 - **Current Implementations**:
-  - `StderrParser`: PostgreSQL stderr format parser
+  - `StderrParser`: PostgreSQL stderr parser for the supported local prefix and
+    Amazon RDS PostgreSQL `%t:%r:%u@%d:[%p]:` logs
 - **Responsibilities**:
   - Format detection and validation
   - Line-by-line parsing with error recovery
@@ -151,9 +152,10 @@ Log Directory → File Discovery → Validation → File List
 
 ### 3. Parsing Phase
 ```
-File List → Format Detection → Line Parsing → LogEntry Stream
+File List or CloudWatch Events → Format Detection → Line Parsing → LogEntry Stream
 ```
 - Detect log format for each file
+- Fetch bounded CloudWatch Logs windows through the AWS CLI when requested
 - Parse lines with error recovery
 - Handle multi-line statements and continuations
 - Generate stream of structured `LogEntry` objects

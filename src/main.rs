@@ -1,15 +1,17 @@
+use chrono::Utc;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use pg_logstats::{
     normalize_log_entries, query_family_findings, slow_query_diff_findings, Correlator,
     EventSourceKind, Finding, FindingSet, JsonFormatter, PgLogstatsError, ProcessOrderCorrelator,
-    Result, SlowQueryDiffOptions, StderrParser, TextFormatter,
+    Result, SlowQueryDiffOptions, StderrLogFormat, StderrParser, TextFormatter,
 };
 use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::process::Command as ProcessCommand;
 use std::time::Instant;
 
 #[derive(Debug, Parser)]
@@ -25,6 +27,10 @@ struct Arguments {
     /// Output format for results
     #[clap(long, global = true, value_enum, default_value = "text")]
     output_format: OutputFormat,
+
+    /// Input log format. auto supports local PostgreSQL stderr and AWS RDS logs.
+    #[clap(long, global = true, value_enum, default_value = "auto")]
+    input_format: InputFormat,
 
     /// Write results to a file. Use `-` to force stdout.
     #[clap(short = 'o', long, global = true, value_name = "PATH")]
@@ -45,6 +51,42 @@ struct LogInputArgs {
     #[clap(long, value_name = "DIR")]
     log_dir: Option<PathBuf>,
 
+    /// CloudWatch Logs group to read PostgreSQL log events from
+    #[clap(long, value_name = "LOG_GROUP", conflicts_with = "rds_instance")]
+    cloudwatch_log_group: Option<String>,
+
+    /// RDS instance identifier; resolves to /aws/rds/instance/<id>/postgresql
+    #[clap(
+        long,
+        value_name = "DB_INSTANCE",
+        conflicts_with = "cloudwatch_log_group"
+    )]
+    rds_instance: Option<String>,
+
+    /// Start time for CloudWatch input, as RFC3339 or a relative window like 15m, 2h, 1d
+    #[clap(long, value_name = "TIME", default_value = "1h")]
+    since: String,
+
+    /// End time for CloudWatch input, as RFC3339. Defaults to now.
+    #[clap(long, value_name = "TIME")]
+    until: Option<String>,
+
+    /// Optional CloudWatch Logs filter pattern
+    #[clap(long, value_name = "PATTERN")]
+    cloudwatch_filter_pattern: Option<String>,
+
+    /// Maximum CloudWatch filter-log-events pages to read
+    #[clap(long, value_name = "N", default_value_t = 20)]
+    cloudwatch_max_pages: usize,
+
+    /// AWS region for CloudWatch input
+    #[clap(long, value_name = "REGION")]
+    aws_region: Option<String>,
+
+    /// AWS profile for CloudWatch input
+    #[clap(long, value_name = "PROFILE")]
+    aws_profile: Option<String>,
+
     /// Limit analysis to first N lines of each file (for large files)
     #[clap(long, value_name = "N")]
     sample_size: Option<usize>,
@@ -56,6 +98,22 @@ struct LogInputArgs {
     /// Log files to analyze
     #[clap(value_name = "LOG_FILES")]
     log_files: Vec<String>,
+}
+
+impl LogInputArgs {
+    fn cloudwatch_log_group_name(&self) -> Option<String> {
+        if let Some(log_group) = &self.cloudwatch_log_group {
+            return Some(log_group.clone());
+        }
+
+        self.rds_instance
+            .as_ref()
+            .map(|instance| format!("/aws/rds/instance/{instance}/postgresql"))
+    }
+
+    fn uses_cloudwatch(&self) -> bool {
+        self.cloudwatch_log_group.is_some() || self.rds_instance.is_some()
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -139,18 +197,31 @@ enum OutputFormat {
     Json,
 }
 
-#[derive(Debug, ValueEnum, Clone, Copy, Default)]
-enum Format {
-    #[default]
-    Syslog,
-    Syslog2,
+#[derive(Debug, ValueEnum, Clone, Copy)]
+enum InputFormat {
+    /// Auto-detect among supported stderr-compatible formats.
+    Auto,
+    /// Local PostgreSQL stderr logs using the pg-logstats supported prefix.
     Stderr,
-    Jsonlog,
-    Cvs,
-    Pgbouncer,
-    Logplex,
+    /// Amazon RDS PostgreSQL logs using `%t:%r:%u@%d:[%p]:`.
     Rds,
-    Redshift,
+}
+
+impl InputFormat {
+    fn stderr_log_format(self) -> StderrLogFormat {
+        match self {
+            Self::Auto => StderrLogFormat::Auto,
+            Self::Stderr => StderrLogFormat::Standard,
+            Self::Rds => StderrLogFormat::AwsRds,
+        }
+    }
+
+    fn event_source_kind(self) -> EventSourceKind {
+        match self {
+            Self::Rds => EventSourceKind::AwsRds,
+            Self::Auto | Self::Stderr => EventSourceKind::Stderr,
+        }
+    }
 }
 
 fn main() -> Result<()> {
@@ -218,6 +289,17 @@ fn load_default_log_entries(
     input: &LogInputArgs,
     parser: &StderrParser,
 ) -> Result<Vec<pg_logstats::LogEntry>> {
+    if input.uses_cloudwatch() {
+        let entries = process_cloudwatch_input(input, parser)?;
+        if entries.is_empty() {
+            warn!("No CloudWatch log events were successfully parsed");
+            process::exit(1);
+        }
+
+        info!("Total CloudWatch entries parsed: {}", entries.len());
+        return Ok(entries);
+    }
+
     // Initialize progress bar if not in quiet mode
     let progress_bar = if !args.quiet {
         Some(create_progress_bar())
@@ -280,7 +362,7 @@ fn run_top_query_families_command(
     limit: usize,
 ) -> Result<()> {
     let all_entries = load_default_log_entries(args, input, parser)?;
-    let findings = run_top_query_families(&all_entries, limit)?;
+    let findings = run_top_query_families(&all_entries, limit, source_kind_for_input(args, input))?;
     output_findings(&findings, args, &all_entries)
 }
 
@@ -292,8 +374,14 @@ fn run_slow_queries_diff_command(
     sample_size: Option<usize>,
     options: SlowQueryDiffOptions,
 ) -> Result<()> {
-    let (findings, total_entries) =
-        run_slow_queries_diff(baseline, target, parser, sample_size, options)?;
+    let (findings, total_entries) = run_slow_queries_diff(
+        baseline,
+        target,
+        parser,
+        sample_size,
+        options,
+        args.input_format.event_source_kind(),
+    )?;
     output_findings_with_entry_count(&findings, args, total_entries)
 }
 
@@ -330,6 +418,11 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
 }
 
 fn validate_log_input_args(input: &LogInputArgs) -> Result<()> {
+    if input.uses_cloudwatch() {
+        validate_cloudwatch_input_args(input)?;
+        return validate_sample_size(input.sample_size);
+    }
+
     if let Some(log_dir) = &input.log_dir {
         if !log_dir.exists() {
             return Err(PgLogstatsError::Configuration {
@@ -361,6 +454,24 @@ fn validate_log_input_args(input: &LogInputArgs) -> Result<()> {
     }
 
     validate_sample_size(input.sample_size)
+}
+
+fn validate_cloudwatch_input_args(input: &LogInputArgs) -> Result<()> {
+    if input.cloudwatch_max_pages == 0 {
+        return Err(PgLogstatsError::Configuration {
+            message: "CloudWatch max pages must be greater than 0".to_string(),
+            field: Some("cloudwatch_max_pages".to_string()),
+        });
+    }
+
+    if input.log_dir.is_some() || input.logfile_list.is_some() || !input.log_files.is_empty() {
+        return Err(PgLogstatsError::Configuration {
+            message: "CloudWatch input cannot be combined with local log files".to_string(),
+            field: Some("cloudwatch_input".to_string()),
+        });
+    }
+
+    Ok(())
 }
 
 fn validate_sample_size(sample_size: Option<usize>) -> Result<()> {
@@ -524,11 +635,19 @@ fn discover_log_files_for_path(path: &Path) -> Result<Vec<PathBuf>> {
     Ok(log_files)
 }
 
-fn initialize_parser(_args: &Arguments) -> Result<StderrParser> {
-    // For now, we'll use StderrParser as the default
-    // In the future, we can add logic to choose parser based on format
-    debug!("Initializing stderr parser");
-    Ok(StderrParser::new())
+fn initialize_parser(args: &Arguments) -> Result<StderrParser> {
+    debug!("Initializing stderr parser for {:?}", args.input_format);
+    Ok(StderrParser::with_format(
+        args.input_format.stderr_log_format(),
+    ))
+}
+
+fn source_kind_for_input(args: &Arguments, input: &LogInputArgs) -> EventSourceKind {
+    if input.uses_cloudwatch() && matches!(args.input_format, InputFormat::Auto) {
+        return EventSourceKind::AwsRds;
+    }
+
+    args.input_format.event_source_kind()
 }
 
 fn process_log_file(
@@ -580,15 +699,183 @@ fn process_log_paths(
     Ok(all_entries)
 }
 
+fn process_cloudwatch_input(
+    input: &LogInputArgs,
+    parser: &StderrParser,
+) -> Result<Vec<pg_logstats::LogEntry>> {
+    let log_group = input
+        .cloudwatch_log_group_name()
+        .expect("validated CloudWatch input should have a log group");
+    let events = fetch_cloudwatch_events(input, &log_group)?;
+    let mut lines: Vec<String> = events
+        .into_iter()
+        .filter_map(|event| event.message)
+        .flat_map(|message| message.lines().map(str::to_string).collect::<Vec<String>>())
+        .collect();
+
+    if let Some(sample_size) = input.sample_size {
+        lines.truncate(sample_size);
+    }
+
+    parser.parse_lines(&lines)
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CloudWatchFilterEventsResponse {
+    #[serde(default)]
+    events: Vec<CloudWatchLogEvent>,
+    #[serde(rename = "nextToken")]
+    next_token: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CloudWatchLogEvent {
+    message: Option<String>,
+}
+
+fn fetch_cloudwatch_events(
+    input: &LogInputArgs,
+    log_group: &str,
+) -> Result<Vec<CloudWatchLogEvent>> {
+    let start_time = parse_cloudwatch_start_time_ms(&input.since)?;
+    let end_time = parse_cloudwatch_end_time_ms(input.until.as_deref())?;
+    if end_time <= start_time {
+        return Err(PgLogstatsError::Configuration {
+            message: "--until must be after --since".to_string(),
+            field: Some("until".to_string()),
+        });
+    }
+
+    let mut events = Vec::new();
+    let mut next_token: Option<String> = None;
+    let mut previous_token: Option<String> = None;
+
+    for _page in 0..input.cloudwatch_max_pages {
+        let response = run_aws_logs_filter_log_events(
+            input,
+            log_group,
+            start_time,
+            end_time,
+            next_token.as_deref(),
+        )?;
+        events.extend(response.events);
+
+        if response.next_token.is_none() || response.next_token == previous_token {
+            break;
+        }
+
+        previous_token = next_token;
+        next_token = response.next_token;
+    }
+
+    Ok(events)
+}
+
+fn run_aws_logs_filter_log_events(
+    input: &LogInputArgs,
+    log_group: &str,
+    start_time: i64,
+    end_time: i64,
+    next_token: Option<&str>,
+) -> Result<CloudWatchFilterEventsResponse> {
+    let aws_cli = std::env::var("PG_LOGSTATS_AWS_CLI").unwrap_or_else(|_| "aws".to_string());
+    let mut command = ProcessCommand::new(aws_cli);
+    command
+        .arg("logs")
+        .arg("filter-log-events")
+        .arg("--log-group-name")
+        .arg(log_group)
+        .arg("--start-time")
+        .arg(start_time.to_string())
+        .arg("--end-time")
+        .arg(end_time.to_string())
+        .arg("--output")
+        .arg("json")
+        .arg("--no-cli-pager");
+
+    if let Some(filter_pattern) = &input.cloudwatch_filter_pattern {
+        command.arg("--filter-pattern").arg(filter_pattern);
+    }
+
+    if let Some(region) = &input.aws_region {
+        command.arg("--region").arg(region);
+    }
+
+    if let Some(profile) = &input.aws_profile {
+        command.arg("--profile").arg(profile);
+    }
+
+    if let Some(next_token) = next_token {
+        command.arg("--next-token").arg(next_token);
+    }
+
+    let output = command
+        .output()
+        .map_err(|err| PgLogstatsError::Configuration {
+            message: format!("Failed to run AWS CLI for CloudWatch input: {err}"),
+            field: Some("aws_cli".to_string()),
+        })?;
+
+    if !output.status.success() {
+        return Err(PgLogstatsError::Configuration {
+            message: format!(
+                "AWS CLI CloudWatch query failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+            field: Some("cloudwatch".to_string()),
+        });
+    }
+
+    serde_json::from_slice(&output.stdout).map_err(PgLogstatsError::Serialization)
+}
+
+fn parse_cloudwatch_start_time_ms(value: &str) -> Result<i64> {
+    if let Some(duration_ms) = parse_relative_duration_ms(value) {
+        return Ok(Utc::now().timestamp_millis() - duration_ms);
+    }
+
+    parse_rfc3339_millis(value, "since")
+}
+
+fn parse_cloudwatch_end_time_ms(value: Option<&str>) -> Result<i64> {
+    match value {
+        Some(value) => parse_rfc3339_millis(value, "until"),
+        None => Ok(Utc::now().timestamp_millis()),
+    }
+}
+
+fn parse_relative_duration_ms(value: &str) -> Option<i64> {
+    let (number, unit) = value.split_at(value.len().checked_sub(1)?);
+    let amount: i64 = number.parse().ok()?;
+    let multiplier = match unit {
+        "m" => 60_000,
+        "h" => 3_600_000,
+        "d" => 86_400_000,
+        _ => return None,
+    };
+
+    amount.checked_mul(multiplier)
+}
+
+fn parse_rfc3339_millis(value: &str, field: &str) -> Result<i64> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .map(|timestamp| timestamp.timestamp_millis())
+        .map_err(|err| PgLogstatsError::Configuration {
+            message: format!("Invalid --{field} time `{value}`: {err}"),
+            field: Some(field.to_string()),
+        })
+}
+
 fn run_top_query_families(
     entries: &[pg_logstats::LogEntry],
     limit: usize,
+    source_kind: EventSourceKind,
 ) -> Result<pg_logstats::FindingSet> {
     info!(
         "Building top query-family findings from {} entries",
         entries.len()
     );
-    let events = normalize_log_entries(entries, EventSourceKind::Stderr);
+    let events = normalize_log_entries(entries, source_kind);
     let executions = ProcessOrderCorrelator.correlate(&events);
 
     Ok(query_family_findings(&executions, limit))
@@ -600,6 +887,7 @@ fn run_slow_queries_diff(
     parser: &StderrParser,
     sample_size: Option<usize>,
     options: SlowQueryDiffOptions,
+    source_kind: EventSourceKind,
 ) -> Result<(pg_logstats::FindingSet, usize)> {
     info!(
         "Building slow-query diff findings from baseline {} and target {}",
@@ -610,8 +898,8 @@ fn run_slow_queries_diff(
     let baseline_entries = process_log_paths(baseline, parser, sample_size)?;
     let target_entries = process_log_paths(target, parser, sample_size)?;
 
-    let baseline_events = normalize_log_entries(&baseline_entries, EventSourceKind::Stderr);
-    let target_events = normalize_log_entries(&target_entries, EventSourceKind::Stderr);
+    let baseline_events = normalize_log_entries(&baseline_entries, source_kind);
+    let target_events = normalize_log_entries(&target_entries, source_kind);
     let baseline_executions = ProcessOrderCorrelator.correlate(&baseline_events);
     let target_executions = ProcessOrderCorrelator.correlate(&target_events);
 

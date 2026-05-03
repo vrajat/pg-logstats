@@ -3,7 +3,7 @@
 //! Tests various log line formats, edge cases, and parser functionality in isolation
 
 use chrono::DateTime;
-use pg_logstats::parsers::stderr::StderrParser;
+use pg_logstats::parsers::stderr::{StderrLogFormat, StderrParser};
 use pg_logstats::LogLevel;
 
 /// Helper function to create test log lines with various formats
@@ -288,8 +288,85 @@ mod parser_unit_tests {
         assert!(result.is_some());
 
         let entry = result.unwrap();
-        assert_eq!(entry.message_type, LogLevel::Log);
-        assert!(entry.message.contains("execute <unnamed>"));
+        assert_eq!(entry.message_type, LogLevel::Statement);
+        assert_eq!(
+            entry.message,
+            "statement: SELECT * FROM users WHERE id = $1"
+        );
+        let queries = entry.queries.unwrap();
+        assert_eq!(
+            queries[0].normalized_query,
+            "SELECT * FROM users WHERE id = ?"
+        );
+    }
+
+    #[test]
+    fn test_parse_aws_rds_statement() {
+        let mut parser = StderrParser::with_format(StderrLogFormat::AwsRds);
+        let line = "2019-09-24 17:19:25 UTC:172.31.10.173(53224):username@database:[12829]:LOG:  statement: SELECT * FROM users WHERE id = 1";
+
+        let result = parser.parse_line(line).unwrap();
+        assert!(result.is_some());
+
+        let entry = result.unwrap();
+        assert_eq!(entry.process_id, "12829");
+        assert_eq!(entry.user.as_deref(), Some("username"));
+        assert_eq!(entry.database.as_deref(), Some("database"));
+        assert_eq!(entry.client_host.as_deref(), Some("172.31.10.173"));
+        assert_eq!(entry.application_name, None);
+        assert_eq!(entry.message_type, LogLevel::Statement);
+        assert_eq!(entry.message, "statement: SELECT * FROM users WHERE id = 1");
+        assert_eq!(
+            entry.queries.unwrap()[0].normalized_query,
+            "SELECT * FROM users WHERE id = ?"
+        );
+    }
+
+    #[test]
+    fn test_parse_aws_rds_combined_duration_statement() {
+        let mut parser = StderrParser::with_format(StderrLogFormat::AwsRds);
+        let line = "2019-09-24 17:19:25 UTC:app.example.com(53224):username@database:[12829]:LOG:  duration: 517.047 ms  statement: SELECT * FROM reports WHERE id = 42";
+
+        let result = parser.parse_line(line).unwrap();
+        assert!(result.is_some());
+
+        let entry = result.unwrap();
+        assert_eq!(entry.message_type, LogLevel::Statement);
+        assert_eq!(entry.duration, Some(517.047));
+        assert_eq!(entry.client_host.as_deref(), Some("app.example.com"));
+        assert_eq!(
+            entry.queries.unwrap()[0].normalized_query,
+            "SELECT * FROM reports WHERE id = ?"
+        );
+    }
+
+    #[test]
+    fn test_parse_aws_rds_execute_statement() {
+        let mut parser = StderrParser::with_format(StderrLogFormat::AwsRds);
+        let line = "2019-09-24 17:19:26 UTC:172.31.10.173(53224):username@database:[12829]:LOG:  execute <unnamed>: SELECT * FROM users WHERE id = $1";
+
+        let result = parser.parse_line(line).unwrap();
+        assert!(result.is_some());
+
+        let entry = result.unwrap();
+        assert_eq!(entry.message_type, LogLevel::Statement);
+        assert_eq!(
+            entry.message,
+            "statement: SELECT * FROM users WHERE id = $1"
+        );
+        assert_eq!(
+            entry.queries.unwrap()[0].normalized_query,
+            "SELECT * FROM users WHERE id = ?"
+        );
+    }
+
+    #[test]
+    fn test_standard_only_parser_rejects_rds_prefix() {
+        let mut parser = StderrParser::with_format(StderrLogFormat::Standard);
+        let line = "2019-09-24 17:19:25 UTC:172.31.10.173(53224):username@database:[12829]:LOG:  statement: SELECT 1";
+
+        let result = parser.parse_line(line).unwrap();
+        assert!(result.is_none());
     }
 
     #[test]

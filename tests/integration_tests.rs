@@ -15,6 +15,18 @@ fn create_test_log_file(dir: &Path, filename: &str, content: &str) -> std::path:
     file_path
 }
 
+#[cfg(unix)]
+fn create_fake_aws_cli(dir: &Path, content: &str) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+
+    let script = dir.join("fake-aws");
+    fs::write(&script, content).expect("Failed to write fake AWS CLI");
+    let mut permissions = fs::metadata(&script).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&script, permissions).unwrap();
+    script
+}
+
 /// Helper function to create sample PostgreSQL log content
 fn sample_log_content() -> &'static str {
     r#"2024-01-15 10:00:00.123 UTC [1234] testuser@testdb psql: LOG: statement: SELECT * FROM users WHERE id = 1;
@@ -92,6 +104,7 @@ fn test_cli_help() {
             "A PostgreSQL log investigation CLI",
         ))
         .stdout(predicate::str::contains("--output-format"))
+        .stdout(predicate::str::contains("--input-format"))
         .stdout(predicate::str::contains("top"))
         .stdout(predicate::str::contains("slow-queries"))
         .stdout(predicate::str::contains("suggest-sql"))
@@ -565,6 +578,109 @@ fn test_checked_in_top_query_families_fixture_smoke() {
         .stdout(predicate::str::contains("Findings"))
         .stdout(predicate::str::contains("SELECT * FROM users WHERE id = ?"))
         .stdout(predicate::str::contains("44.000 ms total runtime"));
+}
+
+#[test]
+fn test_checked_in_aws_rds_fixture_auto_detect_smoke() {
+    let fixture = repo_fixture("tests/fixtures/cli/aws_rds.log");
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.arg("top")
+        .arg("query-families")
+        .arg("--quiet")
+        .arg(fixture.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Findings"))
+        .stdout(predicate::str::contains(
+            "SELECT COUNT(*) FROM orders WHERE created_at >= ?",
+        ))
+        .stdout(predicate::str::contains("120.000 ms total runtime"))
+        .stdout(predicate::str::contains("SELECT * FROM users WHERE id = ?"));
+}
+
+#[test]
+fn test_checked_in_aws_rds_fixture_explicit_input_format_marks_evidence() {
+    let fixture = repo_fixture("tests/fixtures/cli/aws_rds.log");
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.arg("top")
+        .arg("query-families")
+        .arg("--quiet")
+        .arg("--output-format")
+        .arg("json")
+        .arg("--input-format")
+        .arg("rds")
+        .arg(fixture.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"total_log_entries\": 5"))
+        .stdout(predicate::str::contains("\"source_kind\": \"AwsRds\""))
+        .stdout(predicate::str::contains("\"execution_count\": 2"))
+        .stdout(predicate::str::contains("\"application_name\": null"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_cloudwatch_rds_input_uses_aws_cli_events() {
+    let temp_dir = TempDir::new().unwrap();
+    let fake_aws = create_fake_aws_cli(
+        temp_dir.path(),
+        r#"#!/bin/sh
+cat <<'JSON'
+{
+  "events": [
+    {
+      "timestamp": 1570000000000,
+      "message": "2019-09-24 17:19:25 UTC:172.31.10.173(53224):app@appdb:[12829]:LOG:  statement: SELECT * FROM users WHERE id = 1;"
+    },
+    {
+      "timestamp": 1570000001000,
+      "message": "2019-09-24 17:19:25 UTC:172.31.10.173(53224):app@appdb:[12829]:LOG:  duration: 44.000 ms"
+    }
+  ]
+}
+JSON
+"#,
+    );
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_AWS_CLI", fake_aws)
+        .arg("top")
+        .arg("query-families")
+        .arg("--quiet")
+        .arg("--output-format")
+        .arg("json")
+        .arg("--rds-instance")
+        .arg("app-prod")
+        .arg("--since")
+        .arg("2h")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"source_kind\": \"AwsRds\""))
+        .stdout(predicate::str::contains("\"total_log_entries\": 2"))
+        .stdout(predicate::str::contains("SELECT * FROM users WHERE id = ?"))
+        .stdout(predicate::str::contains("\"total_duration_ms\": 44.0"));
+}
+
+#[cfg(unix)]
+#[test]
+fn test_cloudwatch_input_rejects_local_files() {
+    let temp_dir = TempDir::new().unwrap();
+    let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.arg("top")
+        .arg("query-families")
+        .arg("--quiet")
+        .arg("--cloudwatch-log-group")
+        .arg("/aws/rds/instance/app-prod/postgresql")
+        .arg(log_file.to_str().unwrap())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "CloudWatch input cannot be combined with local log files",
+        ));
 }
 
 #[test]

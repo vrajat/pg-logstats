@@ -26,12 +26,30 @@ That corresponds to a PostgreSQL `log_line_prefix` similar to:
 %m [%p] %u@%d %a:
 ```
 
+Amazon RDS for PostgreSQL logs are also supported when they use the RDS prefix
+shape documented for pgBadger:
+
+```text
+%t:%r:%u@%d:[%p]:
+```
+
+`pg-logstats` auto-detects local stderr and RDS-style logs by default. Use
+`--input-format rds` when you want JSON evidence to mark the source kind as
+`AwsRds` or when you want to reject non-RDS prefixes.
+
 ## Quick Start
 
 ```bash
 cargo install pg-logstats
 
 pg-logstats top query-families tests/fixtures/cli/sample_stderr.log
+
+pg-logstats --input-format rds top query-families tests/fixtures/cli/aws_rds.log
+
+pg-logstats top query-families \
+  --rds-instance my-db \
+  --since 2h \
+  --output-format json
 
 pg-logstats top query-families \
   --output-format json \
@@ -45,8 +63,40 @@ pg-logstats slow-queries diff \
 pg-logstats suggest-sql --findings-file findings.json --rank 1
 ```
 
-Global flags such as `--output-format`, `--outfile`, `--outdir`, and `--quiet`
-can be placed before or after the workflow command.
+Global flags such as `--input-format`, `--output-format`, `--outfile`,
+`--outdir`, and `--quiet` can be placed before or after the workflow command.
+
+## CloudWatch Logs Input
+
+For Amazon RDS PostgreSQL instances that publish PostgreSQL logs to CloudWatch
+Logs, `pg-logstats` can read a bounded time window directly through the AWS CLI:
+
+```bash
+pg-logstats top query-families \
+  --rds-instance my-db \
+  --since 2h \
+  --output-format json
+```
+
+`--rds-instance my-db` resolves to:
+
+```text
+/aws/rds/instance/my-db/postgresql
+```
+
+You can also pass the log group explicitly:
+
+```bash
+pg-logstats top query-families \
+  --cloudwatch-log-group /aws/rds/instance/my-db/postgresql \
+  --since 2026-05-03T10:00:00Z \
+  --until 2026-05-03T11:00:00Z
+```
+
+CloudWatch input uses `aws logs filter-log-events`, so existing AWS CLI
+authentication, SSO, profile, and region behavior applies. Use `--aws-profile`,
+`--aws-region`, `--cloudwatch-filter-pattern`, and `--cloudwatch-max-pages` to
+control the request. Relative `--since` values support `m`, `h`, and `d`.
 
 ## Installation
 
