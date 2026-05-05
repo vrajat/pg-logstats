@@ -33,7 +33,7 @@ pub use findings::{
     SlowQueryDiffOptions, FINDING_SCHEMA_VERSION,
 };
 pub use output::{JsonFormatter, TextFormatter};
-pub use parsers::{StderrLogFormat, StderrParser};
+pub use parsers::{TextLogFormat, TextLogParser};
 pub use sql::{Query, QueryType};
 
 /// Main error type for pg-logstats operations

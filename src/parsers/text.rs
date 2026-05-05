@@ -1,27 +1,27 @@
-//! PostgreSQL stderr log format parser
+//! Text log format parser
 //!
-//! Handles PostgreSQL stderr logs with standard `log_line_prefix =
-//! '%m [%p] %q%u@%d %a: '` and Amazon RDS PostgreSQL logs with the documented
-//! RDS prefix shape `%t:%r:%u@%d:[%p]:`.
+//! Handles the default text log prefix `log_line_prefix =
+//! '%m [%p] %q%u@%d %a: '` and Amazon RDS logs with the documented RDS prefix
+//! shape `%t:%r:%u@%d:[%p]:`.
 
 use crate::{timestamp_error, LogEntry, LogLevel, PgLogstatsError, Result};
 use chrono::{DateTime, Utc};
 use regex::Regex;
 
-/// Stderr-compatible PostgreSQL log prefix variants supported by the parser.
+/// Text log prefix variants supported by the parser.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum StderrLogFormat {
-    /// Accept any supported stderr-compatible prefix.
+pub enum TextLogFormat {
+    /// Accept any supported text log prefix.
     Auto,
-    /// Standard local PostgreSQL stderr prefix used by pg-logstats fixtures.
-    Standard,
-    /// Amazon RDS PostgreSQL prefix `%t:%r:%u@%d:[%p]:`.
+    /// Default local text prefix used by pg-logstats fixtures.
+    Default,
+    /// Amazon RDS prefix `%t:%r:%u@%d:[%p]:`.
     AwsRds,
 }
 
-impl StderrLogFormat {
-    fn accepts_standard(self) -> bool {
-        matches!(self, Self::Auto | Self::Standard)
+impl TextLogFormat {
+    fn accepts_default(self) -> bool {
+        matches!(self, Self::Auto | Self::Default)
     }
 
     fn accepts_rds(self) -> bool {
@@ -29,15 +29,15 @@ impl StderrLogFormat {
     }
 }
 
-/// Parser for PostgreSQL stderr log format
-pub struct StderrParser {
+/// Parser for supported text log formats.
+pub struct TextLogParser {
     pub log_line_regex: Regex,
     pub rds_log_line_regex: Regex,
     duration_regex: Regex,
     duration_statement_regex: Regex,
     execute_statement_regex: Regex,
     parameter_regex: Regex,
-    format: StderrLogFormat,
+    format: TextLogFormat,
     // State for handling multi-line statements
     pending_statement: Option<PendingStatement>,
 }
@@ -63,14 +63,14 @@ struct PendingStatement {
     line_count: usize,
 }
 
-impl StderrParser {
-    /// Create a new stderr parser
+impl TextLogParser {
+    /// Create a new text log parser.
     pub fn new() -> Self {
-        Self::with_format(StderrLogFormat::Auto)
+        Self::with_format(TextLogFormat::Auto)
     }
 
-    /// Create a parser restricted to one supported stderr-compatible prefix.
-    pub fn with_format(format: StderrLogFormat) -> Self {
+    /// Create a parser restricted to one supported text log prefix.
+    pub fn with_format(format: TextLogFormat) -> Self {
         Self {
             log_line_regex: Regex::new(
                 r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:\.\d+)?) ([A-Za-z0-9_+\-:/]+) \[(\d+)\] ([^@]+)@([^ ]+) ([^:]+): (\w+):\s*(.+)$"
@@ -107,10 +107,10 @@ impl StderrParser {
             return self.handle_continuation_line(line);
         }
 
-        // Try to parse as a standard local stderr log line.
-        if self.format.accepts_standard() {
+        // Try to parse as the default local text log line.
+        if self.format.accepts_default() {
             if let Some(captures) = self.log_line_regex.captures(line) {
-                return self.parse_standard_format(&captures, line);
+                return self.parse_default_format(&captures, line);
             }
         }
 
@@ -127,7 +127,7 @@ impl StderrParser {
 
     /// Parse multiple log lines with state management
     pub fn parse_lines(&self, lines: &[String]) -> Result<Vec<LogEntry>> {
-        let mut parser = StderrParser::with_format(self.format);
+        let mut parser = TextLogParser::with_format(self.format);
         let mut entries = Vec::new();
         let mut errors = Vec::new();
 
@@ -174,8 +174,8 @@ impl StderrParser {
         Ok(entries)
     }
 
-    /// Parse standard PostgreSQL log format
-    fn parse_standard_format(
+    /// Parse the default text log format.
+    fn parse_default_format(
         &mut self,
         captures: &regex::Captures,
         _original_line: &str,
@@ -455,7 +455,7 @@ fn normalize_rds_client_host(remote_host: &str) -> Option<String> {
     optional_metadata_value(remote_host)
 }
 
-impl Default for StderrParser {
+impl Default for TextLogParser {
     fn default() -> Self {
         Self::new()
     }
@@ -467,7 +467,7 @@ mod tests {
 
     #[test]
     fn test_parse_simple_statement() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let line = "2024-08-14 10:30:15.123 UTC [12345] postgres@testdb psql: LOG:  statement: SELECT * FROM users WHERE active = true;";
 
         let result = parser.parse_line(line).unwrap();
@@ -489,7 +489,7 @@ mod tests {
 
     #[test]
     fn test_parse_duration() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let line =
             "2024-08-14 10:30:15.456 UTC [12345] postgres@testdb psql: LOG:  duration: 45.123 ms";
 
@@ -503,7 +503,7 @@ mod tests {
 
     #[test]
     fn test_parse_error() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let line = "2024-08-14 10:30:16.789 UTC [12346] admin@analytics pgbench: ERROR:  relation \"missing_table\" does not exist";
 
         let result = parser.parse_line(line).unwrap();
@@ -521,7 +521,7 @@ mod tests {
 
     #[test]
     fn test_parse_parameterized_query() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let line = "2024-08-14 10:30:17.012 UTC [12347] postgres@testdb psql: LOG:  statement: UPDATE products SET price = $1 WHERE id = $2";
 
         let result = parser.parse_line(line).unwrap();
@@ -548,7 +548,7 @@ mod tests {
             "2024-08-14 10:30:18.123 UTC [12348] postgres@testdb psql: LOG:  duration: 12.345 ms",
         ];
 
-        let parser = StderrParser::new();
+        let parser = TextLogParser::new();
         let result = parser.parse_lines(&lines.iter().map(|s| s.to_string()).collect::<Vec<_>>());
         assert!(result.is_ok());
 
@@ -568,14 +568,14 @@ mod tests {
 
     #[test]
     fn test_parse_empty_line() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let result = parser.parse_line("").unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn test_parse_unparseable_line() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let result = parser
             .parse_line("This is not a PostgreSQL log line")
             .unwrap();
@@ -590,7 +590,7 @@ mod tests {
             "2024-08-14 10:30:15.456 UTC [12345] postgres@testdb psql: LOG:  duration: 45.123 ms",
         ];
 
-        let parser = StderrParser::new();
+        let parser = TextLogParser::new();
         let result = parser.parse_lines(&lines.iter().map(|s| s.to_string()).collect::<Vec<_>>());
         assert!(result.is_ok());
 
@@ -600,7 +600,7 @@ mod tests {
 
     #[test]
     fn test_timestamp_parsing() {
-        let parser = StderrParser::new();
+        let parser = TextLogParser::new();
 
         // Test timestamp parsing
         let timestamp_str = "2024-08-14 10:30:15.123";
@@ -613,7 +613,7 @@ mod tests {
 
     #[test]
     fn test_regex_matching() {
-        let parser = StderrParser::new();
+        let parser = TextLogParser::new();
 
         let line = "2024-08-14 10:30:15.123 UTC [12345] postgres@testdb psql: LOG:  statement: SELECT * FROM users WHERE active = true;";
 

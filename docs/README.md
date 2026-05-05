@@ -33,7 +33,7 @@ cargo doc --no-deps --open
 ```
 
 This will generate HTML documentation and open it in your default browser. The generated docs include the latest public API for:
-- `parsers` (e.g., `StderrParser`)
+- `parsers` (e.g., `TextLogParser`)
 - `analytics` (e.g., `QueryAnalyzer`, `TimingAnalyzer`)
 - `output` (e.g., `JsonFormatter`, `TextFormatter`)
 

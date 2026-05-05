@@ -5,7 +5,7 @@ use log::{debug, error, info, warn};
 use pg_logstats::{
     normalize_log_entries, query_family_findings, slow_query_diff_findings, Correlator,
     EventSourceKind, Finding, FindingSet, JsonFormatter, PgLogstatsError, ProcessOrderCorrelator,
-    Result, SlowQueryDiffOptions, StderrLogFormat, StderrParser, TextFormatter,
+    Result, SlowQueryDiffOptions, TextFormatter, TextLogFormat, TextLogParser,
 };
 use serde_json::json;
 use std::fs;
@@ -198,27 +198,27 @@ enum OutputFormat {
 
 #[derive(Debug, ValueEnum, Clone, Copy)]
 enum InputFormat {
-    /// Auto-detect among supported stderr-compatible formats.
+    /// Auto-detect among supported text formats.
     Auto,
-    /// Local PostgreSQL stderr logs using the pg-logstats supported prefix.
-    Stderr,
-    /// Amazon RDS PostgreSQL logs using `%t:%r:%u@%d:[%p]:`.
+    /// Local logs using the pg-logstats supported default text prefix.
+    Default,
+    /// Amazon RDS logs using `%t:%r:%u@%d:[%p]:`.
     Rds,
 }
 
 impl InputFormat {
-    fn stderr_log_format(self) -> StderrLogFormat {
+    fn text_log_format(self) -> TextLogFormat {
         match self {
-            Self::Auto => StderrLogFormat::Auto,
-            Self::Stderr => StderrLogFormat::Standard,
-            Self::Rds => StderrLogFormat::AwsRds,
+            Self::Auto => TextLogFormat::Auto,
+            Self::Default => TextLogFormat::Default,
+            Self::Rds => TextLogFormat::AwsRds,
         }
     }
 
     fn event_source_kind(self) -> EventSourceKind {
         match self {
             Self::Rds => EventSourceKind::AwsRds,
-            Self::Auto | Self::Stderr => EventSourceKind::Stderr,
+            Self::Auto | Self::Default => EventSourceKind::Stderr,
         }
     }
 }
@@ -246,7 +246,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_command(args: &Arguments, parser: &StderrParser) -> Result<()> {
+fn run_command(args: &Arguments, parser: &TextLogParser) -> Result<()> {
     match &args.command {
         Command::Top {
             command: TopCommand::QueryFamilies { limit, input },
@@ -286,7 +286,7 @@ fn run_command(args: &Arguments, parser: &StderrParser) -> Result<()> {
 fn load_default_log_entries(
     args: &Arguments,
     input: &LogInputArgs,
-    parser: &StderrParser,
+    parser: &TextLogParser,
 ) -> Result<Vec<pg_logstats::LogEntry>> {
     if input.uses_cloudwatch() {
         let entries = process_cloudwatch_input(input, parser)?;
@@ -356,7 +356,7 @@ fn load_default_log_entries(
 
 fn run_top_query_families_command(
     args: &Arguments,
-    parser: &StderrParser,
+    parser: &TextLogParser,
     input: &LogInputArgs,
     limit: usize,
 ) -> Result<()> {
@@ -367,7 +367,7 @@ fn run_top_query_families_command(
 
 fn run_slow_queries_diff_command(
     args: &Arguments,
-    parser: &StderrParser,
+    parser: &TextLogParser,
     baseline: &Path,
     target: &Path,
     sample_size: Option<usize>,
@@ -634,10 +634,10 @@ fn discover_log_files_for_path(path: &Path) -> Result<Vec<PathBuf>> {
     Ok(log_files)
 }
 
-fn initialize_parser(args: &Arguments) -> Result<StderrParser> {
-    debug!("Initializing stderr parser for {:?}", args.input_format);
-    Ok(StderrParser::with_format(
-        args.input_format.stderr_log_format(),
+fn initialize_parser(args: &Arguments) -> Result<TextLogParser> {
+    debug!("Initializing text log parser for {:?}", args.input_format);
+    Ok(TextLogParser::with_format(
+        args.input_format.text_log_format(),
     ))
 }
 
@@ -651,7 +651,7 @@ fn source_kind_for_input(args: &Arguments, input: &LogInputArgs) -> EventSourceK
 
 fn process_log_file(
     log_file: &Path,
-    parser: &StderrParser,
+    parser: &TextLogParser,
     sample_size: Option<usize>,
 ) -> Result<Vec<pg_logstats::LogEntry>> {
     let content = fs::read_to_string(log_file)?;
@@ -678,7 +678,7 @@ fn process_log_file(
 
 fn process_log_paths(
     path: &Path,
-    parser: &StderrParser,
+    parser: &TextLogParser,
     sample_size: Option<usize>,
 ) -> Result<Vec<pg_logstats::LogEntry>> {
     let log_files = discover_log_files_for_path(path)?;
@@ -700,7 +700,7 @@ fn process_log_paths(
 
 fn process_cloudwatch_input(
     input: &LogInputArgs,
-    parser: &StderrParser,
+    parser: &TextLogParser,
 ) -> Result<Vec<pg_logstats::LogEntry>> {
     let log_group = input
         .cloudwatch_log_group_name()
@@ -929,7 +929,7 @@ fn run_top_query_families(
 fn run_slow_queries_diff(
     baseline: &Path,
     target: &Path,
-    parser: &StderrParser,
+    parser: &TextLogParser,
     sample_size: Option<usize>,
     options: SlowQueryDiffOptions,
     source_kind: EventSourceKind,

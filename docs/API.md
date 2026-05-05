@@ -10,22 +10,22 @@ pg-logstats is a Rust library for parsing and analyzing PostgreSQL log files. It
 
 The parsers module contains implementations for different PostgreSQL log formats.
 
-#### StderrParser
+#### TextLogParser
 
 ```rust
-use pg_logstats::{StderrParser, Result};
+use pg_logstats::{TextLogParser, Result};
 
-let parser = StderrParser::new();
+let parser = TextLogParser::new();
 let entries = parser.parse_lines(&log_lines)?;
 ```
 
-`StderrParser::new()` auto-detects the supported local PostgreSQL stderr prefix
-and the Amazon RDS PostgreSQL `%t:%r:%u@%d:[%p]:` prefix. Use
-`StderrParser::with_format(StderrLogFormat::AwsRds)` to force RDS parsing.
+`TextLogParser::new()` auto-detects the supported default text prefix and the
+Amazon RDS `%t:%r:%u@%d:[%p]:` prefix. Use
+`TextLogParser::with_format(TextLogFormat::AwsRds)` to force RDS parsing.
 
 **Methods:**
 - `new() -> Self`
-- `with_format(format: StderrLogFormat) -> Self`
+- `with_format(format: TextLogFormat) -> Self`
 - `parse_line(&mut self, line: &str) -> Result<Option<LogEntry>>` — returns `Ok(None)` for unparseable/continuation lines
 - `parse_lines(&self, lines: &[String]) -> Result<Vec<LogEntry>>`
 

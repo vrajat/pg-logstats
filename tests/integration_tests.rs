@@ -857,7 +857,7 @@ fn test_verbose_logging() {
         .assert()
         .success()
         .stderr(predicate::str::contains("DEBUG"))
-        .stderr(predicate::str::contains("Initializing stderr parser"));
+        .stderr(predicate::str::contains("Initializing text log parser"));
 }
 
 #[test]

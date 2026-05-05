@@ -94,8 +94,8 @@ src/
   }
   ```
 - **Current Implementations**:
-  - `StderrParser`: PostgreSQL stderr parser for the supported local prefix and
-    Amazon RDS PostgreSQL `%t:%r:%u@%d:[%p]:` logs
+  - `TextLogParser`: text log parser for the supported default prefix and
+    Amazon RDS `%t:%r:%u@%d:[%p]:` logs
 - **Responsibilities**:
   - Format detection and validation
   - Line-by-line parsing with error recovery
@@ -247,9 +247,10 @@ pub enum PgLogstatsError {
    ```rust
    pub fn get_parser(format: &str) -> Box<dyn LogParser> {
        match format {
-           "stderr" => Box::new(StderrParser::new()),
+           "default" => Box::new(TextLogParser::new()),
+           "rds" => Box::new(TextLogParser::with_format(TextLogFormat::AwsRds)),
            "custom" => Box::new(CustomParser::new()),
-           _ => Box::new(StderrParser::new()), // default
+           _ => Box::new(TextLogParser::new()), // default
        }
    }
    ```
