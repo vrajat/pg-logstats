@@ -1,13 +1,14 @@
 use crate::{LogEntry, PgLogstatsError, Result, TextLogParser};
 use chrono::Utc;
 use std::fs;
+use std::str::FromStr;
 
 #[derive(Debug, Clone)]
 pub struct CloudWatchInput {
     pub log_group: Option<String>,
     pub rds_instance: Option<String>,
-    pub since: String,
-    pub until: Option<String>,
+    pub since: CloudWatchSince,
+    pub until: Option<CloudWatchUntil>,
     pub filter_pattern: Option<String>,
     pub max_pages: usize,
     pub aws_region: Option<String>,
@@ -24,6 +25,56 @@ impl CloudWatchInput {
         self.rds_instance
             .as_ref()
             .map(|instance| format!("/aws/rds/instance/{instance}/postgresql"))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum CloudWatchSince {
+    RelativeMillis(i64),
+    AbsoluteMillis(i64),
+}
+
+impl CloudWatchSince {
+    fn timestamp_millis(&self) -> i64 {
+        match self {
+            Self::RelativeMillis(duration_ms) => Utc::now().timestamp_millis() - duration_ms,
+            Self::AbsoluteMillis(timestamp_ms) => *timestamp_ms,
+        }
+    }
+}
+
+impl FromStr for CloudWatchSince {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        if let Some(duration_ms) = parse_relative_duration_ms(value) {
+            return Ok(Self::RelativeMillis(duration_ms));
+        }
+
+        parse_rfc3339_millis(value, "since")
+            .map(Self::AbsoluteMillis)
+            .map_err(|err| err.to_string())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CloudWatchUntil {
+    timestamp_ms: i64,
+}
+
+impl CloudWatchUntil {
+    fn timestamp_millis(&self) -> i64 {
+        self.timestamp_ms
+    }
+}
+
+impl FromStr for CloudWatchUntil {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        parse_rfc3339_millis(value, "until")
+            .map(|timestamp_ms| Self { timestamp_ms })
+            .map_err(|err| err.to_string())
     }
 }
 
@@ -80,8 +131,12 @@ fn fetch_cloudwatch_events(
         return Ok(fixture_response.events);
     }
 
-    let start_time = parse_cloudwatch_start_time_ms(&input.since)?;
-    let end_time = parse_cloudwatch_end_time_ms(input.until.as_deref())?;
+    let start_time = input.since.timestamp_millis();
+    let end_time = input
+        .until
+        .as_ref()
+        .map(CloudWatchUntil::timestamp_millis)
+        .unwrap_or_else(|| Utc::now().timestamp_millis());
     if end_time <= start_time {
         return Err(PgLogstatsError::Configuration {
             message: "--until must be after --since".to_string(),
@@ -212,21 +267,6 @@ fn filter_cloudwatch_log_events(
             .to_string(),
         field: Some("cloudwatch".to_string()),
     })
-}
-
-fn parse_cloudwatch_start_time_ms(value: &str) -> Result<i64> {
-    if let Some(duration_ms) = parse_relative_duration_ms(value) {
-        return Ok(Utc::now().timestamp_millis() - duration_ms);
-    }
-
-    parse_rfc3339_millis(value, "since")
-}
-
-fn parse_cloudwatch_end_time_ms(value: Option<&str>) -> Result<i64> {
-    match value {
-        Some(value) => parse_rfc3339_millis(value, "until"),
-        None => Ok(Utc::now().timestamp_millis()),
-    }
 }
 
 fn parse_relative_duration_ms(value: &str) -> Option<i64> {

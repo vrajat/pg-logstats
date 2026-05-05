@@ -4,7 +4,7 @@ use log::{debug, error, info, warn};
 use pg_logstats::{
     input::{
         discover_log_files, process_cloudwatch_input, process_log_file, process_log_paths,
-        validate_file_input_args, CloudWatchInput, LocalLogInput,
+        validate_file_input_args, CloudWatchInput, CloudWatchSince, CloudWatchUntil, LocalLogInput,
     },
     normalize_log_entries, query_family_findings, slow_query_diff_findings, Correlator,
     EventSourceKind, Finding, FindingSet, JsonFormatter, PgLogstatsError, ProcessOrderCorrelator,
@@ -67,11 +67,11 @@ struct LogInputArgs {
 
     /// Start time for CloudWatch input, as RFC3339 or a relative window like 15m, 2h, 1d
     #[clap(long, value_name = "TIME", default_value = "1h")]
-    since: String,
+    since: CloudWatchSince,
 
     /// End time for CloudWatch input, as RFC3339. Defaults to now.
     #[clap(long, value_name = "TIME")]
-    until: Option<String>,
+    until: Option<CloudWatchUntil>,
 
     /// Optional CloudWatch Logs filter pattern
     #[clap(long, value_name = "PATTERN")]
