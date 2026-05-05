@@ -1,8 +1,11 @@
-use chrono::Utc;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use pg_logstats::{
+    input::{
+        discover_log_files, process_cloudwatch_input, process_log_file, process_log_paths,
+        validate_file_input_args, CloudWatchInput, LocalLogInput,
+    },
     normalize_log_entries, query_family_findings, slow_query_diff_findings, Correlator,
     EventSourceKind, Finding, FindingSet, JsonFormatter, PgLogstatsError, ProcessOrderCorrelator,
     Result, SlowQueryDiffOptions, TextFormatter, TextLogFormat, TextLogParser,
@@ -100,18 +103,31 @@ struct LogInputArgs {
 }
 
 impl LogInputArgs {
-    fn cloudwatch_log_group_name(&self) -> Option<String> {
-        if let Some(log_group) = &self.cloudwatch_log_group {
-            return Some(log_group.clone());
-        }
-
-        self.rds_instance
-            .as_ref()
-            .map(|instance| format!("/aws/rds/instance/{instance}/postgresql"))
-    }
-
     fn uses_cloudwatch(&self) -> bool {
         self.cloudwatch_log_group.is_some() || self.rds_instance.is_some()
+    }
+
+    fn cloudwatch_input(&self) -> CloudWatchInput {
+        CloudWatchInput {
+            log_group: self.cloudwatch_log_group.clone(),
+            rds_instance: self.rds_instance.clone(),
+            since: self.since.clone(),
+            until: self.until.clone(),
+            filter_pattern: self.cloudwatch_filter_pattern.clone(),
+            max_pages: self.cloudwatch_max_pages,
+            aws_region: self.aws_region.clone(),
+            aws_profile: self.aws_profile.clone(),
+            sample_size: self.sample_size,
+        }
+    }
+
+    fn local_log_input(&self) -> LocalLogInput {
+        LocalLogInput {
+            log_dir: self.log_dir.clone(),
+            sample_size: self.sample_size,
+            logfile_list: self.logfile_list.clone(),
+            log_files: self.log_files.clone(),
+        }
     }
 }
 
@@ -289,7 +305,7 @@ fn load_default_log_entries(
     parser: &TextLogParser,
 ) -> Result<Vec<pg_logstats::LogEntry>> {
     if input.uses_cloudwatch() {
-        let entries = process_cloudwatch_input(input, parser)?;
+        let entries = process_cloudwatch_input(&input.cloudwatch_input(), parser)?;
         if entries.is_empty() {
             warn!("No CloudWatch log events were successfully parsed");
             process::exit(1);
@@ -307,7 +323,8 @@ fn load_default_log_entries(
     };
 
     // Discover log files
-    let log_files = discover_log_files(input)?;
+    let local_input = input.local_log_input();
+    let log_files = discover_log_files(&local_input)?;
 
     if log_files.is_empty() {
         error!("No log files found to process");
@@ -422,47 +439,11 @@ fn validate_log_input_args(input: &LogInputArgs) -> Result<()> {
         return validate_sample_size(input.sample_size);
     }
 
-    if let Some(log_dir) = &input.log_dir {
-        if !log_dir.exists() {
-            return Err(PgLogstatsError::Configuration {
-                message: format!("Log directory does not exist: {}", log_dir.display()),
-                field: Some("log_dir".to_string()),
-            });
-        }
-
-        if !log_dir.is_dir() {
-            return Err(PgLogstatsError::Configuration {
-                message: format!(
-                    "Log directory path is not a directory: {}",
-                    log_dir.display()
-                ),
-                field: Some("log_dir".to_string()),
-            });
-        }
-
-        // Test readability
-        match fs::read_dir(log_dir) {
-            Ok(_) => {}
-            Err(e) => {
-                return Err(PgLogstatsError::Configuration {
-                    message: format!("Cannot read log directory {}: {}", log_dir.display(), e),
-                    field: Some("log_dir".to_string()),
-                });
-            }
-        }
-    }
-
+    validate_file_input_args(&input.local_log_input())?;
     validate_sample_size(input.sample_size)
 }
 
 fn validate_cloudwatch_input_args(input: &LogInputArgs) -> Result<()> {
-    if input.cloudwatch_max_pages == 0 {
-        return Err(PgLogstatsError::Configuration {
-            message: "CloudWatch max pages must be greater than 0".to_string(),
-            field: Some("cloudwatch_max_pages".to_string()),
-        });
-    }
-
     if input.log_dir.is_some() || input.logfile_list.is_some() || !input.log_files.is_empty() {
         return Err(PgLogstatsError::Configuration {
             message: "CloudWatch input cannot be combined with local log files".to_string(),
@@ -470,7 +451,7 @@ fn validate_cloudwatch_input_args(input: &LogInputArgs) -> Result<()> {
         });
     }
 
-    Ok(())
+    pg_logstats::input::cloudwatch::validate_cloudwatch_input_args(&input.cloudwatch_input())
 }
 
 fn validate_sample_size(sample_size: Option<usize>) -> Result<()> {
@@ -522,118 +503,6 @@ fn validate_suggest_sql_args(
     Ok(())
 }
 
-fn discover_log_files(input: &LogInputArgs) -> Result<Vec<PathBuf>> {
-    let mut log_files = Vec::new();
-
-    // If log_dir is specified, discover files in that directory
-    if let Some(log_dir) = &input.log_dir {
-        discover_files_in_directory(log_dir, &mut log_files)?;
-    }
-
-    // Add explicitly specified log files
-    for file_pattern in &input.log_files {
-        if let Ok(path) = PathBuf::from(file_pattern).canonicalize() {
-            if path.is_file() {
-                log_files.push(path);
-            }
-        } else {
-            // Try glob pattern matching (simplified implementation)
-            let path = Path::new(file_pattern);
-            if path.exists() && path.is_file() {
-                log_files.push(path.to_path_buf());
-            }
-        }
-    }
-
-    // If logfile_list is specified, read file list
-    if let Some(logfile_list) = &input.logfile_list {
-        let list_content = fs::read_to_string(logfile_list).map_err(PgLogstatsError::Io)?;
-
-        for line in list_content.lines() {
-            let line = line.trim();
-            if !line.is_empty() && !line.starts_with('#') {
-                let path = Path::new(line);
-                if path.exists() && path.is_file() {
-                    log_files.push(path.to_path_buf());
-                }
-            }
-        }
-    }
-
-    // Remove duplicates and sort
-    log_files.sort();
-    log_files.dedup();
-
-    // Warn about empty files
-    log_files.retain(|path| match fs::metadata(path) {
-        Ok(metadata) => {
-            if metadata.len() == 0 {
-                warn!("Skipping empty log file: {}", path.display());
-                false
-            } else {
-                true
-            }
-        }
-        Err(e) => {
-            warn!("Cannot read metadata for {}: {}", path.display(), e);
-            false
-        }
-    });
-
-    Ok(log_files)
-}
-
-fn discover_files_in_directory(dir: &Path, log_files: &mut Vec<PathBuf>) -> Result<()> {
-    let entries = fs::read_dir(dir)?;
-
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-
-        if path.is_file() {
-            // Check if it looks like a log file
-            if let Some(extension) = path.extension() {
-                let ext_str = extension.to_string_lossy().to_lowercase();
-                if ext_str == "log" || ext_str == "txt" {
-                    log_files.push(path);
-                }
-            } else if let Some(filename) = path.file_name() {
-                let filename_str = filename.to_string_lossy().to_lowercase();
-                if filename_str.contains("postgres") || filename_str.contains("pg") {
-                    log_files.push(path);
-                }
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn discover_log_files_for_path(path: &Path) -> Result<Vec<PathBuf>> {
-    if !path.exists() {
-        return Err(PgLogstatsError::Configuration {
-            message: format!("Log path does not exist: {}", path.display()),
-            field: Some("path".to_string()),
-        });
-    }
-
-    let mut log_files = Vec::new();
-    if path.is_file() {
-        log_files.push(path.to_path_buf());
-    } else if path.is_dir() {
-        discover_files_in_directory(path, &mut log_files)?;
-    } else {
-        return Err(PgLogstatsError::Configuration {
-            message: format!("Log path is neither file nor directory: {}", path.display()),
-            field: Some("path".to_string()),
-        });
-    }
-
-    log_files.sort();
-    log_files.dedup();
-    Ok(log_files)
-}
-
 fn initialize_parser(args: &Arguments) -> Result<TextLogParser> {
     debug!("Initializing text log parser for {:?}", args.input_format);
     Ok(TextLogParser::with_format(
@@ -647,268 +516,6 @@ fn source_kind_for_input(args: &Arguments, input: &LogInputArgs) -> EventSourceK
     }
 
     args.input_format.event_source_kind()
-}
-
-fn process_log_file(
-    log_file: &Path,
-    parser: &TextLogParser,
-    sample_size: Option<usize>,
-) -> Result<Vec<pg_logstats::LogEntry>> {
-    let content = fs::read_to_string(log_file)?;
-    let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-
-    // Apply sample size limit if specified
-    let lines_to_process = if let Some(sample_size) = sample_size {
-        if lines.len() > sample_size {
-            info!(
-                "Limiting analysis to first {} lines of {}",
-                sample_size,
-                log_file.display()
-            );
-            &lines[..sample_size]
-        } else {
-            &lines
-        }
-    } else {
-        &lines
-    };
-
-    parser.parse_lines(lines_to_process)
-}
-
-fn process_log_paths(
-    path: &Path,
-    parser: &TextLogParser,
-    sample_size: Option<usize>,
-) -> Result<Vec<pg_logstats::LogEntry>> {
-    let log_files = discover_log_files_for_path(path)?;
-    if log_files.is_empty() {
-        return Err(PgLogstatsError::Configuration {
-            message: format!("No log files found under {}", path.display()),
-            field: Some("path".to_string()),
-        });
-    }
-
-    let mut all_entries = Vec::new();
-    for log_file in log_files {
-        let mut entries = process_log_file(&log_file, parser, sample_size)?;
-        all_entries.append(&mut entries);
-    }
-
-    Ok(all_entries)
-}
-
-fn process_cloudwatch_input(
-    input: &LogInputArgs,
-    parser: &TextLogParser,
-) -> Result<Vec<pg_logstats::LogEntry>> {
-    let log_group = input
-        .cloudwatch_log_group_name()
-        .expect("validated CloudWatch input should have a log group");
-    let events = fetch_cloudwatch_events(input, &log_group)?;
-    let mut lines: Vec<String> = events
-        .into_iter()
-        .filter_map(|event| event.message)
-        .flat_map(|message| message.lines().map(str::to_string).collect::<Vec<String>>())
-        .collect();
-
-    if let Some(sample_size) = input.sample_size {
-        lines.truncate(sample_size);
-    }
-
-    parser.parse_lines(&lines)
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct CloudWatchFilterEventsResponse {
-    #[serde(default)]
-    events: Vec<CloudWatchLogEvent>,
-    #[serde(rename = "nextToken")]
-    next_token: Option<String>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct CloudWatchLogEvent {
-    message: Option<String>,
-}
-
-fn fetch_cloudwatch_events(
-    input: &LogInputArgs,
-    log_group: &str,
-) -> Result<Vec<CloudWatchLogEvent>> {
-    if let Some(fixture_response) = read_cloudwatch_fixture_response()? {
-        return Ok(fixture_response.events);
-    }
-
-    let start_time = parse_cloudwatch_start_time_ms(&input.since)?;
-    let end_time = parse_cloudwatch_end_time_ms(input.until.as_deref())?;
-    if end_time <= start_time {
-        return Err(PgLogstatsError::Configuration {
-            message: "--until must be after --since".to_string(),
-            field: Some("until".to_string()),
-        });
-    }
-
-    let mut events = Vec::new();
-    let mut next_token: Option<String> = None;
-    let mut previous_token: Option<String> = None;
-
-    for _page in 0..input.cloudwatch_max_pages {
-        let response = filter_cloudwatch_log_events(
-            input,
-            log_group,
-            start_time,
-            end_time,
-            next_token.as_deref(),
-        )?;
-        events.extend(response.events);
-
-        if response.next_token.is_none() || response.next_token == previous_token {
-            break;
-        }
-
-        previous_token = next_token;
-        next_token = response.next_token;
-    }
-
-    Ok(events)
-}
-
-fn read_cloudwatch_fixture_response() -> Result<Option<CloudWatchFilterEventsResponse>> {
-    let Some(path) = std::env::var_os("PG_LOGSTATS_CLOUDWATCH_FIXTURE") else {
-        return Ok(None);
-    };
-
-    let content = fs::read(path)?;
-    serde_json::from_slice(&content)
-        .map(Some)
-        .map_err(PgLogstatsError::Serialization)
-}
-
-#[cfg(feature = "aws-sdk")]
-fn filter_cloudwatch_log_events(
-    input: &LogInputArgs,
-    log_group: &str,
-    start_time: i64,
-    end_time: i64,
-    next_token: Option<&str>,
-) -> Result<CloudWatchFilterEventsResponse> {
-    let runtime = tokio::runtime::Runtime::new().map_err(|err| PgLogstatsError::Unexpected {
-        message: format!("Failed to create async runtime for CloudWatch input: {err}"),
-        context: Some("cloudwatch".to_string()),
-    })?;
-
-    runtime.block_on(filter_cloudwatch_log_events_async(
-        input, log_group, start_time, end_time, next_token,
-    ))
-}
-
-#[cfg(feature = "aws-sdk")]
-async fn filter_cloudwatch_log_events_async(
-    input: &LogInputArgs,
-    log_group: &str,
-    start_time: i64,
-    end_time: i64,
-    next_token: Option<&str>,
-) -> Result<CloudWatchFilterEventsResponse> {
-    use aws_config::BehaviorVersion;
-    use aws_sdk_cloudwatchlogs::config::Region;
-
-    let mut config_loader = aws_config::defaults(BehaviorVersion::latest());
-    if let Some(region) = &input.aws_region {
-        config_loader = config_loader.region(Region::new(region.clone()));
-    }
-    if let Some(profile) = &input.aws_profile {
-        config_loader = config_loader.profile_name(profile);
-    }
-
-    let config = config_loader.load().await;
-    let client = aws_sdk_cloudwatchlogs::Client::new(&config);
-    let mut request = client
-        .filter_log_events()
-        .log_group_name(log_group)
-        .start_time(start_time)
-        .end_time(end_time);
-
-    if let Some(filter_pattern) = &input.cloudwatch_filter_pattern {
-        request = request.filter_pattern(filter_pattern);
-    }
-    if let Some(next_token) = next_token {
-        request = request.next_token(next_token);
-    }
-
-    let output = request
-        .send()
-        .await
-        .map_err(|err| PgLogstatsError::Configuration {
-            message: format!("CloudWatch filter-log-events failed: {err}"),
-            field: Some("cloudwatch".to_string()),
-        })?;
-
-    let events = output
-        .events()
-        .iter()
-        .map(|event| CloudWatchLogEvent {
-            message: event.message().map(str::to_string),
-        })
-        .collect();
-
-    Ok(CloudWatchFilterEventsResponse {
-        events,
-        next_token: output.next_token().map(str::to_string),
-    })
-}
-
-#[cfg(not(feature = "aws-sdk"))]
-fn filter_cloudwatch_log_events(
-    _input: &LogInputArgs,
-    _log_group: &str,
-    _start_time: i64,
-    _end_time: i64,
-    _next_token: Option<&str>,
-) -> Result<CloudWatchFilterEventsResponse> {
-    Err(PgLogstatsError::Configuration {
-        message: "CloudWatch input requires building pg-logstats with `--features aws-sdk`"
-            .to_string(),
-        field: Some("cloudwatch".to_string()),
-    })
-}
-
-fn parse_cloudwatch_start_time_ms(value: &str) -> Result<i64> {
-    if let Some(duration_ms) = parse_relative_duration_ms(value) {
-        return Ok(Utc::now().timestamp_millis() - duration_ms);
-    }
-
-    parse_rfc3339_millis(value, "since")
-}
-
-fn parse_cloudwatch_end_time_ms(value: Option<&str>) -> Result<i64> {
-    match value {
-        Some(value) => parse_rfc3339_millis(value, "until"),
-        None => Ok(Utc::now().timestamp_millis()),
-    }
-}
-
-fn parse_relative_duration_ms(value: &str) -> Option<i64> {
-    let (number, unit) = value.split_at(value.len().checked_sub(1)?);
-    let amount: i64 = number.parse().ok()?;
-    let multiplier = match unit {
-        "m" => 60_000,
-        "h" => 3_600_000,
-        "d" => 86_400_000,
-        _ => return None,
-    };
-
-    amount.checked_mul(multiplier)
-}
-
-fn parse_rfc3339_millis(value: &str, field: &str) -> Result<i64> {
-    chrono::DateTime::parse_from_rfc3339(value)
-        .map(|timestamp| timestamp.timestamp_millis())
-        .map_err(|err| PgLogstatsError::Configuration {
-            message: format!("Invalid --{field} time `{value}`: {err}"),
-            field: Some(field.to_string()),
-        })
 }
 
 fn run_top_query_families(

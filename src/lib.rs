@@ -13,6 +13,7 @@ pub mod analytics;
 pub mod correlation;
 pub mod events;
 pub mod findings;
+pub mod input;
 pub mod output;
 pub mod parsers;
 pub mod sql;
