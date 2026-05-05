@@ -13,6 +13,17 @@ Complete API documentation for the pg-logstats library, including:
 - Usage examples
 - Error handling
 
+### rds-cloudwatch.md
+
+Operational guide for using `pg-logstats` with Amazon RDS PostgreSQL logs
+published to CloudWatch Logs, including:
+
+- RDS log export prerequisites
+- `--rds-instance` and `--cloudwatch-log-group` usage
+- time windows, filtering, and page limits
+- LLM-friendly JSON workflows
+- local RDS log fallback
+
 ## Building Documentation
 
 To build the documentation locally:
@@ -22,7 +33,7 @@ cargo doc --no-deps --open
 ```
 
 This will generate HTML documentation and open it in your default browser. The generated docs include the latest public API for:
-- `parsers` (e.g., `StderrParser`)
+- `parsers` (e.g., `TextLogParser`)
 - `analytics` (e.g., `QueryAnalyzer`, `TimingAnalyzer`)
 - `output` (e.g., `JsonFormatter`, `TextFormatter`)
 

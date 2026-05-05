@@ -13,6 +13,7 @@ pub mod analytics;
 pub mod correlation;
 pub mod events;
 pub mod findings;
+pub mod input;
 pub mod output;
 pub mod parsers;
 pub mod sql;
@@ -33,7 +34,7 @@ pub use findings::{
     SlowQueryDiffOptions, FINDING_SCHEMA_VERSION,
 };
 pub use output::{JsonFormatter, TextFormatter};
-pub use parsers::StderrParser;
+pub use parsers::{TextLogFormat, TextLogParser};
 pub use sql::{Query, QueryType};
 
 /// Main error type for pg-logstats operations

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EventSourceKind {
     Stderr,
+    AwsRds,
     Csvlog,
     Jsonlog,
 }
@@ -123,6 +124,7 @@ impl NormalizedEvent {
                 "{}:{}",
                 match source_kind {
                     EventSourceKind::Stderr => "stderr",
+                    EventSourceKind::AwsRds => "aws-rds",
                     EventSourceKind::Csvlog => "csvlog",
                     EventSourceKind::Jsonlog => "jsonlog",
                 },
@@ -346,9 +348,11 @@ mod tests {
     fn event_ids_include_source_kind_prefixes() {
         let entry = entry(LogLevel::Log, "checkpoint complete", None, None);
 
+        let rds_event = NormalizedEvent::from_log_entry(&entry, EventSourceKind::AwsRds, 3);
         let csv_event = NormalizedEvent::from_log_entry(&entry, EventSourceKind::Csvlog, 4);
         let json_event = NormalizedEvent::from_log_entry(&entry, EventSourceKind::Jsonlog, 5);
 
+        assert_eq!(rds_event.event_id, "aws-rds:3");
         assert_eq!(csv_event.event_id, "csvlog:4");
         assert_eq!(json_event.event_id, "jsonlog:5");
     }

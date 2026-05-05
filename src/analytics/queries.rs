@@ -571,7 +571,7 @@ mod tests {
     #[test]
     fn test_analyze_events_uses_correlated_statement_duration_pairs() {
         let analyzer = QueryAnalyzer::with_settings(100.0, 5, 5);
-        let parser = crate::StderrParser::new();
+        let parser = crate::TextLogParser::new();
         let lines = vec![
             "2024-08-15 10:30:15.123 UTC [12345] postgres@testdb psql: LOG:  statement: SELECT * FROM users WHERE id = 1".to_string(),
             "2024-08-15 10:30:15.456 UTC [12345] postgres@testdb psql: LOG:  duration: 150.000 ms".to_string(),
@@ -594,7 +594,7 @@ mod tests {
     #[test]
     fn test_analyze_events_correlates_interleaved_processes() {
         let analyzer = QueryAnalyzer::with_settings(100.0, 5, 5);
-        let parser = crate::StderrParser::new();
+        let parser = crate::TextLogParser::new();
         let lines = vec![
             "2024-08-15 10:30:15.000 UTC [11111] postgres@testdb psql: LOG:  statement: SELECT * FROM users WHERE id = 1".to_string(),
             "2024-08-15 10:30:15.001 UTC [22222] postgres@testdb psql: LOG:  statement: SELECT * FROM orders WHERE id = 2".to_string(),

@@ -2,9 +2,13 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use pg_logstats::{
+    input::{
+        discover_log_files, process_cloudwatch_input, process_log_file, process_log_paths,
+        validate_file_input_args, CloudWatchInput, CloudWatchSince, CloudWatchUntil, LocalLogInput,
+    },
     normalize_log_entries, query_family_findings, slow_query_diff_findings, Correlator,
     EventSourceKind, Finding, FindingSet, JsonFormatter, PgLogstatsError, ProcessOrderCorrelator,
-    Result, SlowQueryDiffOptions, StderrParser, TextFormatter,
+    Result, SlowQueryDiffOptions, TextFormatter, TextLogFormat, TextLogParser,
 };
 use serde_json::json;
 use std::fs;
@@ -26,6 +30,10 @@ struct Arguments {
     #[clap(long, global = true, value_enum, default_value = "text")]
     output_format: OutputFormat,
 
+    /// Input log format. auto supports local PostgreSQL stderr and AWS RDS logs.
+    #[clap(long, global = true, value_enum, default_value = "auto")]
+    input_format: InputFormat,
+
     /// Write results to a file. Use `-` to force stdout.
     #[clap(short = 'o', long, global = true, value_name = "PATH")]
     outfile: Option<String>,
@@ -45,6 +53,42 @@ struct LogInputArgs {
     #[clap(long, value_name = "DIR")]
     log_dir: Option<PathBuf>,
 
+    /// CloudWatch Logs group to read PostgreSQL log events from
+    #[clap(long, value_name = "LOG_GROUP", conflicts_with = "rds_instance")]
+    cloudwatch_log_group: Option<String>,
+
+    /// RDS instance identifier; resolves to /aws/rds/instance/<id>/postgresql
+    #[clap(
+        long,
+        value_name = "DB_INSTANCE",
+        conflicts_with = "cloudwatch_log_group"
+    )]
+    rds_instance: Option<String>,
+
+    /// Start time for CloudWatch input, as RFC3339 or a relative window like 15m, 2h, 1d
+    #[clap(long, value_name = "TIME", default_value = "1h")]
+    since: CloudWatchSince,
+
+    /// End time for CloudWatch input, as RFC3339. Defaults to now.
+    #[clap(long, value_name = "TIME")]
+    until: Option<CloudWatchUntil>,
+
+    /// Optional CloudWatch Logs filter pattern
+    #[clap(long, value_name = "PATTERN")]
+    cloudwatch_filter_pattern: Option<String>,
+
+    /// Maximum CloudWatch filter-log-events pages to read
+    #[clap(long, value_name = "N", default_value_t = 20)]
+    cloudwatch_max_pages: usize,
+
+    /// AWS region for CloudWatch input. Requires --features aws-sdk.
+    #[clap(long, value_name = "REGION")]
+    aws_region: Option<String>,
+
+    /// AWS profile for CloudWatch input. Requires --features aws-sdk.
+    #[clap(long, value_name = "PROFILE")]
+    aws_profile: Option<String>,
+
     /// Limit analysis to first N lines of each file (for large files)
     #[clap(long, value_name = "N")]
     sample_size: Option<usize>,
@@ -56,6 +100,35 @@ struct LogInputArgs {
     /// Log files to analyze
     #[clap(value_name = "LOG_FILES")]
     log_files: Vec<String>,
+}
+
+impl LogInputArgs {
+    fn uses_cloudwatch(&self) -> bool {
+        self.cloudwatch_log_group.is_some() || self.rds_instance.is_some()
+    }
+
+    fn cloudwatch_input(&self) -> CloudWatchInput {
+        CloudWatchInput {
+            log_group: self.cloudwatch_log_group.clone(),
+            rds_instance: self.rds_instance.clone(),
+            since: self.since.clone(),
+            until: self.until.clone(),
+            filter_pattern: self.cloudwatch_filter_pattern.clone(),
+            max_pages: self.cloudwatch_max_pages,
+            aws_region: self.aws_region.clone(),
+            aws_profile: self.aws_profile.clone(),
+            sample_size: self.sample_size,
+        }
+    }
+
+    fn local_log_input(&self) -> LocalLogInput {
+        LocalLogInput {
+            log_dir: self.log_dir.clone(),
+            sample_size: self.sample_size,
+            logfile_list: self.logfile_list.clone(),
+            log_files: self.log_files.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -139,18 +212,31 @@ enum OutputFormat {
     Json,
 }
 
-#[derive(Debug, ValueEnum, Clone, Copy, Default)]
-enum Format {
-    #[default]
-    Syslog,
-    Syslog2,
-    Stderr,
-    Jsonlog,
-    Cvs,
-    Pgbouncer,
-    Logplex,
+#[derive(Debug, ValueEnum, Clone, Copy)]
+enum InputFormat {
+    /// Auto-detect among supported text formats.
+    Auto,
+    /// Local logs using the pg-logstats supported default text prefix.
+    Default,
+    /// Amazon RDS logs using `%t:%r:%u@%d:[%p]:`.
     Rds,
-    Redshift,
+}
+
+impl InputFormat {
+    fn text_log_format(self) -> TextLogFormat {
+        match self {
+            Self::Auto => TextLogFormat::Auto,
+            Self::Default => TextLogFormat::Default,
+            Self::Rds => TextLogFormat::AwsRds,
+        }
+    }
+
+    fn event_source_kind(self) -> EventSourceKind {
+        match self {
+            Self::Rds => EventSourceKind::AwsRds,
+            Self::Auto | Self::Default => EventSourceKind::Stderr,
+        }
+    }
 }
 
 fn main() -> Result<()> {
@@ -176,7 +262,7 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_command(args: &Arguments, parser: &StderrParser) -> Result<()> {
+fn run_command(args: &Arguments, parser: &TextLogParser) -> Result<()> {
     match &args.command {
         Command::Top {
             command: TopCommand::QueryFamilies { limit, input },
@@ -216,8 +302,19 @@ fn run_command(args: &Arguments, parser: &StderrParser) -> Result<()> {
 fn load_default_log_entries(
     args: &Arguments,
     input: &LogInputArgs,
-    parser: &StderrParser,
+    parser: &TextLogParser,
 ) -> Result<Vec<pg_logstats::LogEntry>> {
+    if input.uses_cloudwatch() {
+        let entries = process_cloudwatch_input(&input.cloudwatch_input(), parser)?;
+        if entries.is_empty() {
+            warn!("No CloudWatch log events were successfully parsed");
+            process::exit(1);
+        }
+
+        info!("Total CloudWatch entries parsed: {}", entries.len());
+        return Ok(entries);
+    }
+
     // Initialize progress bar if not in quiet mode
     let progress_bar = if !args.quiet {
         Some(create_progress_bar())
@@ -226,7 +323,8 @@ fn load_default_log_entries(
     };
 
     // Discover log files
-    let log_files = discover_log_files(input)?;
+    let local_input = input.local_log_input();
+    let log_files = discover_log_files(&local_input)?;
 
     if log_files.is_empty() {
         error!("No log files found to process");
@@ -275,25 +373,31 @@ fn load_default_log_entries(
 
 fn run_top_query_families_command(
     args: &Arguments,
-    parser: &StderrParser,
+    parser: &TextLogParser,
     input: &LogInputArgs,
     limit: usize,
 ) -> Result<()> {
     let all_entries = load_default_log_entries(args, input, parser)?;
-    let findings = run_top_query_families(&all_entries, limit)?;
+    let findings = run_top_query_families(&all_entries, limit, source_kind_for_input(args, input))?;
     output_findings(&findings, args, &all_entries)
 }
 
 fn run_slow_queries_diff_command(
     args: &Arguments,
-    parser: &StderrParser,
+    parser: &TextLogParser,
     baseline: &Path,
     target: &Path,
     sample_size: Option<usize>,
     options: SlowQueryDiffOptions,
 ) -> Result<()> {
-    let (findings, total_entries) =
-        run_slow_queries_diff(baseline, target, parser, sample_size, options)?;
+    let (findings, total_entries) = run_slow_queries_diff(
+        baseline,
+        target,
+        parser,
+        sample_size,
+        options,
+        args.input_format.event_source_kind(),
+    )?;
     output_findings_with_entry_count(&findings, args, total_entries)
 }
 
@@ -330,37 +434,24 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
 }
 
 fn validate_log_input_args(input: &LogInputArgs) -> Result<()> {
-    if let Some(log_dir) = &input.log_dir {
-        if !log_dir.exists() {
-            return Err(PgLogstatsError::Configuration {
-                message: format!("Log directory does not exist: {}", log_dir.display()),
-                field: Some("log_dir".to_string()),
-            });
-        }
-
-        if !log_dir.is_dir() {
-            return Err(PgLogstatsError::Configuration {
-                message: format!(
-                    "Log directory path is not a directory: {}",
-                    log_dir.display()
-                ),
-                field: Some("log_dir".to_string()),
-            });
-        }
-
-        // Test readability
-        match fs::read_dir(log_dir) {
-            Ok(_) => {}
-            Err(e) => {
-                return Err(PgLogstatsError::Configuration {
-                    message: format!("Cannot read log directory {}: {}", log_dir.display(), e),
-                    field: Some("log_dir".to_string()),
-                });
-            }
-        }
+    if input.uses_cloudwatch() {
+        validate_cloudwatch_input_args(input)?;
+        return validate_sample_size(input.sample_size);
     }
 
+    validate_file_input_args(&input.local_log_input())?;
     validate_sample_size(input.sample_size)
+}
+
+fn validate_cloudwatch_input_args(input: &LogInputArgs) -> Result<()> {
+    if input.log_dir.is_some() || input.logfile_list.is_some() || !input.log_files.is_empty() {
+        return Err(PgLogstatsError::Configuration {
+            message: "CloudWatch input cannot be combined with local log files".to_string(),
+            field: Some("cloudwatch_input".to_string()),
+        });
+    }
+
+    pg_logstats::input::cloudwatch::validate_cloudwatch_input_args(&input.cloudwatch_input())
 }
 
 fn validate_sample_size(sample_size: Option<usize>) -> Result<()> {
@@ -412,183 +503,31 @@ fn validate_suggest_sql_args(
     Ok(())
 }
 
-fn discover_log_files(input: &LogInputArgs) -> Result<Vec<PathBuf>> {
-    let mut log_files = Vec::new();
-
-    // If log_dir is specified, discover files in that directory
-    if let Some(log_dir) = &input.log_dir {
-        discover_files_in_directory(log_dir, &mut log_files)?;
-    }
-
-    // Add explicitly specified log files
-    for file_pattern in &input.log_files {
-        if let Ok(path) = PathBuf::from(file_pattern).canonicalize() {
-            if path.is_file() {
-                log_files.push(path);
-            }
-        } else {
-            // Try glob pattern matching (simplified implementation)
-            let path = Path::new(file_pattern);
-            if path.exists() && path.is_file() {
-                log_files.push(path.to_path_buf());
-            }
-        }
-    }
-
-    // If logfile_list is specified, read file list
-    if let Some(logfile_list) = &input.logfile_list {
-        let list_content = fs::read_to_string(logfile_list).map_err(PgLogstatsError::Io)?;
-
-        for line in list_content.lines() {
-            let line = line.trim();
-            if !line.is_empty() && !line.starts_with('#') {
-                let path = Path::new(line);
-                if path.exists() && path.is_file() {
-                    log_files.push(path.to_path_buf());
-                }
-            }
-        }
-    }
-
-    // Remove duplicates and sort
-    log_files.sort();
-    log_files.dedup();
-
-    // Warn about empty files
-    log_files.retain(|path| match fs::metadata(path) {
-        Ok(metadata) => {
-            if metadata.len() == 0 {
-                warn!("Skipping empty log file: {}", path.display());
-                false
-            } else {
-                true
-            }
-        }
-        Err(e) => {
-            warn!("Cannot read metadata for {}: {}", path.display(), e);
-            false
-        }
-    });
-
-    Ok(log_files)
+fn initialize_parser(args: &Arguments) -> Result<TextLogParser> {
+    debug!("Initializing text log parser for {:?}", args.input_format);
+    Ok(TextLogParser::with_format(
+        args.input_format.text_log_format(),
+    ))
 }
 
-fn discover_files_in_directory(dir: &Path, log_files: &mut Vec<PathBuf>) -> Result<()> {
-    let entries = fs::read_dir(dir)?;
-
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-
-        if path.is_file() {
-            // Check if it looks like a log file
-            if let Some(extension) = path.extension() {
-                let ext_str = extension.to_string_lossy().to_lowercase();
-                if ext_str == "log" || ext_str == "txt" {
-                    log_files.push(path);
-                }
-            } else if let Some(filename) = path.file_name() {
-                let filename_str = filename.to_string_lossy().to_lowercase();
-                if filename_str.contains("postgres") || filename_str.contains("pg") {
-                    log_files.push(path);
-                }
-            }
-        }
+fn source_kind_for_input(args: &Arguments, input: &LogInputArgs) -> EventSourceKind {
+    if input.uses_cloudwatch() && matches!(args.input_format, InputFormat::Auto) {
+        return EventSourceKind::AwsRds;
     }
 
-    Ok(())
-}
-
-fn discover_log_files_for_path(path: &Path) -> Result<Vec<PathBuf>> {
-    if !path.exists() {
-        return Err(PgLogstatsError::Configuration {
-            message: format!("Log path does not exist: {}", path.display()),
-            field: Some("path".to_string()),
-        });
-    }
-
-    let mut log_files = Vec::new();
-    if path.is_file() {
-        log_files.push(path.to_path_buf());
-    } else if path.is_dir() {
-        discover_files_in_directory(path, &mut log_files)?;
-    } else {
-        return Err(PgLogstatsError::Configuration {
-            message: format!("Log path is neither file nor directory: {}", path.display()),
-            field: Some("path".to_string()),
-        });
-    }
-
-    log_files.sort();
-    log_files.dedup();
-    Ok(log_files)
-}
-
-fn initialize_parser(_args: &Arguments) -> Result<StderrParser> {
-    // For now, we'll use StderrParser as the default
-    // In the future, we can add logic to choose parser based on format
-    debug!("Initializing stderr parser");
-    Ok(StderrParser::new())
-}
-
-fn process_log_file(
-    log_file: &Path,
-    parser: &StderrParser,
-    sample_size: Option<usize>,
-) -> Result<Vec<pg_logstats::LogEntry>> {
-    let content = fs::read_to_string(log_file)?;
-    let lines: Vec<String> = content.lines().map(|s| s.to_string()).collect();
-
-    // Apply sample size limit if specified
-    let lines_to_process = if let Some(sample_size) = sample_size {
-        if lines.len() > sample_size {
-            info!(
-                "Limiting analysis to first {} lines of {}",
-                sample_size,
-                log_file.display()
-            );
-            &lines[..sample_size]
-        } else {
-            &lines
-        }
-    } else {
-        &lines
-    };
-
-    parser.parse_lines(lines_to_process)
-}
-
-fn process_log_paths(
-    path: &Path,
-    parser: &StderrParser,
-    sample_size: Option<usize>,
-) -> Result<Vec<pg_logstats::LogEntry>> {
-    let log_files = discover_log_files_for_path(path)?;
-    if log_files.is_empty() {
-        return Err(PgLogstatsError::Configuration {
-            message: format!("No log files found under {}", path.display()),
-            field: Some("path".to_string()),
-        });
-    }
-
-    let mut all_entries = Vec::new();
-    for log_file in log_files {
-        let mut entries = process_log_file(&log_file, parser, sample_size)?;
-        all_entries.append(&mut entries);
-    }
-
-    Ok(all_entries)
+    args.input_format.event_source_kind()
 }
 
 fn run_top_query_families(
     entries: &[pg_logstats::LogEntry],
     limit: usize,
+    source_kind: EventSourceKind,
 ) -> Result<pg_logstats::FindingSet> {
     info!(
         "Building top query-family findings from {} entries",
         entries.len()
     );
-    let events = normalize_log_entries(entries, EventSourceKind::Stderr);
+    let events = normalize_log_entries(entries, source_kind);
     let executions = ProcessOrderCorrelator.correlate(&events);
 
     Ok(query_family_findings(&executions, limit))
@@ -597,9 +536,10 @@ fn run_top_query_families(
 fn run_slow_queries_diff(
     baseline: &Path,
     target: &Path,
-    parser: &StderrParser,
+    parser: &TextLogParser,
     sample_size: Option<usize>,
     options: SlowQueryDiffOptions,
+    source_kind: EventSourceKind,
 ) -> Result<(pg_logstats::FindingSet, usize)> {
     info!(
         "Building slow-query diff findings from baseline {} and target {}",
@@ -610,8 +550,8 @@ fn run_slow_queries_diff(
     let baseline_entries = process_log_paths(baseline, parser, sample_size)?;
     let target_entries = process_log_paths(target, parser, sample_size)?;
 
-    let baseline_events = normalize_log_entries(&baseline_entries, EventSourceKind::Stderr);
-    let target_events = normalize_log_entries(&target_entries, EventSourceKind::Stderr);
+    let baseline_events = normalize_log_entries(&baseline_entries, source_kind);
+    let target_events = normalize_log_entries(&target_entries, source_kind);
     let baseline_executions = ProcessOrderCorrelator.correlate(&baseline_events);
     let target_executions = ProcessOrderCorrelator.correlate(&target_events);
 

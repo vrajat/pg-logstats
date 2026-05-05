@@ -3,13 +3,13 @@
 //! Tests various log line formats, edge cases, and parser functionality in isolation
 
 use chrono::DateTime;
-use pg_logstats::parsers::stderr::StderrParser;
+use pg_logstats::parsers::text::{TextLogFormat, TextLogParser};
 use pg_logstats::LogLevel;
 
 /// Helper function to create test log lines with various formats
 fn create_test_lines() -> Vec<String> {
     vec![
-        // Standard statement log
+        // Default statement log
         "2024-08-15 10:30:15.123 UTC [12345] postgres@testdb psql: LOG:  statement: SELECT * FROM users WHERE active = true;".to_string(),
 
         // Duration log
@@ -71,7 +71,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_parse_simple_statement() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let line = "2024-08-15 10:30:15.123 UTC [12345] postgres@testdb psql: LOG:  statement: SELECT * FROM users WHERE active = true;";
 
         let result = parser.parse_line(line).unwrap();
@@ -95,7 +95,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_parse_duration_log() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let line =
             "2024-08-15 10:30:15.456 UTC [12345] postgres@testdb psql: LOG:  duration: 45.123 ms";
 
@@ -110,7 +110,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_parse_error_log() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let line = "2024-08-15 10:30:16.789 UTC [12346] admin@analytics pgbench: ERROR:  relation \"missing_table\" does not exist";
 
         let result = parser.parse_line(line).unwrap();
@@ -130,7 +130,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_parse_warning_log() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let line = "2024-08-15 10:30:17.012 UTC [12347] postgres@testdb psql: WARNING:  there is no transaction in progress";
 
         let result = parser.parse_line(line).unwrap();
@@ -145,7 +145,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_parse_parameterized_query() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let line = "2024-08-15 10:30:18.345 UTC [12348] postgres@testdb psql: LOG:  statement: UPDATE products SET price = $1 WHERE id = $2";
 
         let result = parser.parse_line(line).unwrap();
@@ -174,7 +174,7 @@ mod parser_unit_tests {
             "2024-08-15 10:30:19.890 UTC [12349] postgres@testdb psql: LOG:  duration: 12.345 ms",
         ];
 
-        let parser = StderrParser::new();
+        let parser = TextLogParser::new();
         let result = parser.parse_lines(&lines.iter().map(|s| s.to_string()).collect::<Vec<_>>());
         assert!(result.is_ok());
 
@@ -199,14 +199,14 @@ mod parser_unit_tests {
 
     #[test]
     fn test_parse_empty_line() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let result = parser.parse_line("").unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn test_parse_unparseable_line() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let result = parser
             .parse_line("This is not a PostgreSQL log line")
             .unwrap();
@@ -215,14 +215,14 @@ mod parser_unit_tests {
 
     #[test]
     fn test_parse_continuation_line_without_pending() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let result = parser.parse_line("    FROM users u").unwrap();
         assert!(result.is_none()); // Should skip continuation lines without pending statement
     }
 
     #[test]
     fn test_parse_different_timestamp_formats() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
 
         // With milliseconds
         let line1 =
@@ -239,7 +239,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_parse_different_log_levels() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
 
         let test_cases = vec![
             ("INFO", LogLevel::Info),
@@ -265,7 +265,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_parse_complex_query_with_special_characters() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let line = "2024-08-15 10:30:24.444 UTC [12354] postgres@testdb psql: LOG:  statement: SELECT * FROM \"user-table\" WHERE name LIKE '%John''s%' AND age > 25;";
 
         let result = parser.parse_line(line).unwrap();
@@ -281,15 +281,92 @@ mod parser_unit_tests {
 
     #[test]
     fn test_parse_execute_statement() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
         let line = "2024-08-15 10:30:25.555 UTC [12355] postgres@testdb psql: LOG:  execute <unnamed>: SELECT * FROM users WHERE id = $1";
 
         let result = parser.parse_line(line).unwrap();
         assert!(result.is_some());
 
         let entry = result.unwrap();
-        assert_eq!(entry.message_type, LogLevel::Log);
-        assert!(entry.message.contains("execute <unnamed>"));
+        assert_eq!(entry.message_type, LogLevel::Statement);
+        assert_eq!(
+            entry.message,
+            "statement: SELECT * FROM users WHERE id = $1"
+        );
+        let queries = entry.queries.unwrap();
+        assert_eq!(
+            queries[0].normalized_query,
+            "SELECT * FROM users WHERE id = ?"
+        );
+    }
+
+    #[test]
+    fn test_parse_aws_rds_statement() {
+        let mut parser = TextLogParser::with_format(TextLogFormat::AwsRds);
+        let line = "2019-09-24 17:19:25 UTC:172.31.10.173(53224):username@database:[12829]:LOG:  statement: SELECT * FROM users WHERE id = 1";
+
+        let result = parser.parse_line(line).unwrap();
+        assert!(result.is_some());
+
+        let entry = result.unwrap();
+        assert_eq!(entry.process_id, "12829");
+        assert_eq!(entry.user.as_deref(), Some("username"));
+        assert_eq!(entry.database.as_deref(), Some("database"));
+        assert_eq!(entry.client_host.as_deref(), Some("172.31.10.173"));
+        assert_eq!(entry.application_name, None);
+        assert_eq!(entry.message_type, LogLevel::Statement);
+        assert_eq!(entry.message, "statement: SELECT * FROM users WHERE id = 1");
+        assert_eq!(
+            entry.queries.unwrap()[0].normalized_query,
+            "SELECT * FROM users WHERE id = ?"
+        );
+    }
+
+    #[test]
+    fn test_parse_aws_rds_combined_duration_statement() {
+        let mut parser = TextLogParser::with_format(TextLogFormat::AwsRds);
+        let line = "2019-09-24 17:19:25 UTC:app.example.com(53224):username@database:[12829]:LOG:  duration: 517.047 ms  statement: SELECT * FROM reports WHERE id = 42";
+
+        let result = parser.parse_line(line).unwrap();
+        assert!(result.is_some());
+
+        let entry = result.unwrap();
+        assert_eq!(entry.message_type, LogLevel::Statement);
+        assert_eq!(entry.duration, Some(517.047));
+        assert_eq!(entry.client_host.as_deref(), Some("app.example.com"));
+        assert_eq!(
+            entry.queries.unwrap()[0].normalized_query,
+            "SELECT * FROM reports WHERE id = ?"
+        );
+    }
+
+    #[test]
+    fn test_parse_aws_rds_execute_statement() {
+        let mut parser = TextLogParser::with_format(TextLogFormat::AwsRds);
+        let line = "2019-09-24 17:19:26 UTC:172.31.10.173(53224):username@database:[12829]:LOG:  execute <unnamed>: SELECT * FROM users WHERE id = $1";
+
+        let result = parser.parse_line(line).unwrap();
+        assert!(result.is_some());
+
+        let entry = result.unwrap();
+        assert_eq!(entry.message_type, LogLevel::Statement);
+        assert_eq!(
+            entry.message,
+            "statement: SELECT * FROM users WHERE id = $1"
+        );
+        assert_eq!(
+            entry.queries.unwrap()[0].normalized_query,
+            "SELECT * FROM users WHERE id = ?"
+        );
+    }
+
+    #[test]
+    fn test_default_only_parser_rejects_rds_prefix() {
+        let mut parser = TextLogParser::with_format(TextLogFormat::Default);
+        let line = "2019-09-24 17:19:25 UTC:172.31.10.173(53224):username@database:[12829]:LOG:  statement: SELECT 1";
+
+        let result = parser.parse_line(line).unwrap();
+        assert!(result.is_none());
     }
 
     #[test]
@@ -302,7 +379,7 @@ mod parser_unit_tests {
             "    continuation line without pending statement",
         ];
 
-        let parser = StderrParser::new();
+        let parser = TextLogParser::new();
         let result = parser.parse_lines(&lines.iter().map(|s| s.to_string()).collect::<Vec<_>>());
         assert!(result.is_ok());
 
@@ -312,7 +389,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_extract_duration() {
-        let parser = StderrParser::new();
+        let parser = TextLogParser::new();
 
         assert_eq!(parser.extract_duration("duration: 45.123 ms"), Some(45.123));
         assert_eq!(parser.extract_duration("duration: 1000 ms"), Some(1000.0));
@@ -323,7 +400,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_timestamp_parsing_edge_cases() {
-        let parser = StderrParser::new();
+        let parser = TextLogParser::new();
 
         // Test various timestamp formats
         let test_cases = vec![
@@ -345,7 +422,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_timestamp_parsing_invalid() {
-        let parser = StderrParser::new();
+        let parser = TextLogParser::new();
 
         let invalid_timestamps = vec![
             "invalid-timestamp",
@@ -366,7 +443,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_regex_patterns() {
-        let parser = StderrParser::new();
+        let parser = TextLogParser::new();
 
         // Test log line regex
         let valid_line = "2024-08-15 10:30:15.123 UTC [12345] postgres@testdb psql: LOG:  statement: SELECT * FROM users;";
@@ -392,7 +469,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_parser_state_management() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
 
         // Start a multi-line statement
         let line1 = "2024-08-15 10:30:19.678 UTC [12349] postgres@testdb psql: LOG:  statement: SELECT u.name";
@@ -417,7 +494,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_performance_with_large_input() {
-        let parser = StderrParser::new();
+        let parser = TextLogParser::new();
 
         // Create a large number of log lines
         let mut lines = Vec::new();
@@ -446,7 +523,7 @@ mod parser_unit_tests {
 
     #[test]
     fn test_memory_usage_with_large_queries() {
-        let mut parser = StderrParser::new();
+        let mut parser = TextLogParser::new();
 
         // Create a very long query
         let long_query = format!("SELECT {} FROM users;", "column_name, ".repeat(10000));
@@ -475,7 +552,7 @@ mod property_based_tests {
     /// Property: All valid log entries should have required fields
     #[test]
     fn property_valid_entries_have_required_fields() {
-        let parser = StderrParser::new();
+        let parser = TextLogParser::new();
         let test_lines = create_test_lines();
 
         let result = parser.parse_lines(&test_lines);
@@ -514,7 +591,7 @@ mod property_based_tests {
 
         for perm in permutations {
             let lines: Vec<String> = perm.iter().map(|&i| base_lines[i].to_string()).collect();
-            let parser = StderrParser::new();
+            let parser = TextLogParser::new();
             let result = parser.parse_lines(&lines);
 
             assert!(result.is_ok());
@@ -526,7 +603,7 @@ mod property_based_tests {
     /// Property: Unique process IDs should be preserved
     #[test]
     fn property_process_ids_preserved() {
-        let parser = StderrParser::new();
+        let parser = TextLogParser::new();
         let test_lines = create_test_lines();
 
         let result = parser.parse_lines(&test_lines);

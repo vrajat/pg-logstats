@@ -1,5 +1,5 @@
 //! Log format parsers for different PostgreSQL log formats
 
-pub mod stderr;
+pub mod text;
 
-pub use stderr::StderrParser;
+pub use text::{TextLogFormat, TextLogParser};
