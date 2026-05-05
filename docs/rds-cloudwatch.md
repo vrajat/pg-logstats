@@ -11,6 +11,10 @@ log downloads and keeps each run bounded to an explicit time window.
 1. Publish RDS PostgreSQL logs to CloudWatch Logs.
 
    In the RDS console, modify the DB instance and enable PostgreSQL log exports.
+   AWS documents the console and API steps in
+   [RDS for PostgreSQL database log files](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_LogAccess.Concepts.PostgreSQL.html#USER_LogAccess.Concepts.PostgreSQL.PublishtoCloudWatchLogs)
+   and the general
+   [RDS CloudWatch Logs publishing guide](https://docs.aws.amazon.com/AmazonRDS/latest/UserGuide/USER_LogAccess.Procedural.UploadtoCloudWatch.html).
    The default log group shape is:
 
    ```text
