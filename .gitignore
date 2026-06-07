@@ -23,3 +23,5 @@ Cargo.lock
 
 # Demo files
 demo/output
+
+.DS_Store

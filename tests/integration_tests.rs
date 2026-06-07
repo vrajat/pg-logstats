@@ -73,12 +73,7 @@ fn golden_fixture(path: &str) -> std::path::PathBuf {
         .join(path)
 }
 
-fn normalize_findings_json(mut value: serde_json::Value) -> serde_json::Value {
-    if let Some(metadata) = value.get_mut("metadata") {
-        if let Some(timestamp) = metadata.get_mut("analysis_timestamp") {
-            *timestamp = serde_json::Value::String("<timestamp>".to_string());
-        }
-    }
+fn normalize_findings_json(value: serde_json::Value) -> serde_json::Value {
     value
 }
 
@@ -602,7 +597,7 @@ fn test_checked_in_aws_rds_fixture_explicit_input_format_marks_evidence() {
         .arg(fixture.to_str().unwrap())
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"total_log_entries\": 5"))
+        .stdout(predicate::str::contains("\"entries_scanned\": 5"))
         .stdout(predicate::str::contains("\"source_kind\": \"AwsRds\""))
         .stdout(predicate::str::contains("\"execution_count\": 2"))
         .stdout(predicate::str::contains("\"application_name\": null"));
@@ -644,7 +639,7 @@ fn test_cloudwatch_rds_input_uses_fixture_events() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"source_kind\": \"AwsRds\""))
-        .stdout(predicate::str::contains("\"total_log_entries\": 2"))
+        .stdout(predicate::str::contains("\"entries_scanned\": 2"))
         .stdout(predicate::str::contains("SELECT * FROM users WHERE id = ?"))
         .stdout(predicate::str::contains("\"total_duration_ms\": 44.0"));
 }
@@ -884,12 +879,13 @@ fn test_json_output_structure() {
     // Parse JSON to verify structure
     let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
 
-    assert!(json["metadata"].is_object());
-    assert!(json["findings"].is_array());
-
-    assert!(json["metadata"]["tool_version"].is_string());
-    assert!(json["metadata"]["total_log_entries"].is_number());
-    assert!(json["findings"][0]["kind"].is_string());
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["workflow"], "top_query_families");
+    assert_eq!(json["operating_mode"], "log_backed");
+    assert!(json["analysis_window"].is_object());
+    assert!(json["source_summary"].is_object());
+    assert!(json["payload"]["findings"].is_array());
+    assert!(json["payload"]["findings"][0]["kind"].is_string());
 }
 
 #[test]

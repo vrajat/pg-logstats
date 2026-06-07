@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 pub mod analytics;
+pub mod config;
 pub mod correlation;
 pub mod events;
 pub mod findings;
@@ -17,9 +18,13 @@ pub mod input;
 pub mod output;
 pub mod parsers;
 pub mod sql;
+pub mod triage;
 
 // Re-export commonly used items
 pub use analytics::{QueryAnalyzer, TimingAnalysis, TimingAnalyzer};
+pub use config::{
+    config_env_var_name, default_config_path, load_config, AppConfig, ConfigSource, ResolvedConfig,
+};
 pub use correlation::{
     correlate_query_executions, CorrelationConfidence, Correlator, ProcessOrderCorrelator,
     QueryExecution, QueryFamilyIdentity,
@@ -36,6 +41,11 @@ pub use findings::{
 pub use output::{JsonFormatter, TextFormatter};
 pub use parsers::{TextLogFormat, TextLogParser};
 pub use sql::{Query, QueryType};
+pub use triage::{
+    top_query_families_report, ActionClass, AnalysisWindow, CheckStatus, FindingsPayload,
+    OperatingMode, PgTriageReport, RiskLabel, SourceSummary, SourceSummaryKind, SuggestionStatus,
+    Verdict, WorkflowId, PG_TRIAGE_SCHEMA_VERSION,
+};
 
 /// Main error type for pg-logstats operations
 #[derive(Error, Debug)]

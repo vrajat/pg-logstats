@@ -64,7 +64,8 @@ pg-logstats suggest-sql --findings-file findings.json --rank 1
 ```
 
 Global flags such as `--input-format`, `--output-format`, `--outfile`,
-`--outdir`, and `--quiet` can be placed before or after the workflow command.
+`--outdir`, `--config`, and `--quiet` can be placed before or after the
+workflow command.
 
 ## CloudWatch Logs Input
 
@@ -201,39 +202,72 @@ pg-logstats suggest-sql \
 
 ## JSON Output
 
-JSON output is centered on findings:
+`top query-families` JSON output now uses the V1 `PgTriageReport` shape:
 
 ```bash
 pg-logstats top query-families \
   --output-format json \
-  tests/fixtures/cli/sample_stderr.log | jq '.findings[0]'
+  tests/fixtures/cli/sample_stderr.log | jq '.payload.findings[0]'
 ```
 
 Useful fields include:
 
 - `schema_version`
-- `metadata.analysis_timestamp`
-- `metadata.tool_version`
-- `metadata.total_log_entries`
-- `findings[].finding_id`
-- `findings[].kind`
-- `findings[].rank`
-- `findings[].title`
-- `findings[].reason`
-- `findings[].reason_codes`
-- `findings[].score`
-- `findings[].confidence`
-- `findings[].query_family.normalized_sql`
-- `findings[].query_family.database`
-- `findings[].query_family.user`
-- `findings[].query_family.application_name`
-- `findings[].metrics.execution_count`
-- `findings[].metrics.total_duration_ms`
-- `findings[].metrics.max_duration_ms`
-- `findings[].next_sql`
+- `workflow`
+- `operating_mode`
+- `analysis_window.since`
+- `analysis_window.until`
+- `source_summary.kind`
+- `source_summary.entries_scanned`
+- `payload.findings[].finding_id`
+- `payload.findings[].kind`
+- `payload.findings[].rank`
+- `payload.findings[].title`
+- `payload.findings[].reason`
+- `payload.findings[].reason_codes`
+- `payload.findings[].score`
+- `payload.findings[].confidence`
+- `payload.findings[].query_family.normalized_sql`
+- `payload.findings[].query_family.database`
+- `payload.findings[].query_family.user`
+- `payload.findings[].query_family.application_name`
+- `payload.findings[].metrics.execution_count`
+- `payload.findings[].metrics.total_duration_ms`
+- `payload.findings[].metrics.max_duration_ms`
+- `payload.findings[].next_sql`
 
 For diff findings, each finding also includes `baseline`, `target`, and `delta`
 duration summaries.
+
+## Configuration
+
+Config discovery precedence is:
+
+1. `--config <path>`
+2. `PG_LOGSTATS_CONFIG`
+3. `~/.config/pg-logstats/config.toml`
+4. built-in defaults
+
+Minimal example:
+
+```toml
+[database]
+dsn = "postgres://user@host:5432/dbname"
+connect_timeout_ms = 3000
+
+[running_queries.thresholds]
+long_running_query_ms = 120000
+waiting_session_count_threshold = 2
+idle_in_transaction_count_threshold = 2
+
+[suggest_sql]
+max_risk = "bounded"
+show_omitted = true
+disabled_rules = []
+```
+
+Unknown config keys are rejected. The config loader fails fast instead of
+silently ignoring unsupported fields.
 
 ## Fixture Logs
 
