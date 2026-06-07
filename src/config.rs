@@ -1,6 +1,5 @@
-use crate::{config_error, PgLogstatsError, Result};
+use crate::{config_error, triage::RiskLabel, PgLogstatsError, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -8,7 +7,7 @@ const CONFIG_ENV_VAR: &str = "PG_LOGSTATS_CONFIG";
 const DEFAULT_CONFIG_RELATIVE_PATH: &str = ".config/pg-logstats/config.toml";
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct AppConfig {
     pub database: DatabaseConfig,
     pub running_queries: RunningQueriesConfig,
@@ -17,14 +16,14 @@ pub struct AppConfig {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct DatabaseConfig {
     pub dsn: Option<String>,
     pub connect_timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct RunningQueriesConfig {
     pub thresholds: RunningQueriesThresholds,
 }
@@ -38,7 +37,7 @@ impl Default for RunningQueriesConfig {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct RunningQueriesThresholds {
     pub long_running_query_ms: u64,
     pub waiting_session_count_threshold: u64,
@@ -56,9 +55,9 @@ impl Default for RunningQueriesThresholds {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct SuggestSqlConfig {
-    pub max_risk: String,
+    pub max_risk: RiskLabel,
     pub show_omitted: bool,
     pub disabled_rules: Vec<String>,
 }
@@ -66,7 +65,7 @@ pub struct SuggestSqlConfig {
 impl Default for SuggestSqlConfig {
     fn default() -> Self {
         Self {
-            max_risk: "bounded".to_string(),
+            max_risk: RiskLabel::Bounded,
             show_omitted: true,
             disabled_rules: Vec::new(),
         }
@@ -74,7 +73,7 @@ impl Default for SuggestSqlConfig {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct AgentInstallConfig {
     pub codex: AgentInstallTargetConfig,
     pub claude: AgentInstallTargetConfig,
@@ -82,7 +81,7 @@ pub struct AgentInstallConfig {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct AgentInstallTargetConfig {
     pub agents_md_path: Option<PathBuf>,
     pub playbook_dir: Option<PathBuf>,
@@ -102,7 +101,6 @@ pub enum ConfigSource {
 pub struct ResolvedConfig {
     pub config: AppConfig,
     pub source: ConfigSource,
-    pub warnings: Vec<String>,
 }
 
 pub fn default_config_path() -> Option<PathBuf> {
@@ -132,7 +130,6 @@ pub fn load_config(explicit_path: Option<&Path>) -> Result<ResolvedConfig> {
     Ok(ResolvedConfig {
         config: AppConfig::default(),
         source: ConfigSource::BuiltInDefaults,
-        warnings: Vec::new(),
     })
 }
 
@@ -152,105 +149,13 @@ fn load_config_from_path(path: &Path, source: ConfigSource) -> Result<ResolvedCo
     }
 
     let content = std::fs::read_to_string(path)?;
-    let value: toml::Value =
+    let config: AppConfig =
         toml::from_str(&content).map_err(|err| PgLogstatsError::Configuration {
             message: format!("Failed to parse config {}: {}", path.display(), err),
             field: Some("config".to_string()),
         })?;
-    let warnings = collect_unknown_key_warnings(&value);
-    let config: AppConfig =
-        value
-            .try_into()
-            .map_err(|err: toml::de::Error| PgLogstatsError::Configuration {
-                message: format!("Failed to decode config {}: {}", path.display(), err),
-                field: Some("config".to_string()),
-            })?;
 
-    Ok(ResolvedConfig {
-        config,
-        source,
-        warnings,
-    })
-}
-
-fn collect_unknown_key_warnings(value: &toml::Value) -> Vec<String> {
-    let mut warnings = Vec::new();
-    let Some(table) = value.as_table() else {
-        return warnings;
-    };
-
-    let top_level_known: HashSet<&str> = [
-        "database",
-        "running_queries",
-        "suggest_sql",
-        "agent_install",
-    ]
-    .into_iter()
-    .collect();
-
-    for key in table.keys() {
-        if !top_level_known.contains(key.as_str()) {
-            warnings.push(format!("Ignoring unknown top-level config key `{}`", key));
-        }
-    }
-
-    warnings.extend(unknown_section_keys(
-        table.get("database"),
-        "database",
-        &["dsn", "connect_timeout_ms"],
-    ));
-    warnings.extend(unknown_section_keys(
-        table.get("running_queries"),
-        "running_queries",
-        &["thresholds"],
-    ));
-    warnings.extend(unknown_section_keys(
-        table.get("suggest_sql"),
-        "suggest_sql",
-        &[
-            "max_risk",
-            "show_omitted",
-            "disabled_rules",
-            "rules",
-            "external_rules",
-        ],
-    ));
-    warnings.extend(unknown_section_keys(
-        table.get("agent_install"),
-        "agent_install",
-        &["codex", "claude", "gemini"],
-    ));
-
-    if let Some(running_queries) = table.get("running_queries").and_then(|v| v.as_table()) {
-        warnings.extend(unknown_section_keys(
-            running_queries.get("thresholds"),
-            "running_queries.thresholds",
-            &[
-                "long_running_query_ms",
-                "waiting_session_count_threshold",
-                "idle_in_transaction_count_threshold",
-            ],
-        ));
-    }
-
-    warnings
-}
-
-fn unknown_section_keys(
-    value: Option<&toml::Value>,
-    section_name: &str,
-    allowed_keys: &[&str],
-) -> Vec<String> {
-    let Some(table) = value.and_then(|v| v.as_table()) else {
-        return Vec::new();
-    };
-
-    let allowed: HashSet<&str> = allowed_keys.iter().copied().collect();
-    table
-        .keys()
-        .filter(|key| !allowed.contains(key.as_str()))
-        .map(|key| format!("Ignoring unknown config key `{}.{}`", section_name, key))
-        .collect()
+    Ok(ResolvedConfig { config, source })
 }
 
 #[cfg(test)]
@@ -379,7 +284,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_keys_produce_warnings() {
+    fn unknown_keys_fail_to_parse() {
         let _guard = env_lock().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
         let config_path = write_config(
@@ -388,17 +293,22 @@ mod tests {
             "unknown_top = true\n[database]\ndsn='postgres://db'\nextra = 1\n[running_queries.thresholds]\nlong_running_query_ms = 3000\nextra = 9\n",
         );
 
+        let err = load_config(Some(&config_path)).unwrap_err();
+
+        assert!(matches!(err, PgLogstatsError::Configuration { .. }));
+        assert!(err.to_string().contains("unknown field"));
+    }
+
+    #[test]
+    fn suggest_sql_max_risk_uses_typed_enum() {
+        let _guard = env_lock().lock().unwrap();
+        let temp_dir = TempDir::new().unwrap();
+        let config_path =
+            write_config(&temp_dir, "custom.toml", "[suggest_sql]\nmax_risk='safe'\n");
+
         let resolved = load_config(Some(&config_path)).unwrap();
 
-        assert!(resolved
-            .warnings
-            .contains(&"Ignoring unknown top-level config key `unknown_top`".to_string()));
-        assert!(resolved
-            .warnings
-            .contains(&"Ignoring unknown config key `database.extra`".to_string()));
-        assert!(resolved.warnings.contains(
-            &"Ignoring unknown config key `running_queries.thresholds.extra`".to_string()
-        ));
+        assert_eq!(resolved.config.suggest_sql.max_risk, RiskLabel::Safe);
     }
 
     fn restore_env(

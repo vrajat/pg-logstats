@@ -16,9 +16,9 @@ pub mod events;
 pub mod findings;
 pub mod input;
 pub mod output;
-pub mod packet;
 pub mod parsers;
 pub mod sql;
+pub mod triage;
 
 // Re-export commonly used items
 pub use analytics::{QueryAnalyzer, TimingAnalysis, TimingAnalyzer};
@@ -39,13 +39,13 @@ pub use findings::{
     SlowQueryDiffOptions, FINDING_SCHEMA_VERSION,
 };
 pub use output::{JsonFormatter, TextFormatter};
-pub use packet::{
-    top_query_families_packet, ActionClass, AnalysisWindow, CheckStatus, FindingsPayload,
-    OperatingMode, PacketEnvelope, RiskLabel, SourceSummary, SourceSummaryKind, SuggestionStatus,
-    Verdict, WorkflowId, PACKET_SCHEMA_VERSION,
-};
 pub use parsers::{TextLogFormat, TextLogParser};
 pub use sql::{Query, QueryType};
+pub use triage::{
+    top_query_families_report, ActionClass, AnalysisWindow, CheckStatus, FindingsPayload,
+    OperatingMode, PgTriageReport, RiskLabel, SourceSummary, SourceSummaryKind, SuggestionStatus,
+    Verdict, WorkflowId, PG_TRIAGE_SCHEMA_VERSION,
+};
 
 /// Main error type for pg-logstats operations
 #[derive(Error, Debug)]

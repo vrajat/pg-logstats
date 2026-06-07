@@ -1,7 +1,7 @@
 use crate::{EventSourceKind, Finding, FindingSet, LogEntry};
 use serde::{Deserialize, Serialize};
 
-pub const PACKET_SCHEMA_VERSION: u32 = 1;
+pub const PG_TRIAGE_SCHEMA_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -105,13 +105,13 @@ pub struct SourceSummary {
     pub entries_scanned: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FindingsPayload {
     pub findings: Vec<Finding>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct PacketEnvelope<T> {
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PgTriageReport<T> {
     pub schema_version: u32,
     pub workflow: WorkflowId,
     pub operating_mode: OperatingMode,
@@ -131,13 +131,13 @@ pub struct PacketEnvelope<T> {
     pub payload: T,
 }
 
-pub fn top_query_families_packet(
+pub fn top_query_families_report(
     findings: FindingSet,
     entries: &[LogEntry],
     source_kind: EventSourceKind,
-) -> PacketEnvelope<FindingsPayload> {
-    PacketEnvelope {
-        schema_version: PACKET_SCHEMA_VERSION,
+) -> PgTriageReport<FindingsPayload> {
+    PgTriageReport {
+        schema_version: PG_TRIAGE_SCHEMA_VERSION,
         workflow: WorkflowId::TopQueryFamilies,
         operating_mode: OperatingMode::LogBacked,
         limitations: Vec::new(),
@@ -231,14 +231,14 @@ mod tests {
     }
 
     #[test]
-    fn serializes_top_query_families_packet_envelope() {
-        let packet = top_query_families_packet(
+    fn serializes_top_query_families_report() {
+        let report = top_query_families_report(
             sample_findings(),
             &sample_entries(),
             EventSourceKind::Stderr,
         );
 
-        let value = serde_json::to_value(&packet).unwrap();
+        let value = serde_json::to_value(&report).unwrap();
 
         assert_eq!(value["schema_version"], 1);
         assert_eq!(value["workflow"], "top_query_families");

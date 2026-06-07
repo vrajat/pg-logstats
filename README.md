@@ -202,7 +202,7 @@ pg-logstats suggest-sql \
 
 ## JSON Output
 
-`top query-families` JSON output now uses the V1 packet envelope:
+`top query-families` JSON output now uses the V1 `PgTriageReport` shape:
 
 ```bash
 pg-logstats top query-families \
@@ -265,6 +265,9 @@ max_risk = "bounded"
 show_omitted = true
 disabled_rules = []
 ```
+
+Unknown config keys are rejected. The config loader fails fast instead of
+silently ignoring unsupported fields.
 
 ## Fixture Logs
 

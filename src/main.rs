@@ -7,8 +7,8 @@ use pg_logstats::{
         validate_file_input_args, CloudWatchInput, CloudWatchSince, CloudWatchUntil, LocalLogInput,
     },
     load_config, normalize_log_entries, query_family_findings, slow_query_diff_findings,
-    top_query_families_packet, Correlator, EventSourceKind, Finding, FindingSet, FindingsPayload,
-    JsonFormatter, PacketEnvelope, PgLogstatsError, ProcessOrderCorrelator, Result,
+    top_query_families_report, Correlator, EventSourceKind, Finding, FindingSet, FindingsPayload,
+    JsonFormatter, PgLogstatsError, PgTriageReport, ProcessOrderCorrelator, Result,
     SlowQueryDiffOptions, TextFormatter, TextLogFormat, TextLogParser,
 };
 use serde_json::json;
@@ -256,9 +256,6 @@ fn main() -> Result<()> {
 
     let resolved_config = load_config(args.config.as_deref())?;
     debug!("Loaded config from {:?}", resolved_config.source);
-    for warning in &resolved_config.warnings {
-        warn!("{}", warning);
-    }
 
     // Initialize parser based on format
     let parser = initialize_parser(&args)?;
@@ -393,13 +390,13 @@ fn run_top_query_families_command(
 
     match args.output_format {
         OutputFormat::Json => {
-            let packet = top_query_families_packet(
+            let report = top_query_families_report(
                 findings,
                 &all_entries,
                 source_kind_for_input(args, input),
             );
             let formatter = JsonFormatter::new().with_pretty(true);
-            let output = formatter.format_packet(&packet)?;
+            let output = formatter.format_triage_report(&report)?;
             write_or_print_output(output, args)
         }
         OutputFormat::Text => output_findings(&findings, args, &all_entries),
@@ -606,9 +603,9 @@ fn run_suggest_sql_command(
 
 fn load_findings_file(path: &Path) -> Result<FindingSet> {
     let content = fs::read_to_string(path)?;
-    let packet: PacketEnvelope<FindingsPayload> =
+    let report: PgTriageReport<FindingsPayload> =
         serde_json::from_str(&content).map_err(PgLogstatsError::Serialization)?;
-    Ok(FindingSet::new(packet.payload.findings))
+    Ok(FindingSet::new(report.payload.findings))
 }
 
 fn select_finding<'a>(

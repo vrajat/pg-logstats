@@ -48,7 +48,7 @@ The user, which may be a developer or a coding agent, needs to answer:
 
 V1 should only ship triage workflows that are already recognizable PostgreSQL
 operational workflows. `pg-logstats` is packaging these workflows into compact,
-machine-readable packets; it is not inventing new diagnostic theory.
+machine-readable reports; it is not inventing new diagnostic theory.
 
 Each V1 workflow must have explicit attribution before implementation. If a
 candidate workflow cannot be tied to PostgreSQL documentation, pgBadger
@@ -281,7 +281,7 @@ The installed guidance must teach the same workflow:
 2. inspect `operating_mode`
 3. choose only supported workflows
 4. respect `verdict`, `allowed_actions`, and `blocked_actions`
-5. stop and escalate when the packet says evidence is insufficient or the
+5. stop and escalate when the report says evidence is insufficient or the
    database is saturated
 
 ## Configuration And Extension Model
@@ -437,7 +437,7 @@ Other V1 extension points should also be config-driven:
 V1 should not make these externally extensible:
 
 - operating mode names
-- top-level packet schema
+- top-level report schema
 - readiness check names
 - finding kinds emitted by built-in workflows
 - Rust code loading or binary plugins
@@ -475,7 +475,7 @@ If no connection target is available:
 - `readiness` must not choose `live_only`
 - `running-queries` must fail with a structured error that identifies
   `database_connection_not_configured`
-- `suggest-sql` may still operate from an existing packet, because it does not
+- `suggest-sql` may still operate from an existing report, because it does not
   execute SQL
 
 The exact PostgreSQL client crate is an implementation choice, but V1 must
@@ -492,15 +492,15 @@ errors appear in JSON output before `readiness` is considered complete.
 | `pg-logstats top query-families` | supported log input and bounded window | `--config`, `--limit`, source-specific input flags | `log_backed` |
 | `pg-logstats errors` | supported log input and bounded window | `--config`, `--limit`, source-specific input flags | `log_backed` |
 | `pg-logstats temp-files` | supported log input and bounded window with temp-file evidence | `--config`, `--limit`, source-specific input flags | `log_backed` |
-| `pg-logstats suggest-sql --findings-file <path> --rank <n>\|--finding-id <id>` | findings packet | `--config` | `log_backed`, `live_only` when packet target is supported |
-| `pg-logstats suggest-sql --running-queries-file <path> --pid <pid>\|--query-id <id>` | running-queries packet | `--config` | `live_only`, `log_backed` |
+| `pg-logstats suggest-sql --findings-file <path> --rank <n>\|--finding-id <id>` | findings report | `--config` | `log_backed`, `live_only` when report target is supported |
+| `pg-logstats suggest-sql --running-queries-file <path> --pid <pid>\|--query-id <id>` | running-queries report | `--config` | `live_only`, `log_backed` |
 
-`suggest-sql` support for `running-queries` packets is part of V1. Without it,
+`suggest-sql` support for `running-queries` reports is part of V1. Without it,
 `live_only` would have no concrete follow-up SQL path.
 
-### Shared Packet Envelope
+### Shared Triage Report Shape
 
-All machine-readable V1 command output should use this envelope:
+All machine-readable V1 command output should use this report shape:
 
 | Field | Required | Notes |
 | --- | --- | --- |
@@ -529,7 +529,7 @@ Command-specific payload keys:
 | `suggest_sql` | `suggest_sql` |
 
 Examples in this document may show payload fields at the top level for
-readability, but implementation tests should assert the canonical envelope or
+readability, but implementation tests should assert the canonical report shape or
 explicitly document any intentional transition period.
 
 ### Canonical Enums
@@ -596,7 +596,7 @@ Suggestion statuses:
 | --- | --- | --- | --- |
 | `clear` | `system_catalog_reads`, `stats_view_reads`, `bounded_activity_queries`, `text_pattern_stats_search`, `explain_without_analyze` | `large_unbounded_selects`, `explain_analyze`, `write_or_admin_action` | Continue with bounded diagnostic reads. |
 | `busy` | `system_catalog_reads`, `stats_view_reads`, `bounded_activity_queries` | `text_pattern_stats_search`, `explain_without_analyze`, `large_unbounded_selects`, `explain_analyze`, `write_or_admin_action` | Keep follow-up narrow and low-impact. |
-| `saturated` | none by default | all action classes | Stop adding investigative database load and escalate with the packet. |
+| `saturated` | none by default | all action classes | Stop adding investigative database load and escalate with the report. |
 | `unknown` | omitted | omitted | Do not infer safety; escalate or ask for better evidence. |
 
 Config may only make this matrix more restrictive. It must not allow an action
@@ -669,7 +669,7 @@ form, the docs must state how it is split and what quoting rules apply.
 
 ### External Rule Command ABI
 
-The external command ABI is versioned separately from the top-level packet
+The external command ABI is versioned separately from the top-level report
 schema:
 
 - input field `schema_version = 1`
@@ -1332,7 +1332,7 @@ Purpose:
 
 Sources:
 
-- finding packet from another `pg-logstats` workflow
+- finding report from another `pg-logstats` workflow
 - live-state path description from `running-queries`
 - built-in rule registry
 - external rule commands from config
@@ -1381,7 +1381,7 @@ for the final output policy.
 
 V1 command algorithm:
 
-1. Load the source packet and validate `schema_version`.
+1. Load the source report and validate `schema_version`.
 2. Select exactly one target finding or live-state target.
 3. Build the target context described above.
 4. Derive common identifiers for built-in SQL generation:
@@ -1403,7 +1403,7 @@ V1 command algorithm:
 
 Validation checks:
 
-- source packet must be valid JSON with a supported schema version
+- source report must be valid JSON with a supported schema version
 - target selector must resolve to exactly one target
 - target kind must be supported by `suggest-sql`
 - built-in SQL templates must use only read-only `SELECT` statements
@@ -1793,7 +1793,7 @@ When V1 intentionally does not emit runnable SQL, it should record the omission:
 }
 ```
 
-This lets the agent produce a better escalation packet without running unsafe or
+This lets the agent produce a better escalation report without running unsafe or
 underspecified SQL.
 
 Illustrative output:
@@ -1847,7 +1847,7 @@ Illustrative output:
 
 ## Output Contract
 
-All machine-readable V1 workflows should use the shared packet envelope defined
+All machine-readable V1 workflows should use the shared triage report shape defined
 in the V1 Contract Tables section. Workflow-specific data belongs under the
 command-specific `payload` key listed there.
 
@@ -1968,9 +1968,9 @@ each built-in workflow or rule.
 
 `slow-queries diff` is not the V1 spine for this internal AI-app triage story.
 Treat it as an existing experimental workflow unless a later decision explicitly
-promotes it into the shared packet contract.
+promotes it into the shared report contract.
 
-### Phase 1: Config And Shared Packet Contract
+### Phase 1: Config And Shared Report Contract
 
 Deliver:
 
@@ -1982,22 +1982,22 @@ Deliver:
 - default user config path
 - canonical enums for operating modes, workflow IDs, verdicts, risk labels,
   action classes, suggestion statuses, finding kinds, and check statuses
-- shared packet envelope structs
-- JSON serialization tests for the packet envelope
+- shared `PgTriageReport` structs
+- JSON serialization tests for the shared report shape
 - transition adapter for current `FindingSet` output where needed
 
 Docs:
 
 - config file discovery and precedence
 - minimal config example
-- packet envelope example
+- `PgTriageReport` example
 - canonical enum tables
 
 Acceptance criteria:
 
 - config precedence is deterministic and tested
 - unknown config behavior is documented and tested
-- at least one existing command can emit packet-shaped JSON output behind the
+- at least one existing command can emit report-shaped JSON output behind the
   new model or through an explicit transition path
 
 ### Phase 2: Readiness And Mode Detection
@@ -2036,7 +2036,7 @@ Acceptance criteria:
 Deliver:
 
 - `top query-families` aligned to `log_backed` mode
-- shared packet envelope output
+- shared triage report output
 - bounded historical window support
 - source summary
 - app, user, and database attribution surfaced in findings
@@ -2055,7 +2055,7 @@ Docs:
 Acceptance criteria:
 
 - ranked output is deterministic
-- output follows the packet contract
+- output follows the report contract
 - findings degrade honestly when attribution is missing
 - unsupported modes fail clearly
 
@@ -2063,7 +2063,7 @@ Acceptance criteria:
 
 Deliver:
 
-- source packet loading and schema validation
+- source report loading and schema validation
 - target selection by `--finding-id`, `--rank`, `--pid`, or `--query-id`
 - rule registry abstraction
 - built-in rule source interface
@@ -2095,7 +2095,7 @@ Acceptance criteria:
 - SQL suggestions are never unlabeled
 - blocked classes are machine-readable
 - config can only make policy stricter
-- invalid source packets fail with structured errors
+- invalid source reports fail with structured errors
 - external rule command suggestions can be emitted with
   `rule_source = "external_command"`
 - external rule command failures are reported in `rule_errors[]`
@@ -2111,8 +2111,8 @@ Deliver query-family rules:
 - bounded `pg_stat_statements` text search fallback when `queryid` is missing
 
 Do not implement running-query, error-class, or temp-file rules in this phase
-unless their source packet workflows already exist. Those rule families should
-ship with the workflows that create their target packets.
+unless their source report workflows already exist. Those rule families should
+ship with the workflows that create their target reports.
 
 Docs:
 
@@ -2142,7 +2142,7 @@ Deliver:
 - `allowed_actions` and `blocked_actions`
 - `active_sessions[]`
 - `blocking_signals[]`
-- support as a `suggest-sql` input packet
+- support as a `suggest-sql` input report
 - built-in running-query `suggest-sql` rules:
   - exact backend lookup by `pid`
   - blocking context via `pg_blocking_pids`
@@ -2163,7 +2163,7 @@ Acceptance criteria:
 - `suggest-sql --running-queries-file` can target a pid or query id
 - running-query rules are tested for allowed, missing-identifier, and blocked
   output
-- output follows the shared packet contract
+- output follows the shared report contract
 
 ### Phase 7: Errors And Temp Files
 
@@ -2174,7 +2174,7 @@ Deliver errors:
 - fallback grouping by normalized error text
 - representative evidence handles
 - app, user, and database attribution when known
-- packet-shaped findings
+- report-shaped findings
 - built-in error-class `suggest-sql` rule for active sessions by matching app,
   database, or user
 
@@ -2187,7 +2187,7 @@ Deliver temp files:
 - track largest observed temp-file event
 - representative evidence handles
 - app, user, and database attribution when known
-- packet-shaped findings
+- report-shaped findings
 - built-in temp-file `suggest-sql` rules:
   - `pg_stat_database` temp counters by database
   - `pg_stat_statements` temp block activity
@@ -2202,7 +2202,7 @@ Docs:
 
 Acceptance criteria:
 
-- `errors` and `temp-files` follow the shared packet contract
+- `errors` and `temp-files` follow the shared report contract
 - temp-file workflow requires `log_temp_files` evidence
 - rankings are deterministic
 - missing statement correlation is represented as a limitation, not hidden
@@ -2243,7 +2243,7 @@ Acceptance criteria:
 V1 is complete when:
 
 - config loading and precedence are implemented
-- the shared packet contract and canonical enums are implemented
+- the shared report contract and canonical enums are implemented
 - `readiness` reports mode and limitations honestly
 - `top query-families` works in `log_backed` mode
 - `running-queries` works in `live_only` and `log_backed`
@@ -2251,7 +2251,7 @@ V1 is complete when:
 - `suggest-sql` supports external rule commands
 - query-family, running-query, error-class, and temp-file built-in
   `suggest-sql` rules ship with their owning workflows
-- `errors` and `temp-files` use the same packet contract
+- `errors` and `temp-files` use the same report contract
 - README and installed harness guidance reflect the shipped behavior
 - every shipped built-in workflow and built-in `suggest-sql` rule has recorded
   attribution to PostgreSQL docs, pgBadger prior art, or another credible
@@ -2266,7 +2266,7 @@ V1 is complete when:
 - What warning level should `pg-logstats` apply to suspicious SQL returned by
   trusted external rule commands?
 - Should `slow-queries diff` be hidden, documented as experimental, or adapted
-  into the V1 packet contract later?
+  into the V1 report contract later?
 - Should live database tests use a real Postgres service, captured row fixtures,
   or a trait-backed probe abstraction with mocked responses?
 - Should `agent install` stay last, or move earlier once `readiness` and

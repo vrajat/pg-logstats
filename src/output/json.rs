@@ -1,6 +1,6 @@
 //! JSON output formatter for pg-logstats results
 
-use crate::{AnalysisResult, FindingSet, PacketEnvelope, PgLogstatsError, Result, TimingAnalysis};
+use crate::{AnalysisResult, FindingSet, PgLogstatsError, PgTriageReport, Result, TimingAnalysis};
 use chrono::Utc;
 use serde::Serialize;
 use serde_json::json;
@@ -190,12 +190,12 @@ impl JsonFormatter {
         }
     }
 
-    /// Format a V1 packet envelope.
-    pub fn format_packet<T: Serialize>(&self, packet: &PacketEnvelope<T>) -> Result<String> {
+    /// Format a V1 triage report.
+    pub fn format_triage_report<T: Serialize>(&self, report: &PgTriageReport<T>) -> Result<String> {
         if self.pretty {
-            serde_json::to_string_pretty(packet).map_err(PgLogstatsError::Serialization)
+            serde_json::to_string_pretty(report).map_err(PgLogstatsError::Serialization)
         } else {
-            serde_json::to_string(packet).map_err(PgLogstatsError::Serialization)
+            serde_json::to_string(report).map_err(PgLogstatsError::Serialization)
         }
     }
 }
