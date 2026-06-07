@@ -7,7 +7,7 @@ use std::collections::HashMap;
 pub const FINDING_SCHEMA_VERSION: u32 = 1;
 
 /// Collection wrapper for versioned finding output.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FindingSet {
     pub schema_version: u32,
     pub findings: Vec<Finding>,
@@ -23,7 +23,7 @@ impl FindingSet {
 }
 
 /// Machine-readable investigation finding.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Finding {
     pub schema_version: u32,
     pub finding_id: String,
@@ -79,7 +79,7 @@ pub enum FindingConfidence {
 }
 
 /// Query-family dimensions included in query-family findings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QueryFamilyFinding {
     pub query_family_id: String,
     pub normalized_sql: String,

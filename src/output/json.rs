@@ -1,7 +1,8 @@
 //! JSON output formatter for pg-logstats results
 
-use crate::{AnalysisResult, FindingSet, PgLogstatsError, Result, TimingAnalysis};
+use crate::{AnalysisResult, FindingSet, PacketEnvelope, PgLogstatsError, Result, TimingAnalysis};
 use chrono::Utc;
+use serde::Serialize;
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -186,6 +187,15 @@ impl JsonFormatter {
             serde_json::to_string_pretty(&root).map_err(PgLogstatsError::Serialization)
         } else {
             serde_json::to_string(&root).map_err(PgLogstatsError::Serialization)
+        }
+    }
+
+    /// Format a V1 packet envelope.
+    pub fn format_packet<T: Serialize>(&self, packet: &PacketEnvelope<T>) -> Result<String> {
+        if self.pretty {
+            serde_json::to_string_pretty(packet).map_err(PgLogstatsError::Serialization)
+        } else {
+            serde_json::to_string(packet).map_err(PgLogstatsError::Serialization)
         }
     }
 }

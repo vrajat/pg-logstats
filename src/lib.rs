@@ -10,16 +10,21 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 pub mod analytics;
+pub mod config;
 pub mod correlation;
 pub mod events;
 pub mod findings;
 pub mod input;
 pub mod output;
+pub mod packet;
 pub mod parsers;
 pub mod sql;
 
 // Re-export commonly used items
 pub use analytics::{QueryAnalyzer, TimingAnalysis, TimingAnalyzer};
+pub use config::{
+    config_env_var_name, default_config_path, load_config, AppConfig, ConfigSource, ResolvedConfig,
+};
 pub use correlation::{
     correlate_query_executions, CorrelationConfidence, Correlator, ProcessOrderCorrelator,
     QueryExecution, QueryFamilyIdentity,
@@ -34,6 +39,11 @@ pub use findings::{
     SlowQueryDiffOptions, FINDING_SCHEMA_VERSION,
 };
 pub use output::{JsonFormatter, TextFormatter};
+pub use packet::{
+    top_query_families_packet, ActionClass, AnalysisWindow, CheckStatus, FindingsPayload,
+    OperatingMode, PacketEnvelope, RiskLabel, SourceSummary, SourceSummaryKind, SuggestionStatus,
+    Verdict, WorkflowId, PACKET_SCHEMA_VERSION,
+};
 pub use parsers::{TextLogFormat, TextLogParser};
 pub use sql::{Query, QueryType};
 
