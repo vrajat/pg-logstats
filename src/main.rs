@@ -606,10 +606,6 @@ fn run_suggest_sql_command(
 
 fn load_findings_file(path: &Path) -> Result<FindingSet> {
     let content = fs::read_to_string(path)?;
-    if let Ok(findings) = serde_json::from_str(&content) {
-        return Ok(findings);
-    }
-
     let packet: PacketEnvelope<FindingsPayload> =
         serde_json::from_str(&content).map_err(PgLogstatsError::Serialization)?;
     Ok(FindingSet::new(packet.payload.findings))
