@@ -17,6 +17,7 @@ pub mod findings;
 pub mod input;
 pub mod output;
 pub mod parsers;
+pub mod readiness;
 pub mod sql;
 pub mod triage;
 
@@ -40,6 +41,10 @@ pub use findings::{
 };
 pub use output::{JsonFormatter, TextFormatter};
 pub use parsers::{TextLogFormat, TextLogParser};
+pub use readiness::{
+    build_readiness_report, database_url_env_var_name, format_readiness_text, resolve_database_dsn,
+    LogEvidence, LogReadinessEvidence, ReadinessDetails, ReadinessReportPayload,
+};
 pub use sql::{Query, QueryType};
 pub use triage::{
     top_query_families_report, ActionClass, AnalysisWindow, CheckStatus, FindingsPayload,

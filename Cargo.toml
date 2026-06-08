@@ -26,6 +26,7 @@ thiserror = "1.0"
 indicatif = "0.17"
 env_logger = "0.10"
 log = "0.4"
+postgres = "0.19"
 sqlparser = { version = "0.47.0", features = ["visitor"] }
 
 [features]

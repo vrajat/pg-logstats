@@ -239,6 +239,42 @@ Useful fields include:
 For diff findings, each finding also includes `baseline`, `target`, and `delta`
 duration summaries.
 
+## Readiness
+
+Start with `readiness` before deeper investigation:
+
+```bash
+pg-logstats readiness --output-format json
+```
+
+With supported log input but no database connection, `readiness` can still
+report `log_backed` mode from actual statement and duration evidence:
+
+```bash
+pg-logstats readiness \
+  --output-format json \
+  tests/fixtures/cli/sample_stderr.log
+```
+
+Connection discovery precedence for live checks is:
+
+1. `--dsn <postgres-url>`
+2. `PG_LOGSTATS_DATABASE_URL`
+3. `[database].dsn` from the resolved config
+
+Current readiness behavior:
+
+- `stderr` and AWS RDS text logs can satisfy `log_backed`
+- `csvlog` and `jsonlog` remain documented targets, but do not satisfy
+  `log_backed` yet
+- missing database connection marks live checks as `skipped`
+- `live_only` requires `pg_stat_activity`, `pg_stat_statements`,
+  `compute_query_id`, and `pg_read_all_stats` visibility
+
+The live probe layer currently uses a direct PostgreSQL connection without TLS
+configuration hooks. DSNs that require client-side TLS setup outside the basic
+connection string are not supported yet.
+
 ## Configuration
 
 Config discovery precedence is:
