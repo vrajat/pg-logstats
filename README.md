@@ -64,7 +64,7 @@ pg-logstats suggest-sql --findings-file findings.json --rank 1
 ```
 
 Global flags such as `--input-format`, `--output-format`, `--outfile`,
-`--outdir`, `--config`, and `--quiet` can be placed before or after the
+`--outdir`, `--config`, `--dsn`, and `--quiet` can be placed before or after the
 workflow command.
 
 ## CloudWatch Logs Input
@@ -133,6 +133,31 @@ cargo run -- top query-families tests/fixtures/cli/sample_stderr.log
 ```
 
 ## Commands
+
+### Readiness
+
+Detect the supported operating mode before deeper investigation:
+
+```bash
+pg-logstats readiness --output-format json
+```
+
+Use supported log input to prove `log_backed` mode even when no PostgreSQL
+connection is configured:
+
+```bash
+pg-logstats readiness \
+  --output-format json \
+  tests/fixtures/cli/sample_stderr.log
+```
+
+When live checks are needed, connection discovery precedence is:
+
+1. `--dsn <postgres-url>`
+2. `PG_LOGSTATS_DATABASE_URL`
+3. `[database].dsn` from the resolved config
+
+The dedicated readiness guide lives in [docs/readiness.md](docs/readiness.md).
 
 ### Top Query Families
 
@@ -238,42 +263,6 @@ Useful fields include:
 
 For diff findings, each finding also includes `baseline`, `target`, and `delta`
 duration summaries.
-
-## Readiness
-
-Start with `readiness` before deeper investigation:
-
-```bash
-pg-logstats readiness --output-format json
-```
-
-With supported log input but no database connection, `readiness` can still
-report `log_backed` mode from actual statement and duration evidence:
-
-```bash
-pg-logstats readiness \
-  --output-format json \
-  tests/fixtures/cli/sample_stderr.log
-```
-
-Connection discovery precedence for live checks is:
-
-1. `--dsn <postgres-url>`
-2. `PG_LOGSTATS_DATABASE_URL`
-3. `[database].dsn` from the resolved config
-
-Current readiness behavior:
-
-- `stderr` and AWS RDS text logs can satisfy `log_backed`
-- `csvlog` and `jsonlog` remain documented targets, but do not satisfy
-  `log_backed` yet
-- missing database connection marks live checks as `skipped`
-- `live_only` requires `pg_stat_activity`, `pg_stat_statements`,
-  `compute_query_id`, and `pg_read_all_stats` visibility
-
-The live probe layer currently uses a direct PostgreSQL connection without TLS
-configuration hooks. DSNs that require client-side TLS setup outside the basic
-connection string are not supported yet.
 
 ## Configuration
 

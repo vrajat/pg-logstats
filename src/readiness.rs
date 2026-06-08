@@ -1,36 +1,33 @@
 use crate::config::{AgentInstallTargetConfig, AppConfig};
+use crate::database::connect_postgres_client;
 use crate::triage::{
     CheckStatus, OperatingMode, PgTriageReport, WorkflowId, PG_TRIAGE_SCHEMA_VERSION,
 };
 use crate::{normalize_log_entries, Correlator, EventSourceKind, LogEntry, ProcessOrderCorrelator};
-use postgres::{Client, NoTls};
+use postgres::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::env;
 use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use std::time::Duration;
 
-const DATABASE_URL_ENV_VAR: &str = "PG_LOGSTATS_DATABASE_URL";
-
-const REQUIRED_CHECKS: &[&str] = &[
-    "log_source_reachable",
-    "statement_evidence",
-    "duration_evidence",
-    "correlation_evidence",
-    "log_destination",
-    "log_line_prefix",
-    "log_duration",
-    "log_min_duration_statement",
-    "log_temp_files",
-    "track_activities",
-    "shared_preload_libraries",
-    "compute_query_id",
-    "pg_stat_statements_extension",
-    "pg_read_all_stats",
-    "pg_stat_activity_probe",
-    "pg_stat_statements_probe",
+const REQUIRED_CHECKS: &[ReadinessCheckId] = &[
+    ReadinessCheckId::LogSourceReachable,
+    ReadinessCheckId::StatementEvidence,
+    ReadinessCheckId::DurationEvidence,
+    ReadinessCheckId::CorrelationEvidence,
+    ReadinessCheckId::LogDestination,
+    ReadinessCheckId::LogLinePrefix,
+    ReadinessCheckId::LogDuration,
+    ReadinessCheckId::LogMinDurationStatement,
+    ReadinessCheckId::LogTempFiles,
+    ReadinessCheckId::TrackActivities,
+    ReadinessCheckId::SharedPreloadLibraries,
+    ReadinessCheckId::ComputeQueryId,
+    ReadinessCheckId::PgStatStatementsExtension,
+    ReadinessCheckId::PgReadAllStats,
+    ReadinessCheckId::PgStatActivityProbe,
+    ReadinessCheckId::PgStatStatementsProbe,
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,15 +39,15 @@ pub struct ReadinessReportPayload {
 pub struct ReadinessDetails {
     pub database_readiness: DatabaseReadiness,
     pub agent_readiness: AgentReadiness,
-    pub required_checks: Vec<String>,
-    pub failed_checks: Vec<String>,
+    pub required_checks: Vec<ReadinessCheckId>,
+    pub failed_checks: Vec<ReadinessReason>,
     pub recommended_next_commands: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DatabaseReadiness {
     pub mode_candidate: OperatingMode,
-    pub checks: BTreeMap<String, ReadinessCheck>,
+    pub checks: BTreeMap<ReadinessCheckId, ReadinessCheck>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,7 +70,77 @@ pub struct ReadinessCheck {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
+    pub reason: Option<ReadinessReason>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadinessCheckId {
+    LogSourceReachable,
+    StatementEvidence,
+    DurationEvidence,
+    CorrelationEvidence,
+    LogDestination,
+    LogLinePrefix,
+    LogDuration,
+    LogMinDurationStatement,
+    LogTempFiles,
+    TrackActivities,
+    SharedPreloadLibraries,
+    ComputeQueryId,
+    PgStatStatementsExtension,
+    PgReadAllStats,
+    PgStatActivityProbe,
+    PgStatStatementsProbe,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ReadinessReason {
+    LogSourceNotRequested,
+    LogSourceUnreachable,
+    SupportedLogSourceUnreachable,
+    DatabaseConnectionNotConfigured,
+    DatabaseConnectionInvalid,
+    DatabaseConnectionFailed,
+    LogDestinationUnavailable,
+    UnsupportedLogFormat,
+    UnsupportedLogDestination,
+    LogLinePrefixUnavailable,
+    LogLinePrefixMissingProcessId,
+    LogDurationDisabled,
+    LogMinDurationStatementDisabled,
+    LogTempFilesDisabled,
+    TrackActivitiesDisabled,
+    PgStatStatementsNotPreloaded,
+    ComputeQueryIdDisabled,
+    PgStatStatementsExtensionMissing,
+    PgReadAllStatsUnavailable,
+    StatementEvidenceMissing,
+    DurationEvidenceMissing,
+    CorrelationEvidenceMissing,
+    ProbeFailed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReadinessLimitation {
+    LiveDatabaseChecksUnavailable,
+    HistoricalLogTriageUnavailable,
+    EventLevelEvidenceUnavailable,
+    SupportedEvidenceUnavailable,
+    DatabaseConnectionNotConfigured,
+}
+
+impl ReadinessLimitation {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::LiveDatabaseChecksUnavailable => "live_database_checks_unavailable",
+            Self::HistoricalLogTriageUnavailable => "historical_log_triage_unavailable",
+            Self::EventLevelEvidenceUnavailable => "event_level_evidence_unavailable",
+            Self::SupportedEvidenceUnavailable => "supported_evidence_unavailable",
+            Self::DatabaseConnectionNotConfigured => "database_connection_not_configured",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -85,30 +152,19 @@ pub struct LogEvidence {
 #[derive(Debug, Clone)]
 pub enum LogReadinessEvidence {
     NotRequested,
-    Unreachable { reason: String },
+    Unreachable { reason: ReadinessReason },
     Available(LogEvidence),
-}
-
-pub fn database_url_env_var_name() -> &'static str {
-    DATABASE_URL_ENV_VAR
-}
-
-pub fn resolve_database_dsn(explicit_dsn: Option<&str>, config: &AppConfig) -> Option<String> {
-    explicit_dsn
-        .map(str::to_string)
-        .or_else(|| env::var(DATABASE_URL_ENV_VAR).ok())
-        .or_else(|| config.database.dsn.clone())
 }
 
 pub fn build_readiness_report(
     config: &AppConfig,
-    explicit_dsn: Option<&str>,
+    resolved_dsn: Option<&str>,
     log_evidence: LogReadinessEvidence,
 ) -> PgTriageReport<ReadinessReportPayload> {
     let mut checks = build_log_checks(log_evidence);
     merge_checks(
         &mut checks,
-        build_database_checks(resolve_database_dsn(explicit_dsn, config), config),
+        build_database_checks(resolved_dsn.map(str::to_string), config),
     );
 
     let mode_candidate = determine_mode(&checks);
@@ -135,10 +191,7 @@ pub fn build_readiness_report(
                     checks,
                 },
                 agent_readiness,
-                required_checks: REQUIRED_CHECKS
-                    .iter()
-                    .map(|name| (*name).to_string())
-                    .collect(),
+                required_checks: REQUIRED_CHECKS.to_vec(),
                 failed_checks,
                 recommended_next_commands,
             },
@@ -149,7 +202,10 @@ pub fn build_readiness_report(
 pub fn format_readiness_text(report: &PgTriageReport<ReadinessReportPayload>) -> String {
     let readiness = &report.payload.readiness;
     let mut output = String::new();
-    output.push_str(&format!("Operating Mode: {:?}\n", report.operating_mode));
+    output.push_str(&format!(
+        "Operating Mode: {}\n",
+        operating_mode_label(report.operating_mode)
+    ));
 
     if report.limitations.is_empty() {
         output.push_str("Limitations: none\n");
@@ -162,12 +218,16 @@ pub fn format_readiness_text(report: &PgTriageReport<ReadinessReportPayload>) ->
 
     output.push_str("Checks:\n");
     for (name, check) in &readiness.database_readiness.checks {
-        output.push_str(&format!("- {name}: {}\n", check_status_label(check.status)));
+        output.push_str(&format!(
+            "- {}: {}\n",
+            check_id_label(*name),
+            check_status_label(check.status)
+        ));
         if let Some(value) = &check.value {
             output.push_str(&format!("  value: {value}\n"));
         }
         if let Some(reason) = &check.reason {
-            output.push_str(&format!("  reason: {reason}\n"));
+            output.push_str(&format!("  reason: {}\n", reason_label(*reason)));
         }
     }
 
@@ -194,36 +254,38 @@ pub fn format_readiness_text(report: &PgTriageReport<ReadinessReportPayload>) ->
     output
 }
 
-fn build_log_checks(log_evidence: LogReadinessEvidence) -> BTreeMap<String, ReadinessCheck> {
+fn build_log_checks(
+    log_evidence: LogReadinessEvidence,
+) -> BTreeMap<ReadinessCheckId, ReadinessCheck> {
     let mut checks = BTreeMap::new();
     let log_evidence = match log_evidence {
         LogReadinessEvidence::NotRequested => {
             for name in [
-                "log_source_reachable",
-                "statement_evidence",
-                "duration_evidence",
-                "correlation_evidence",
+                ReadinessCheckId::LogSourceReachable,
+                ReadinessCheckId::StatementEvidence,
+                ReadinessCheckId::DurationEvidence,
+                ReadinessCheckId::CorrelationEvidence,
             ] {
                 checks.insert(
-                    name.to_string(),
-                    skipped_check(Some("log_source_not_requested"), None),
+                    name,
+                    skipped_check(Some(ReadinessReason::LogSourceNotRequested), None),
                 );
             }
             return checks;
         }
         LogReadinessEvidence::Unreachable { reason } => {
             checks.insert(
-                "log_source_reachable".to_string(),
-                failed_check(None, Some(reason.as_str())),
+                ReadinessCheckId::LogSourceReachable,
+                failed_check(None, Some(reason)),
             );
             for name in [
-                "statement_evidence",
-                "duration_evidence",
-                "correlation_evidence",
+                ReadinessCheckId::StatementEvidence,
+                ReadinessCheckId::DurationEvidence,
+                ReadinessCheckId::CorrelationEvidence,
             ] {
                 checks.insert(
-                    name.to_string(),
-                    skipped_check(Some("log_source_unreachable"), None),
+                    name,
+                    skipped_check(Some(ReadinessReason::LogSourceUnreachable), None),
                 );
             }
             return checks;
@@ -241,31 +303,40 @@ fn build_log_checks(log_evidence: LogReadinessEvidence) -> BTreeMap<String, Read
         .any(|execution| execution.duration_ms.is_some());
 
     checks.insert(
-        "log_source_reachable".to_string(),
+        ReadinessCheckId::LogSourceReachable,
         passed_check(Some(json!(entries.len())), None),
     );
     checks.insert(
-        "statement_evidence".to_string(),
+        ReadinessCheckId::StatementEvidence,
         if has_statement {
             passed_check(Some(json!(true)), None)
         } else {
-            failed_check(Some(json!(false)), Some("statement_evidence_missing"))
+            failed_check(
+                Some(json!(false)),
+                Some(ReadinessReason::StatementEvidenceMissing),
+            )
         },
     );
     checks.insert(
-        "duration_evidence".to_string(),
+        ReadinessCheckId::DurationEvidence,
         if has_duration {
             passed_check(Some(json!(true)), None)
         } else {
-            failed_check(Some(json!(false)), Some("duration_evidence_missing"))
+            failed_check(
+                Some(json!(false)),
+                Some(ReadinessReason::DurationEvidenceMissing),
+            )
         },
     );
     checks.insert(
-        "correlation_evidence".to_string(),
+        ReadinessCheckId::CorrelationEvidence,
         if has_correlated_execution {
             passed_check(Some(json!(true)), None)
         } else {
-            failed_check(Some(json!(false)), Some("correlation_evidence_missing"))
+            failed_check(
+                Some(json!(false)),
+                Some(ReadinessReason::CorrelationEvidenceMissing),
+            )
         },
     );
 
@@ -275,141 +346,134 @@ fn build_log_checks(log_evidence: LogReadinessEvidence) -> BTreeMap<String, Read
 fn build_database_checks(
     dsn: Option<String>,
     config: &AppConfig,
-) -> BTreeMap<String, ReadinessCheck> {
+) -> BTreeMap<ReadinessCheckId, ReadinessCheck> {
     let mut checks = BTreeMap::new();
     let Some(dsn) = dsn else {
         for name in [
-            "log_destination",
-            "log_line_prefix",
-            "log_duration",
-            "log_min_duration_statement",
-            "log_temp_files",
-            "track_activities",
-            "shared_preload_libraries",
-            "compute_query_id",
-            "pg_stat_statements_extension",
-            "pg_read_all_stats",
-            "pg_stat_activity_probe",
-            "pg_stat_statements_probe",
+            ReadinessCheckId::LogDestination,
+            ReadinessCheckId::LogLinePrefix,
+            ReadinessCheckId::LogDuration,
+            ReadinessCheckId::LogMinDurationStatement,
+            ReadinessCheckId::LogTempFiles,
+            ReadinessCheckId::TrackActivities,
+            ReadinessCheckId::SharedPreloadLibraries,
+            ReadinessCheckId::ComputeQueryId,
+            ReadinessCheckId::PgStatStatementsExtension,
+            ReadinessCheckId::PgReadAllStats,
+            ReadinessCheckId::PgStatActivityProbe,
+            ReadinessCheckId::PgStatStatementsProbe,
         ] {
             checks.insert(
-                name.to_string(),
-                skipped_check(Some("database_connection_not_configured"), None),
+                name,
+                skipped_check(Some(ReadinessReason::DatabaseConnectionNotConfigured), None),
             );
         }
         return checks;
     };
 
-    let mut client = match connect_client(&dsn, config.database.connect_timeout_ms) {
+    let mut client = match connect_postgres_client(&dsn, config.database.connect_timeout_ms) {
         Ok(client) => client,
         Err(reason) => {
             for name in [
-                "log_destination",
-                "log_line_prefix",
-                "log_duration",
-                "log_min_duration_statement",
-                "log_temp_files",
-                "track_activities",
-                "shared_preload_libraries",
-                "compute_query_id",
-                "pg_stat_statements_extension",
-                "pg_read_all_stats",
-                "pg_stat_activity_probe",
-                "pg_stat_statements_probe",
+                ReadinessCheckId::LogDestination,
+                ReadinessCheckId::LogLinePrefix,
+                ReadinessCheckId::LogDuration,
+                ReadinessCheckId::LogMinDurationStatement,
+                ReadinessCheckId::LogTempFiles,
+                ReadinessCheckId::TrackActivities,
+                ReadinessCheckId::SharedPreloadLibraries,
+                ReadinessCheckId::ComputeQueryId,
+                ReadinessCheckId::PgStatStatementsExtension,
+                ReadinessCheckId::PgReadAllStats,
+                ReadinessCheckId::PgStatActivityProbe,
+                ReadinessCheckId::PgStatStatementsProbe,
             ] {
-                checks.insert(name.to_string(), failed_check(None, Some(reason.as_str())));
+                checks.insert(
+                    name,
+                    failed_check(None, Some(parse_connection_reason(&reason))),
+                );
             }
             return checks;
         }
     };
 
-    let log_destination = show_setting(&mut client, "log_destination");
     checks.insert(
-        "log_destination".to_string(),
-        evaluate_log_destination(log_destination.as_deref()),
+        ReadinessCheckId::LogDestination,
+        evaluate_log_destination(show_setting(&mut client, "log_destination").as_deref()),
     );
-
-    let log_line_prefix = show_setting(&mut client, "log_line_prefix");
     checks.insert(
-        "log_line_prefix".to_string(),
-        evaluate_log_line_prefix(log_line_prefix.as_deref()),
+        ReadinessCheckId::LogLinePrefix,
+        evaluate_log_line_prefix(show_setting(&mut client, "log_line_prefix").as_deref()),
     );
-
-    let log_duration = show_setting(&mut client, "log_duration");
     checks.insert(
-        "log_duration".to_string(),
-        evaluate_on_off_setting(log_duration.as_deref(), "log_duration_disabled"),
+        ReadinessCheckId::LogDuration,
+        evaluate_on_off_setting(
+            show_setting(&mut client, "log_duration").as_deref(),
+            ReadinessReason::LogDurationDisabled,
+        ),
     );
-
-    let log_min_duration_statement = show_setting(&mut client, "log_min_duration_statement");
     checks.insert(
-        "log_min_duration_statement".to_string(),
+        ReadinessCheckId::LogMinDurationStatement,
         evaluate_non_negative_setting(
-            log_min_duration_statement.as_deref(),
-            "log_min_duration_statement_disabled",
+            show_setting(&mut client, "log_min_duration_statement").as_deref(),
+            ReadinessReason::LogMinDurationStatementDisabled,
         ),
     );
-
-    let log_temp_files = show_setting(&mut client, "log_temp_files");
     checks.insert(
-        "log_temp_files".to_string(),
-        evaluate_non_negative_setting(log_temp_files.as_deref(), "log_temp_files_disabled"),
+        ReadinessCheckId::LogTempFiles,
+        evaluate_non_negative_setting(
+            show_setting(&mut client, "log_temp_files").as_deref(),
+            ReadinessReason::LogTempFilesDisabled,
+        ),
     );
-
-    let track_activities = show_setting(&mut client, "track_activities");
     checks.insert(
-        "track_activities".to_string(),
-        evaluate_on_off_setting(track_activities.as_deref(), "track_activities_disabled"),
+        ReadinessCheckId::TrackActivities,
+        evaluate_on_off_setting(
+            show_setting(&mut client, "track_activities").as_deref(),
+            ReadinessReason::TrackActivitiesDisabled,
+        ),
     );
-
-    let shared_preload_libraries = show_setting(&mut client, "shared_preload_libraries");
     checks.insert(
-        "shared_preload_libraries".to_string(),
+        ReadinessCheckId::SharedPreloadLibraries,
         evaluate_list_contains(
-            shared_preload_libraries.as_deref(),
+            show_setting(&mut client, "shared_preload_libraries").as_deref(),
             "pg_stat_statements",
-            "pg_stat_statements_not_preloaded",
+            ReadinessReason::PgStatStatementsNotPreloaded,
         ),
     );
-
-    let compute_query_id = show_setting(&mut client, "compute_query_id");
     checks.insert(
-        "compute_query_id".to_string(),
+        ReadinessCheckId::ComputeQueryId,
         evaluate_allowed_values(
-            compute_query_id.as_deref(),
+            show_setting(&mut client, "compute_query_id").as_deref(),
             &["auto", "on"],
-            "compute_query_id_disabled",
+            ReadinessReason::ComputeQueryIdDisabled,
         ),
     );
-
     checks.insert(
-        "pg_stat_statements_extension".to_string(),
+        ReadinessCheckId::PgStatStatementsExtension,
         evaluate_exists_query(
             &mut client,
             "SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_stat_statements')",
-            "pg_stat_statements_extension_missing",
+            ReadinessReason::PgStatStatementsExtensionMissing,
         ),
     );
-
     checks.insert(
-        "pg_read_all_stats".to_string(),
+        ReadinessCheckId::PgReadAllStats,
         evaluate_exists_query(
             &mut client,
             "SELECT pg_has_role(current_user, 'pg_read_all_stats', 'member') OR (SELECT rolsuper FROM pg_roles WHERE rolname = current_user)",
-            "pg_read_all_stats_unavailable",
+            ReadinessReason::PgReadAllStatsUnavailable,
         ),
     );
-
     checks.insert(
-        "pg_stat_activity_probe".to_string(),
+        ReadinessCheckId::PgStatActivityProbe,
         evaluate_probe_query(
             &mut client,
             "SELECT pid, datname, usename, application_name, state, wait_event_type, wait_event, query_id, query FROM pg_stat_activity LIMIT 1",
         ),
     );
-
     checks.insert(
-        "pg_stat_statements_probe".to_string(),
+        ReadinessCheckId::PgStatStatementsProbe,
         evaluate_probe_query(
             &mut client,
             "SELECT queryid, query, calls, total_exec_time, mean_exec_time FROM pg_stat_statements ORDER BY total_exec_time DESC LIMIT 1",
@@ -476,30 +540,30 @@ fn default_home_path(relative_path: &str) -> Option<PathBuf> {
 }
 
 fn merge_checks(
-    base: &mut BTreeMap<String, ReadinessCheck>,
-    additional: BTreeMap<String, ReadinessCheck>,
+    base: &mut BTreeMap<ReadinessCheckId, ReadinessCheck>,
+    additional: BTreeMap<ReadinessCheckId, ReadinessCheck>,
 ) {
     for (name, check) in additional {
         base.insert(name, check);
     }
 }
 
-fn determine_mode(checks: &BTreeMap<String, ReadinessCheck>) -> OperatingMode {
-    let log_backed_ready = passed(checks, "log_source_reachable")
-        && passed(checks, "statement_evidence")
-        && passed(checks, "duration_evidence")
-        && passed(checks, "correlation_evidence");
+fn determine_mode(checks: &BTreeMap<ReadinessCheckId, ReadinessCheck>) -> OperatingMode {
+    let log_backed_ready = passed(checks, ReadinessCheckId::LogSourceReachable)
+        && passed(checks, ReadinessCheckId::StatementEvidence)
+        && passed(checks, ReadinessCheckId::DurationEvidence)
+        && passed(checks, ReadinessCheckId::CorrelationEvidence);
     if log_backed_ready {
         return OperatingMode::LogBacked;
     }
 
-    let live_only_ready = passed(checks, "track_activities")
-        && passed(checks, "shared_preload_libraries")
-        && passed(checks, "compute_query_id")
-        && passed(checks, "pg_stat_statements_extension")
-        && passed(checks, "pg_read_all_stats")
-        && passed(checks, "pg_stat_activity_probe")
-        && passed(checks, "pg_stat_statements_probe");
+    let live_only_ready = passed(checks, ReadinessCheckId::TrackActivities)
+        && passed(checks, ReadinessCheckId::SharedPreloadLibraries)
+        && passed(checks, ReadinessCheckId::ComputeQueryId)
+        && passed(checks, ReadinessCheckId::PgStatStatementsExtension)
+        && passed(checks, ReadinessCheckId::PgReadAllStats)
+        && passed(checks, ReadinessCheckId::PgStatActivityProbe)
+        && passed(checks, ReadinessCheckId::PgStatStatementsProbe);
 
     if live_only_ready {
         OperatingMode::LiveOnly
@@ -508,40 +572,56 @@ fn determine_mode(checks: &BTreeMap<String, ReadinessCheck>) -> OperatingMode {
     }
 }
 
-fn collect_failed_checks(checks: &BTreeMap<String, ReadinessCheck>) -> Vec<String> {
+fn collect_failed_checks(
+    checks: &BTreeMap<ReadinessCheckId, ReadinessCheck>,
+) -> Vec<ReadinessReason> {
     checks
-        .iter()
-        .filter(|(_, check)| matches!(check.status, CheckStatus::Failed))
-        .map(|(name, check)| check.reason.clone().unwrap_or_else(|| name.to_string()))
+        .values()
+        .filter(|check| matches!(check.status, CheckStatus::Failed))
+        .filter_map(|check| check.reason)
         .collect()
 }
 
 fn build_limitations(
     mode: OperatingMode,
-    checks: &BTreeMap<String, ReadinessCheck>,
+    checks: &BTreeMap<ReadinessCheckId, ReadinessCheck>,
 ) -> Vec<String> {
     match mode {
         OperatingMode::LogBacked => {
             let mut limitations = Vec::new();
             if checks
-                .get("pg_stat_activity_probe")
+                .get(&ReadinessCheckId::PgStatActivityProbe)
                 .is_some_and(|check| matches!(check.status, CheckStatus::Skipped))
             {
-                limitations.push("live_database_checks_unavailable".to_string());
+                limitations.push(
+                    ReadinessLimitation::LiveDatabaseChecksUnavailable
+                        .as_str()
+                        .to_string(),
+                );
             }
             limitations
         }
         OperatingMode::LiveOnly => vec![
-            "historical_log_triage_unavailable".to_string(),
-            "event_level_evidence_unavailable".to_string(),
+            ReadinessLimitation::HistoricalLogTriageUnavailable
+                .as_str()
+                .to_string(),
+            ReadinessLimitation::EventLevelEvidenceUnavailable
+                .as_str()
+                .to_string(),
         ],
         OperatingMode::Unready => {
-            let mut limitations = vec!["supported_evidence_unavailable".to_string()];
+            let mut limitations = vec![ReadinessLimitation::SupportedEvidenceUnavailable
+                .as_str()
+                .to_string()];
             if checks
-                .get("pg_stat_activity_probe")
+                .get(&ReadinessCheckId::PgStatActivityProbe)
                 .is_some_and(|check| matches!(check.status, CheckStatus::Skipped))
             {
-                limitations.push("database_connection_not_configured".to_string());
+                limitations.push(
+                    ReadinessLimitation::DatabaseConnectionNotConfigured
+                        .as_str()
+                        .to_string(),
+                );
             }
             limitations
         }
@@ -557,27 +637,16 @@ fn recommended_next_commands(mode: OperatingMode) -> Vec<String> {
             vec!["pg-logstats running-queries --output-format json".to_string()]
         }
         OperatingMode::Unready => vec![
-            format!("pg-logstats readiness --output-format json --dsn <postgres-url>"),
-            format!("pg-logstats readiness --output-format json <log-file>"),
+            "pg-logstats readiness --output-format json --dsn <postgres-url>".to_string(),
+            "pg-logstats readiness --output-format json <log-file>".to_string(),
         ],
     }
 }
 
-fn passed(checks: &BTreeMap<String, ReadinessCheck>, name: &str) -> bool {
+fn passed(checks: &BTreeMap<ReadinessCheckId, ReadinessCheck>, name: ReadinessCheckId) -> bool {
     checks
-        .get(name)
+        .get(&name)
         .is_some_and(|check| matches!(check.status, CheckStatus::Passed))
-}
-
-fn connect_client(dsn: &str, connect_timeout_ms: Option<u64>) -> Result<Client, String> {
-    let mut config = postgres::Config::from_str(dsn)
-        .map_err(|err| format!("database_connection_invalid: {err}"))?;
-    if let Some(connect_timeout_ms) = connect_timeout_ms {
-        config.connect_timeout(Duration::from_millis(connect_timeout_ms));
-    }
-    config
-        .connect(NoTls)
-        .map_err(|err| format!("database_connection_failed: {err}"))
 }
 
 fn show_setting(client: &mut Client, setting: &str) -> Option<String> {
@@ -590,7 +659,7 @@ fn show_setting(client: &mut Client, setting: &str) -> Option<String> {
 
 fn evaluate_log_destination(value: Option<&str>) -> ReadinessCheck {
     let Some(value) = value else {
-        return failed_check(None, Some("log_destination_unavailable"));
+        return failed_check(None, Some(ReadinessReason::LogDestinationUnavailable));
     };
 
     let destinations = split_csv_setting(value);
@@ -600,15 +669,21 @@ fn evaluate_log_destination(value: Option<&str>) -> ReadinessCheck {
         .iter()
         .any(|item| item == "csvlog" || item == "jsonlog")
     {
-        failed_check(Some(json!(value)), Some("unsupported_log_format"))
+        failed_check(
+            Some(json!(value)),
+            Some(ReadinessReason::UnsupportedLogFormat),
+        )
     } else {
-        failed_check(Some(json!(value)), Some("unsupported_log_destination"))
+        failed_check(
+            Some(json!(value)),
+            Some(ReadinessReason::UnsupportedLogDestination),
+        )
     }
 }
 
 fn evaluate_log_line_prefix(value: Option<&str>) -> ReadinessCheck {
     let Some(value) = value else {
-        return failed_check(None, Some("log_line_prefix_unavailable"));
+        return failed_check(None, Some(ReadinessReason::LogLinePrefixUnavailable));
     };
 
     if value.contains("%p") {
@@ -616,12 +691,12 @@ fn evaluate_log_line_prefix(value: Option<&str>) -> ReadinessCheck {
     } else {
         failed_check(
             Some(json!(value)),
-            Some("log_line_prefix_missing_process_id"),
+            Some(ReadinessReason::LogLinePrefixMissingProcessId),
         )
     }
 }
 
-fn evaluate_on_off_setting(value: Option<&str>, failure_reason: &str) -> ReadinessCheck {
+fn evaluate_on_off_setting(value: Option<&str>, failure_reason: ReadinessReason) -> ReadinessCheck {
     let Some(value) = value else {
         return failed_check(None, Some(failure_reason));
     };
@@ -633,7 +708,10 @@ fn evaluate_on_off_setting(value: Option<&str>, failure_reason: &str) -> Readine
     }
 }
 
-fn evaluate_non_negative_setting(value: Option<&str>, failure_reason: &str) -> ReadinessCheck {
+fn evaluate_non_negative_setting(
+    value: Option<&str>,
+    failure_reason: ReadinessReason,
+) -> ReadinessCheck {
     let Some(value) = value else {
         return failed_check(None, Some(failure_reason));
     };
@@ -648,7 +726,7 @@ fn evaluate_non_negative_setting(value: Option<&str>, failure_reason: &str) -> R
 fn evaluate_list_contains(
     value: Option<&str>,
     required: &str,
-    failure_reason: &str,
+    failure_reason: ReadinessReason,
 ) -> ReadinessCheck {
     let Some(value) = value else {
         return failed_check(None, Some(failure_reason));
@@ -664,7 +742,7 @@ fn evaluate_list_contains(
 fn evaluate_allowed_values(
     value: Option<&str>,
     allowed: &[&str],
-    failure_reason: &str,
+    failure_reason: ReadinessReason,
 ) -> ReadinessCheck {
     let Some(value) = value else {
         return failed_check(None, Some(failure_reason));
@@ -680,21 +758,25 @@ fn evaluate_allowed_values(
     }
 }
 
-fn evaluate_exists_query(client: &mut Client, sql: &str, failure_reason: &str) -> ReadinessCheck {
+fn evaluate_exists_query(
+    client: &mut Client,
+    sql: &str,
+    failure_reason: ReadinessReason,
+) -> ReadinessCheck {
     match client.query_one(sql, &[]) {
         Ok(row) => match row.try_get::<_, bool>(0) {
             Ok(true) => passed_check(Some(json!(true)), None),
             Ok(false) => failed_check(Some(json!(false)), Some(failure_reason)),
-            Err(err) => failed_check(None, Some(&format!("{failure_reason}: {err}"))),
+            Err(_) => failed_check(None, Some(ReadinessReason::ProbeFailed)),
         },
-        Err(err) => failed_check(None, Some(&format!("{failure_reason}: {err}"))),
+        Err(_) => failed_check(None, Some(ReadinessReason::ProbeFailed)),
     }
 }
 
 fn evaluate_probe_query(client: &mut Client, sql: &str) -> ReadinessCheck {
     match client.query(sql, &[]) {
         Ok(_) => passed_check(None, None),
-        Err(err) => failed_check(None, Some(&format!("probe_failed: {err}"))),
+        Err(_) => failed_check(None, Some(ReadinessReason::ProbeFailed)),
     }
 }
 
@@ -705,27 +787,35 @@ fn split_csv_setting(value: &str) -> Vec<String> {
         .collect()
 }
 
-fn passed_check(value: Option<Value>, reason: Option<&str>) -> ReadinessCheck {
+fn passed_check(value: Option<Value>, reason: Option<ReadinessReason>) -> ReadinessCheck {
     ReadinessCheck {
         status: CheckStatus::Passed,
         value,
-        reason: reason.map(str::to_string),
+        reason,
     }
 }
 
-fn failed_check(value: Option<Value>, reason: Option<&str>) -> ReadinessCheck {
+fn failed_check(value: Option<Value>, reason: Option<ReadinessReason>) -> ReadinessCheck {
     ReadinessCheck {
         status: CheckStatus::Failed,
         value,
-        reason: reason.map(str::to_string),
+        reason,
     }
 }
 
-fn skipped_check(reason: Option<&str>, value: Option<Value>) -> ReadinessCheck {
+fn skipped_check(reason: Option<ReadinessReason>, value: Option<Value>) -> ReadinessCheck {
     ReadinessCheck {
         status: CheckStatus::Skipped,
         value,
-        reason: reason.map(str::to_string),
+        reason,
+    }
+}
+
+fn parse_connection_reason(reason: &str) -> ReadinessReason {
+    if reason.starts_with("database_connection_invalid") {
+        ReadinessReason::DatabaseConnectionInvalid
+    } else {
+        ReadinessReason::DatabaseConnectionFailed
     }
 }
 
@@ -737,17 +827,68 @@ fn check_status_label(status: CheckStatus) -> &'static str {
     }
 }
 
+fn operating_mode_label(mode: OperatingMode) -> &'static str {
+    match mode {
+        OperatingMode::LogBacked => "log_backed",
+        OperatingMode::LiveOnly => "live_only",
+        OperatingMode::Unready => "unready",
+    }
+}
+
+fn check_id_label(id: ReadinessCheckId) -> &'static str {
+    match id {
+        ReadinessCheckId::LogSourceReachable => "log_source_reachable",
+        ReadinessCheckId::StatementEvidence => "statement_evidence",
+        ReadinessCheckId::DurationEvidence => "duration_evidence",
+        ReadinessCheckId::CorrelationEvidence => "correlation_evidence",
+        ReadinessCheckId::LogDestination => "log_destination",
+        ReadinessCheckId::LogLinePrefix => "log_line_prefix",
+        ReadinessCheckId::LogDuration => "log_duration",
+        ReadinessCheckId::LogMinDurationStatement => "log_min_duration_statement",
+        ReadinessCheckId::LogTempFiles => "log_temp_files",
+        ReadinessCheckId::TrackActivities => "track_activities",
+        ReadinessCheckId::SharedPreloadLibraries => "shared_preload_libraries",
+        ReadinessCheckId::ComputeQueryId => "compute_query_id",
+        ReadinessCheckId::PgStatStatementsExtension => "pg_stat_statements_extension",
+        ReadinessCheckId::PgReadAllStats => "pg_read_all_stats",
+        ReadinessCheckId::PgStatActivityProbe => "pg_stat_activity_probe",
+        ReadinessCheckId::PgStatStatementsProbe => "pg_stat_statements_probe",
+    }
+}
+
+fn reason_label(reason: ReadinessReason) -> &'static str {
+    match reason {
+        ReadinessReason::LogSourceNotRequested => "log_source_not_requested",
+        ReadinessReason::LogSourceUnreachable => "log_source_unreachable",
+        ReadinessReason::SupportedLogSourceUnreachable => "supported_log_source_unreachable",
+        ReadinessReason::DatabaseConnectionNotConfigured => "database_connection_not_configured",
+        ReadinessReason::DatabaseConnectionInvalid => "database_connection_invalid",
+        ReadinessReason::DatabaseConnectionFailed => "database_connection_failed",
+        ReadinessReason::LogDestinationUnavailable => "log_destination_unavailable",
+        ReadinessReason::UnsupportedLogFormat => "unsupported_log_format",
+        ReadinessReason::UnsupportedLogDestination => "unsupported_log_destination",
+        ReadinessReason::LogLinePrefixUnavailable => "log_line_prefix_unavailable",
+        ReadinessReason::LogLinePrefixMissingProcessId => "log_line_prefix_missing_process_id",
+        ReadinessReason::LogDurationDisabled => "log_duration_disabled",
+        ReadinessReason::LogMinDurationStatementDisabled => "log_min_duration_statement_disabled",
+        ReadinessReason::LogTempFilesDisabled => "log_temp_files_disabled",
+        ReadinessReason::TrackActivitiesDisabled => "track_activities_disabled",
+        ReadinessReason::PgStatStatementsNotPreloaded => "pg_stat_statements_not_preloaded",
+        ReadinessReason::ComputeQueryIdDisabled => "compute_query_id_disabled",
+        ReadinessReason::PgStatStatementsExtensionMissing => "pg_stat_statements_extension_missing",
+        ReadinessReason::PgReadAllStatsUnavailable => "pg_read_all_stats_unavailable",
+        ReadinessReason::StatementEvidenceMissing => "statement_evidence_missing",
+        ReadinessReason::DurationEvidenceMissing => "duration_evidence_missing",
+        ReadinessReason::CorrelationEvidenceMissing => "correlation_evidence_missing",
+        ReadinessReason::ProbeFailed => "probe_failed",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::LogLevel;
     use chrono::{TimeZone, Utc};
-    use std::sync::{Mutex, OnceLock};
-
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
 
     fn sample_log_evidence() -> LogEvidence {
         LogEvidence {
@@ -770,18 +911,6 @@ mod tests {
     }
 
     #[test]
-    fn resolves_database_dsn_precedence() {
-        let _guard = env_lock().lock().unwrap();
-        let config = AppConfig::default();
-        env::set_var(DATABASE_URL_ENV_VAR, "postgres://env");
-        assert_eq!(
-            resolve_database_dsn(Some("postgres://explicit"), &config).as_deref(),
-            Some("postgres://explicit")
-        );
-        env::remove_var(DATABASE_URL_ENV_VAR);
-    }
-
-    #[test]
     fn readiness_uses_log_evidence_without_database_connection() {
         let report = build_readiness_report(
             &AppConfig::default(),
@@ -791,7 +920,9 @@ mod tests {
 
         assert_eq!(report.operating_mode, OperatingMode::LogBacked);
         assert_eq!(
-            report.payload.readiness.database_readiness.checks["pg_stat_activity_probe"].status,
+            report.payload.readiness.database_readiness.checks
+                [&ReadinessCheckId::PgStatActivityProbe]
+                .status,
             CheckStatus::Skipped
         );
     }
@@ -806,9 +937,11 @@ mod tests {
 
         assert_eq!(report.operating_mode, OperatingMode::Unready);
         assert!(report.payload.readiness.failed_checks.is_empty());
-        assert!(report
-            .limitations
-            .contains(&"database_connection_not_configured".to_string()));
+        assert!(report.limitations.contains(
+            &ReadinessLimitation::DatabaseConnectionNotConfigured
+                .as_str()
+                .to_string()
+        ));
     }
 
     #[test]
@@ -817,12 +950,14 @@ mod tests {
             &AppConfig::default(),
             None,
             LogReadinessEvidence::Unreachable {
-                reason: "supported_log_source_unreachable".to_string(),
+                reason: ReadinessReason::SupportedLogSourceUnreachable,
             },
         );
 
         assert_eq!(
-            report.payload.readiness.database_readiness.checks["log_source_reachable"].status,
+            report.payload.readiness.database_readiness.checks
+                [&ReadinessCheckId::LogSourceReachable]
+                .status,
             CheckStatus::Failed
         );
     }

@@ -12,6 +12,7 @@ use thiserror::Error;
 pub mod analytics;
 pub mod config;
 pub mod correlation;
+pub mod database;
 pub mod events;
 pub mod findings;
 pub mod input;
@@ -30,6 +31,7 @@ pub use correlation::{
     correlate_query_executions, CorrelationConfidence, Correlator, ProcessOrderCorrelator,
     QueryExecution, QueryFamilyIdentity,
 };
+pub use database::{connect_postgres_client, database_url_env_var_name, resolve_database_dsn};
 pub use events::{
     normalize_log_entries, DurationEvent, ErrorEvent, EventKind, EventSourceKind, NormalizedEvent,
     SessionIdentity, SourceReference, StatementEvent,
@@ -42,8 +44,9 @@ pub use findings::{
 pub use output::{JsonFormatter, TextFormatter};
 pub use parsers::{TextLogFormat, TextLogParser};
 pub use readiness::{
-    build_readiness_report, database_url_env_var_name, format_readiness_text, resolve_database_dsn,
-    LogEvidence, LogReadinessEvidence, ReadinessDetails, ReadinessReportPayload,
+    build_readiness_report, format_readiness_text, LogEvidence, LogReadinessEvidence,
+    ReadinessCheckId, ReadinessDetails, ReadinessLimitation, ReadinessReason,
+    ReadinessReportPayload,
 };
 pub use sql::{Query, QueryType};
 pub use triage::{

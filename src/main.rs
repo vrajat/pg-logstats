@@ -7,11 +7,11 @@ use pg_logstats::{
         discover_log_files, process_cloudwatch_input, process_log_file, process_log_paths,
         validate_file_input_args, CloudWatchInput, CloudWatchSince, CloudWatchUntil, LocalLogInput,
     },
-    load_config, normalize_log_entries, query_family_findings, slow_query_diff_findings,
-    top_query_families_report, Correlator, EventSourceKind, Finding, FindingSet, FindingsPayload,
-    JsonFormatter, LogEvidence, LogReadinessEvidence, PgLogstatsError, PgTriageReport,
-    ProcessOrderCorrelator, Result, SlowQueryDiffOptions, TextFormatter, TextLogFormat,
-    TextLogParser,
+    load_config, normalize_log_entries, query_family_findings, resolve_database_dsn,
+    slow_query_diff_findings, top_query_families_report, Correlator, EventSourceKind, Finding,
+    FindingSet, FindingsPayload, JsonFormatter, LogEvidence, LogReadinessEvidence, PgLogstatsError,
+    PgTriageReport, ProcessOrderCorrelator, ReadinessReason, Result, SlowQueryDiffOptions,
+    TextFormatter, TextLogFormat, TextLogParser,
 };
 use serde_json::json;
 use std::fs;
@@ -52,6 +52,11 @@ struct Arguments {
     /// Suppress progress output and the completion footer
     #[clap(short = 'q', long, global = true)]
     quiet: bool,
+
+    /// PostgreSQL connection string. Falls back to PG_LOGSTATS_DATABASE_URL
+    /// and then [database].dsn from config.
+    #[clap(long, global = true, value_name = "POSTGRES_URL")]
+    dsn: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -147,11 +152,6 @@ enum Command {
     },
     /// Detect operating mode and evidence readiness before deeper investigation
     Readiness {
-        /// PostgreSQL connection string. Falls back to PG_LOGSTATS_DATABASE_URL
-        /// and then [database].dsn from config.
-        #[clap(long, value_name = "POSTGRES_URL")]
-        dsn: Option<String>,
-
         #[clap(flatten)]
         input: LogInputArgs,
     },
@@ -291,8 +291,8 @@ fn run_command(
         Command::Top {
             command: TopCommand::QueryFamilies { limit, input },
         } => run_top_query_families_command(args, parser, input, *limit),
-        Command::Readiness { dsn, input } => {
-            run_readiness_command(args, parser, config, dsn.as_deref(), input)
+        Command::Readiness { input } => {
+            run_readiness_command(args, parser, config, args.dsn.as_deref(), input)
         }
         Command::SlowQueries {
             command:
@@ -430,7 +430,11 @@ fn run_readiness_command(
     input: &LogInputArgs,
 ) -> Result<()> {
     let log_evidence = load_readiness_log_evidence(args, input, parser)?;
-    let report = build_readiness_report(config, dsn, log_evidence);
+    let report = build_readiness_report(
+        config,
+        resolve_database_dsn(dsn, config).as_deref(),
+        log_evidence,
+    );
 
     match args.output_format {
         OutputFormat::Json => {
@@ -475,11 +479,14 @@ fn load_readiness_log_evidence(
                 }))
             }
             Ok(_) => Ok(LogReadinessEvidence::Unreachable {
-                reason: "supported_log_source_unreachable".to_string(),
+                reason: ReadinessReason::SupportedLogSourceUnreachable,
             }),
-            Err(err) => Ok(LogReadinessEvidence::Unreachable {
-                reason: format!("supported_log_source_unreachable: {err}"),
-            }),
+            Err(err) => {
+                info!("CloudWatch readiness evidence unavailable: {err}");
+                Ok(LogReadinessEvidence::Unreachable {
+                    reason: ReadinessReason::SupportedLogSourceUnreachable,
+                })
+            }
         };
     }
 
@@ -487,7 +494,7 @@ fn load_readiness_log_evidence(
     if log_files.is_empty() {
         if input.log_dir.is_some() || input.logfile_list.is_some() || !input.log_files.is_empty() {
             return Ok(LogReadinessEvidence::Unreachable {
-                reason: "supported_log_source_unreachable".to_string(),
+                reason: ReadinessReason::SupportedLogSourceUnreachable,
             });
         }
         return Ok(LogReadinessEvidence::NotRequested);
@@ -507,7 +514,7 @@ fn load_readiness_log_evidence(
 
     if all_entries.is_empty() {
         Ok(LogReadinessEvidence::Unreachable {
-            reason: "supported_log_source_unreachable".to_string(),
+            reason: ReadinessReason::SupportedLogSourceUnreachable,
         })
     } else {
         Ok(LogReadinessEvidence::Available(LogEvidence {
