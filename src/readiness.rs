@@ -1,9 +1,15 @@
 use crate::config::{AgentInstallTargetConfig, AppConfig};
 use crate::database::connect_postgres_client;
+use crate::input::{
+    discover_log_files, process_cloudwatch_input, process_log_file, CloudWatchInput, LocalLogInput,
+};
 use crate::triage::{
     CheckStatus, OperatingMode, PgTriageReport, WorkflowId, PG_TRIAGE_SCHEMA_VERSION,
 };
-use crate::{normalize_log_entries, Correlator, EventSourceKind, LogEntry, ProcessOrderCorrelator};
+use crate::{
+    normalize_log_entries, Correlator, EventSourceKind, LogEntry, ProcessOrderCorrelator,
+    TextLogParser,
+};
 use postgres::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -175,7 +181,7 @@ pub fn build_readiness_report(
 
     PgTriageReport {
         schema_version: PG_TRIAGE_SCHEMA_VERSION,
-        workflow: WorkflowId::Readiness,
+        workflow: WorkflowId::Inspect,
         operating_mode: mode_candidate,
         limitations,
         verdict: None,
@@ -196,6 +202,75 @@ pub fn build_readiness_report(
                 recommended_next_commands,
             },
         },
+    }
+}
+
+pub fn collect_log_readiness_evidence(
+    local_input: &LocalLogInput,
+    cloudwatch_input: Option<&CloudWatchInput>,
+    parser: &TextLogParser,
+    source_kind: EventSourceKind,
+) -> LogReadinessEvidence {
+    if let Some(cloudwatch_input) = cloudwatch_input {
+        return match process_cloudwatch_input(cloudwatch_input, parser) {
+            Ok(entries) if !entries.is_empty() => LogReadinessEvidence::Available(LogEvidence {
+                entries,
+                source_kind,
+            }),
+            Ok(_) => LogReadinessEvidence::Unreachable {
+                reason: ReadinessReason::SupportedLogSourceUnreachable,
+            },
+            Err(_) => LogReadinessEvidence::Unreachable {
+                reason: ReadinessReason::SupportedLogSourceUnreachable,
+            },
+        };
+    }
+
+    let log_files = match discover_log_files(local_input) {
+        Ok(log_files) => log_files,
+        Err(_) => {
+            return if local_input.log_dir.is_some()
+                || local_input.logfile_list.is_some()
+                || !local_input.log_files.is_empty()
+            {
+                LogReadinessEvidence::Unreachable {
+                    reason: ReadinessReason::SupportedLogSourceUnreachable,
+                }
+            } else {
+                LogReadinessEvidence::NotRequested
+            };
+        }
+    };
+
+    if log_files.is_empty() {
+        return if local_input.log_dir.is_some()
+            || local_input.logfile_list.is_some()
+            || !local_input.log_files.is_empty()
+        {
+            LogReadinessEvidence::Unreachable {
+                reason: ReadinessReason::SupportedLogSourceUnreachable,
+            }
+        } else {
+            LogReadinessEvidence::NotRequested
+        };
+    }
+
+    let mut all_entries = Vec::new();
+    for log_file in log_files {
+        if let Ok(mut entries) = process_log_file(&log_file, parser, local_input.sample_size) {
+            all_entries.append(&mut entries);
+        }
+    }
+
+    if all_entries.is_empty() {
+        LogReadinessEvidence::Unreachable {
+            reason: ReadinessReason::SupportedLogSourceUnreachable,
+        }
+    } else {
+        LogReadinessEvidence::Available(LogEvidence {
+            entries: all_entries,
+            source_kind,
+        })
     }
 }
 
@@ -637,8 +712,8 @@ fn recommended_next_commands(mode: OperatingMode) -> Vec<String> {
             vec!["pg-logstats running-queries --output-format json".to_string()]
         }
         OperatingMode::Unready => vec![
-            "pg-logstats readiness --output-format json --dsn <postgres-url>".to_string(),
-            "pg-logstats readiness --output-format json <log-file>".to_string(),
+            "pg-logstats inspect --output-format json --dsn <postgres-url>".to_string(),
+            "pg-logstats inspect --output-format json <log-file>".to_string(),
         ],
     }
 }

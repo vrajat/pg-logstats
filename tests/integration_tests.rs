@@ -89,7 +89,7 @@ fn test_cli_help() {
         .stdout(predicate::str::contains("--output-format"))
         .stdout(predicate::str::contains("--input-format"))
         .stdout(predicate::str::contains("top"))
-        .stdout(predicate::str::contains("readiness"))
+        .stdout(predicate::str::contains("inspect"))
         .stdout(predicate::str::contains("slow-queries"))
         .stdout(predicate::str::contains("suggest-sql"))
         .stdout(predicate::str::contains("Perl module JSON::XS").not())
@@ -156,7 +156,7 @@ fn test_single_log_file_json_output() {
 }
 
 #[test]
-fn test_readiness_uses_log_input_without_database_access() {
+fn test_inspect_uses_log_input_without_database_access() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
@@ -165,7 +165,7 @@ fn test_readiness_uses_log_input_without_database_access() {
         .arg("--output-format")
         .arg("json")
         .arg("--quiet")
-        .arg("readiness")
+        .arg("inspect")
         .arg(log_file.to_str().unwrap())
         .output()
         .unwrap();
@@ -173,7 +173,7 @@ fn test_readiness_uses_log_input_without_database_access() {
     assert!(output.status.success());
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
 
-    assert_eq!(json["workflow"], "readiness");
+    assert_eq!(json["workflow"], "inspect");
     assert_eq!(json["operating_mode"], "log_backed");
     assert_eq!(
         json["payload"]["readiness"]["database_readiness"]["checks"]["pg_stat_activity_probe"]
@@ -192,13 +192,13 @@ fn test_readiness_uses_log_input_without_database_access() {
 }
 
 #[test]
-fn test_readiness_without_logs_or_database_is_unready() {
+fn test_inspect_without_logs_or_database_is_unready() {
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     let output = cmd
         .arg("--output-format")
         .arg("json")
         .arg("--quiet")
-        .arg("readiness")
+        .arg("inspect")
         .output()
         .unwrap();
 

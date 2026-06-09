@@ -1,14 +1,14 @@
-# Readiness
+# Inspect
 
-`pg-logstats readiness` is the first command to run before deeper
-investigation. It tells the caller which operating mode is actually supported
-by the available PostgreSQL evidence.
+`pg-logstats inspect` is the first command to run before deeper investigation.
+It tells the caller which operating mode is actually supported by the available
+PostgreSQL evidence.
 
 ## Purpose
 
 The command answers four questions:
 
-1. Can `pg-logstats` prove `log_backed` mode from real log evidence?
+1. Can `pg-logstats` determine `log_backed` mode from available log evidence?
 2. If not, is `live_only` mode available from PostgreSQL system views?
 3. If neither is true, why is the environment `unready`?
 4. What command should the caller run next?
@@ -21,7 +21,7 @@ Live PostgreSQL checks use this precedence:
 2. `PG_LOGSTATS_DATABASE_URL`
 3. `[database].dsn` from the resolved config file
 
-`--dsn` is a global CLI flag, not a readiness-only option.
+`--dsn` is a global CLI flag, not an inspect-only option.
 
 ## Supported Evidence
 
@@ -47,15 +47,15 @@ Documented but not yet `log_backed`-ready:
 
 ## Output Shape
 
-The JSON output is a `PgTriageReport` with `workflow = "readiness"` and
-`payload.readiness` containing the readiness-specific fields.
+The JSON output is a `PgTriageReport` with `workflow = "inspect"` and
+`payload.readiness` containing the inspect-specific fields.
 
 Example:
 
 ```json
 {
   "schema_version": 1,
-  "workflow": "readiness",
+  "workflow": "inspect",
   "operating_mode": "log_backed",
   "limitations": ["live_database_checks_unavailable"],
   "payload": {
@@ -127,7 +127,7 @@ Example:
 
 ## Check Semantics
 
-Each readiness check has:
+Each inspect check has:
 
 - `status`: `passed`, `failed`, or `skipped`
 - `value`: optional observed value
@@ -144,7 +144,7 @@ Important behavior:
 
 ### `log_backed`
 
-Chosen when parsed log evidence proves:
+Chosen when available parsed log evidence supports:
 
 - log source reachable
 - statement evidence present
@@ -177,6 +177,15 @@ Typical fixes:
 - provide a supported log source
 - provide a resolvable PostgreSQL connection
 - enable the required PostgreSQL monitoring settings
+
+## Agent Checks
+
+The current agent checks answer one narrow question: are the expected Codex,
+Claude, and Gemini guidance artifacts installed where `pg-logstats` expects
+them?
+
+If an agent check fails, the next action is to install or repair the
+corresponding guidance bundle, then rerun `pg-logstats inspect`.
 
 ## Text Output
 

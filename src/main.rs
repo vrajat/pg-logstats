@@ -2,16 +2,16 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use pg_logstats::{
-    build_readiness_report, format_readiness_text,
+    build_readiness_report, collect_log_readiness_evidence, format_readiness_text,
     input::{
         discover_log_files, process_cloudwatch_input, process_log_file, process_log_paths,
         validate_file_input_args, CloudWatchInput, CloudWatchSince, CloudWatchUntil, LocalLogInput,
     },
     load_config, normalize_log_entries, query_family_findings, resolve_database_dsn,
     slow_query_diff_findings, top_query_families_report, Correlator, EventSourceKind, Finding,
-    FindingSet, FindingsPayload, JsonFormatter, LogEvidence, LogReadinessEvidence, PgLogstatsError,
-    PgTriageReport, ProcessOrderCorrelator, ReadinessReason, Result, SlowQueryDiffOptions,
-    TextFormatter, TextLogFormat, TextLogParser,
+    FindingSet, FindingsPayload, JsonFormatter, PgLogstatsError, PgTriageReport,
+    ProcessOrderCorrelator, Result, SlowQueryDiffOptions, TextFormatter, TextLogFormat,
+    TextLogParser,
 };
 use serde_json::json;
 use std::fs;
@@ -150,8 +150,8 @@ enum Command {
         #[clap(subcommand)]
         command: TopCommand,
     },
-    /// Detect operating mode and evidence readiness before deeper investigation
-    Readiness {
+    /// Inspect the environment and determine the supported operating mode
+    Inspect {
         #[clap(flatten)]
         input: LogInputArgs,
     },
@@ -291,8 +291,8 @@ fn run_command(
         Command::Top {
             command: TopCommand::QueryFamilies { limit, input },
         } => run_top_query_families_command(args, parser, input, *limit),
-        Command::Readiness { input } => {
-            run_readiness_command(args, parser, config, args.dsn.as_deref(), input)
+        Command::Inspect { input } => {
+            run_inspect_command(args, parser, config, args.dsn.as_deref(), input)
         }
         Command::SlowQueries {
             command:
@@ -422,14 +422,20 @@ fn run_top_query_families_command(
     }
 }
 
-fn run_readiness_command(
+fn run_inspect_command(
     args: &Arguments,
     parser: &TextLogParser,
     config: &pg_logstats::AppConfig,
     dsn: Option<&str>,
     input: &LogInputArgs,
 ) -> Result<()> {
-    let log_evidence = load_readiness_log_evidence(args, input, parser)?;
+    let cloudwatch_input = input.uses_cloudwatch().then(|| input.cloudwatch_input());
+    let log_evidence = collect_log_readiness_evidence(
+        &input.local_log_input(),
+        cloudwatch_input.as_ref(),
+        parser,
+        source_kind_for_input(args, input),
+    );
     let report = build_readiness_report(
         config,
         resolve_database_dsn(dsn, config).as_deref(),
@@ -465,71 +471,12 @@ fn run_slow_queries_diff_command(
     output_findings_with_entry_count(&findings, args, total_entries)
 }
 
-fn load_readiness_log_evidence(
-    args: &Arguments,
-    input: &LogInputArgs,
-    parser: &TextLogParser,
-) -> Result<LogReadinessEvidence> {
-    if input.uses_cloudwatch() {
-        return match process_cloudwatch_input(&input.cloudwatch_input(), parser) {
-            Ok(entries) if !entries.is_empty() => {
-                Ok(LogReadinessEvidence::Available(LogEvidence {
-                    entries,
-                    source_kind: source_kind_for_input(args, input),
-                }))
-            }
-            Ok(_) => Ok(LogReadinessEvidence::Unreachable {
-                reason: ReadinessReason::SupportedLogSourceUnreachable,
-            }),
-            Err(err) => {
-                info!("CloudWatch readiness evidence unavailable: {err}");
-                Ok(LogReadinessEvidence::Unreachable {
-                    reason: ReadinessReason::SupportedLogSourceUnreachable,
-                })
-            }
-        };
-    }
-
-    let log_files = discover_log_files(&input.local_log_input())?;
-    if log_files.is_empty() {
-        if input.log_dir.is_some() || input.logfile_list.is_some() || !input.log_files.is_empty() {
-            return Ok(LogReadinessEvidence::Unreachable {
-                reason: ReadinessReason::SupportedLogSourceUnreachable,
-            });
-        }
-        return Ok(LogReadinessEvidence::NotRequested);
-    }
-
-    let mut all_entries = Vec::new();
-    for log_file in log_files {
-        match process_log_file(&log_file, parser, input.sample_size) {
-            Ok(mut entries) => all_entries.append(&mut entries),
-            Err(err) => info!(
-                "Skipping readiness log source {} after parse failure: {}",
-                log_file.display(),
-                err
-            ),
-        }
-    }
-
-    if all_entries.is_empty() {
-        Ok(LogReadinessEvidence::Unreachable {
-            reason: ReadinessReason::SupportedLogSourceUnreachable,
-        })
-    } else {
-        Ok(LogReadinessEvidence::Available(LogEvidence {
-            entries: all_entries,
-            source_kind: source_kind_for_input(args, input),
-        }))
-    }
-}
-
 fn validate_arguments(args: &Arguments) -> Result<()> {
     match &args.command {
         Command::Top {
             command: TopCommand::QueryFamilies { input, .. },
         } => validate_log_input_args(input)?,
-        Command::Readiness { input, .. } => validate_log_input_args(input)?,
+        Command::Inspect { input, .. } => validate_log_input_args(input)?,
         Command::SlowQueries {
             command: SlowQueriesCommand::Diff { sample_size, .. },
         } => validate_sample_size(*sample_size)?,

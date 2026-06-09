@@ -134,19 +134,19 @@ cargo run -- top query-families tests/fixtures/cli/sample_stderr.log
 
 ## Commands
 
-### Readiness
+### Inspect
 
-Detect the supported operating mode before deeper investigation:
+Inspect the environment and determine the supported operating mode:
 
 ```bash
-pg-logstats readiness --output-format json
+pg-logstats inspect --output-format json
 ```
 
-Use supported log input to prove `log_backed` mode even when no PostgreSQL
+Use supported log input to determine `log_backed` mode even when no PostgreSQL
 connection is configured:
 
 ```bash
-pg-logstats readiness \
+pg-logstats inspect \
   --output-format json \
   tests/fixtures/cli/sample_stderr.log
 ```
@@ -157,7 +157,7 @@ When live checks are needed, connection discovery precedence is:
 2. `PG_LOGSTATS_DATABASE_URL`
 3. `[database].dsn` from the resolved config
 
-The dedicated readiness guide lives in [docs/readiness.md](docs/readiness.md).
+The dedicated inspect guide lives in [docs/inspect.md](docs/inspect.md).
 
 ### Top Query Families
 

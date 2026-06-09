@@ -24,9 +24,9 @@ published to CloudWatch Logs, including:
 - LLM-friendly JSON workflows
 - local RDS log fallback
 
-### readiness.md
+### inspect.md
 
-User-facing guide for `pg-logstats readiness`, including:
+User-facing guide for `pg-logstats inspect`, including:
 
 - operating-mode detection
 - DB connection precedence

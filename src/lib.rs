@@ -44,8 +44,8 @@ pub use findings::{
 pub use output::{JsonFormatter, TextFormatter};
 pub use parsers::{TextLogFormat, TextLogParser};
 pub use readiness::{
-    build_readiness_report, format_readiness_text, LogEvidence, LogReadinessEvidence,
-    ReadinessCheckId, ReadinessDetails, ReadinessLimitation, ReadinessReason,
+    build_readiness_report, collect_log_readiness_evidence, format_readiness_text, LogEvidence,
+    LogReadinessEvidence, ReadinessCheckId, ReadinessDetails, ReadinessLimitation, ReadinessReason,
     ReadinessReportPayload,
 };
 pub use sql::{Query, QueryType};
