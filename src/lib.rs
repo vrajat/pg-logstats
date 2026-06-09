@@ -16,9 +16,9 @@ pub mod database;
 pub mod events;
 pub mod findings;
 pub mod input;
+pub mod inspect;
 pub mod output;
 pub mod parsers;
-pub mod readiness;
 pub mod sql;
 pub mod triage;
 
@@ -41,13 +41,13 @@ pub use findings::{
     FindingConfidence, FindingKind, FindingMetrics, FindingSet, QueryFamilyFinding, ReasonCode,
     SlowQueryDiffOptions, FINDING_SCHEMA_VERSION,
 };
+pub use inspect::{
+    build_inspect_report, collect_log_inspect_evidence, format_inspect_text, InspectCheckId,
+    InspectDetails, InspectLimitation, InspectReason, InspectReportPayload, LogEvidence,
+    LogInspectEvidence,
+};
 pub use output::{JsonFormatter, TextFormatter};
 pub use parsers::{TextLogFormat, TextLogParser};
-pub use readiness::{
-    build_readiness_report, collect_log_readiness_evidence, format_readiness_text, LogEvidence,
-    LogReadinessEvidence, ReadinessCheckId, ReadinessDetails, ReadinessLimitation, ReadinessReason,
-    ReadinessReportPayload,
-};
 pub use sql::{Query, QueryType};
 pub use triage::{
     top_query_families_report, ActionClass, AnalysisWindow, CheckStatus, FindingsPayload,

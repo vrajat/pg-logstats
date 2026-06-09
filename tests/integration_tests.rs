@@ -176,17 +176,16 @@ fn test_inspect_uses_log_input_without_database_access() {
     assert_eq!(json["workflow"], "inspect");
     assert_eq!(json["operating_mode"], "log_backed");
     assert_eq!(
-        json["payload"]["readiness"]["database_readiness"]["checks"]["pg_stat_activity_probe"]
+        json["payload"]["inspect"]["database_inspect"]["checks"]["pg_stat_activity_probe"]
             ["status"],
         "skipped"
     );
     assert_eq!(
-        json["payload"]["readiness"]["database_readiness"]["checks"]["statement_evidence"]
-            ["status"],
+        json["payload"]["inspect"]["database_inspect"]["checks"]["statement_evidence"]["status"],
         "passed"
     );
     assert_eq!(
-        json["payload"]["readiness"]["recommended_next_commands"][0],
+        json["payload"]["inspect"]["recommended_next_commands"][0],
         "pg-logstats top query-families --output-format json"
     );
 }
@@ -207,8 +206,7 @@ fn test_inspect_without_logs_or_database_is_unready() {
 
     assert_eq!(json["operating_mode"], "unready");
     assert_eq!(
-        json["payload"]["readiness"]["database_readiness"]["checks"]["log_source_reachable"]
-            ["status"],
+        json["payload"]["inspect"]["database_inspect"]["checks"]["log_source_reachable"]["status"],
         "skipped"
     );
     assert!(json["limitations"]

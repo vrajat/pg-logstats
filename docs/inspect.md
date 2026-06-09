@@ -48,7 +48,7 @@ Documented but not yet `log_backed`-ready:
 ## Output Shape
 
 The JSON output is a `PgTriageReport` with `workflow = "inspect"` and
-`payload.readiness` containing the inspect-specific fields.
+`payload.inspect` containing the inspect-specific fields.
 
 Example:
 
@@ -59,8 +59,8 @@ Example:
   "operating_mode": "log_backed",
   "limitations": ["live_database_checks_unavailable"],
   "payload": {
-    "readiness": {
-      "database_readiness": {
+    "inspect": {
+      "database_inspect": {
         "mode_candidate": "log_backed",
         "checks": {
           "log_source_reachable": {
@@ -81,7 +81,7 @@ Example:
           }
         }
       },
-      "agent_readiness": {
+      "agent_inspect": {
         "codex": {
           "status": "passed",
           "installed": true,

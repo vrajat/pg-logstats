@@ -2,7 +2,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use pg_logstats::{
-    build_readiness_report, collect_log_readiness_evidence, format_readiness_text,
+    build_inspect_report, collect_log_inspect_evidence, format_inspect_text,
     input::{
         discover_log_files, process_cloudwatch_input, process_log_file, process_log_paths,
         validate_file_input_args, CloudWatchInput, CloudWatchSince, CloudWatchUntil, LocalLogInput,
@@ -430,13 +430,13 @@ fn run_inspect_command(
     input: &LogInputArgs,
 ) -> Result<()> {
     let cloudwatch_input = input.uses_cloudwatch().then(|| input.cloudwatch_input());
-    let log_evidence = collect_log_readiness_evidence(
+    let log_evidence = collect_log_inspect_evidence(
         &input.local_log_input(),
         cloudwatch_input.as_ref(),
         parser,
         source_kind_for_input(args, input),
     );
-    let report = build_readiness_report(
+    let report = build_inspect_report(
         config,
         resolve_database_dsn(dsn, config).as_deref(),
         log_evidence,
@@ -448,7 +448,7 @@ fn run_inspect_command(
             let output = formatter.format_triage_report(&report)?;
             write_or_print_output(output, args)
         }
-        OutputFormat::Text => write_or_print_output(format_readiness_text(&report), args),
+        OutputFormat::Text => write_or_print_output(format_inspect_text(&report), args),
     }
 }
 
