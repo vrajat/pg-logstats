@@ -15,7 +15,7 @@ pub enum OperatingMode {
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowId {
     AgentInstall,
-    Readiness,
+    Inspect,
     RunningQueries,
     TopQueryFamilies,
     Errors,

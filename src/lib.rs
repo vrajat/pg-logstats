@@ -12,9 +12,11 @@ use thiserror::Error;
 pub mod analytics;
 pub mod config;
 pub mod correlation;
+pub mod database;
 pub mod events;
 pub mod findings;
 pub mod input;
+pub mod inspect;
 pub mod output;
 pub mod parsers;
 pub mod sql;
@@ -29,6 +31,7 @@ pub use correlation::{
     correlate_query_executions, CorrelationConfidence, Correlator, ProcessOrderCorrelator,
     QueryExecution, QueryFamilyIdentity,
 };
+pub use database::{connect_postgres_client, database_url_env_var_name, resolve_database_dsn};
 pub use events::{
     normalize_log_entries, DurationEvent, ErrorEvent, EventKind, EventSourceKind, NormalizedEvent,
     SessionIdentity, SourceReference, StatementEvent,
@@ -37,6 +40,11 @@ pub use findings::{
     query_family_findings, slow_query_diff_findings, ComparisonMetrics, DeltaMetrics, Finding,
     FindingConfidence, FindingKind, FindingMetrics, FindingSet, QueryFamilyFinding, ReasonCode,
     SlowQueryDiffOptions, FINDING_SCHEMA_VERSION,
+};
+pub use inspect::{
+    build_inspect_report, collect_log_inspect_evidence, format_inspect_text, InspectCheckId,
+    InspectDetails, InspectLimitation, InspectReason, InspectReportPayload, LogEvidence,
+    LogInspectEvidence,
 };
 pub use output::{JsonFormatter, TextFormatter};
 pub use parsers::{TextLogFormat, TextLogParser};

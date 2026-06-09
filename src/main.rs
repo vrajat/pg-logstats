@@ -2,14 +2,16 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use pg_logstats::{
+    build_inspect_report, collect_log_inspect_evidence, format_inspect_text,
     input::{
         discover_log_files, process_cloudwatch_input, process_log_file, process_log_paths,
         validate_file_input_args, CloudWatchInput, CloudWatchSince, CloudWatchUntil, LocalLogInput,
     },
-    load_config, normalize_log_entries, query_family_findings, slow_query_diff_findings,
-    top_query_families_report, Correlator, EventSourceKind, Finding, FindingSet, FindingsPayload,
-    JsonFormatter, PgLogstatsError, PgTriageReport, ProcessOrderCorrelator, Result,
-    SlowQueryDiffOptions, TextFormatter, TextLogFormat, TextLogParser,
+    load_config, normalize_log_entries, query_family_findings, resolve_database_dsn,
+    slow_query_diff_findings, top_query_families_report, Correlator, EventSourceKind, Finding,
+    FindingSet, FindingsPayload, JsonFormatter, PgLogstatsError, PgTriageReport,
+    ProcessOrderCorrelator, Result, SlowQueryDiffOptions, TextFormatter, TextLogFormat,
+    TextLogParser,
 };
 use serde_json::json;
 use std::fs;
@@ -50,6 +52,11 @@ struct Arguments {
     /// Suppress progress output and the completion footer
     #[clap(short = 'q', long, global = true)]
     quiet: bool,
+
+    /// PostgreSQL connection string. Falls back to PG_LOGSTATS_DATABASE_URL
+    /// and then [database].dsn from config.
+    #[clap(long, global = true, value_name = "POSTGRES_URL")]
+    dsn: Option<String>,
 }
 
 #[derive(Debug, Args)]
@@ -142,6 +149,11 @@ enum Command {
     Top {
         #[clap(subcommand)]
         command: TopCommand,
+    },
+    /// Inspect the environment and determine the supported operating mode
+    Inspect {
+        #[clap(flatten)]
+        input: LogInputArgs,
     },
     /// Slow-query investigation workflows
     SlowQueries {
@@ -260,7 +272,7 @@ fn main() -> Result<()> {
     // Initialize parser based on format
     let parser = initialize_parser(&args)?;
 
-    run_command(&args, &parser)?;
+    run_command(&args, &parser, &resolved_config.config)?;
 
     let elapsed = start_time.elapsed();
     if !args.quiet {
@@ -270,11 +282,18 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn run_command(args: &Arguments, parser: &TextLogParser) -> Result<()> {
+fn run_command(
+    args: &Arguments,
+    parser: &TextLogParser,
+    config: &pg_logstats::AppConfig,
+) -> Result<()> {
     match &args.command {
         Command::Top {
             command: TopCommand::QueryFamilies { limit, input },
         } => run_top_query_families_command(args, parser, input, *limit),
+        Command::Inspect { input } => {
+            run_inspect_command(args, parser, config, args.dsn.as_deref(), input)
+        }
         Command::SlowQueries {
             command:
                 SlowQueriesCommand::Diff {
@@ -403,6 +422,36 @@ fn run_top_query_families_command(
     }
 }
 
+fn run_inspect_command(
+    args: &Arguments,
+    parser: &TextLogParser,
+    config: &pg_logstats::AppConfig,
+    dsn: Option<&str>,
+    input: &LogInputArgs,
+) -> Result<()> {
+    let cloudwatch_input = input.uses_cloudwatch().then(|| input.cloudwatch_input());
+    let log_evidence = collect_log_inspect_evidence(
+        &input.local_log_input(),
+        cloudwatch_input.as_ref(),
+        parser,
+        source_kind_for_input(args, input),
+    );
+    let report = build_inspect_report(
+        config,
+        resolve_database_dsn(dsn, config).as_deref(),
+        log_evidence,
+    );
+
+    match args.output_format {
+        OutputFormat::Json => {
+            let formatter = JsonFormatter::new().with_pretty(true);
+            let output = formatter.format_triage_report(&report)?;
+            write_or_print_output(output, args)
+        }
+        OutputFormat::Text => write_or_print_output(format_inspect_text(&report), args),
+    }
+}
+
 fn run_slow_queries_diff_command(
     args: &Arguments,
     parser: &TextLogParser,
@@ -427,6 +476,7 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
         Command::Top {
             command: TopCommand::QueryFamilies { input, .. },
         } => validate_log_input_args(input)?,
+        Command::Inspect { input, .. } => validate_log_input_args(input)?,
         Command::SlowQueries {
             command: SlowQueriesCommand::Diff { sample_size, .. },
         } => validate_sample_size(*sample_size)?,

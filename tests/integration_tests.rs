@@ -89,6 +89,7 @@ fn test_cli_help() {
         .stdout(predicate::str::contains("--output-format"))
         .stdout(predicate::str::contains("--input-format"))
         .stdout(predicate::str::contains("top"))
+        .stdout(predicate::str::contains("inspect"))
         .stdout(predicate::str::contains("slow-queries"))
         .stdout(predicate::str::contains("suggest-sql"))
         .stdout(predicate::str::contains("Perl module JSON::XS").not())
@@ -152,6 +153,67 @@ fn test_single_log_file_json_output() {
         .stdout(predicate::str::contains("\"kind\": \"query_family\""))
         .stdout(predicate::str::contains("\"total_duration_ms\": 15.234"))
         .stdout(predicate::str::contains("\"execution_count\": 1"));
+}
+
+#[test]
+fn test_inspect_uses_log_input_without_database_access() {
+    let temp_dir = TempDir::new().unwrap();
+    let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    let output = cmd
+        .arg("--output-format")
+        .arg("json")
+        .arg("--quiet")
+        .arg("inspect")
+        .arg(log_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    assert_eq!(json["workflow"], "inspect");
+    assert_eq!(json["operating_mode"], "log_backed");
+    assert_eq!(
+        json["payload"]["inspect"]["database_inspect"]["checks"]["pg_stat_activity_probe"]
+            ["status"],
+        "skipped"
+    );
+    assert_eq!(
+        json["payload"]["inspect"]["database_inspect"]["checks"]["statement_evidence"]["status"],
+        "passed"
+    );
+    assert_eq!(
+        json["payload"]["inspect"]["recommended_next_commands"][0],
+        "pg-logstats top query-families --output-format json"
+    );
+}
+
+#[test]
+fn test_inspect_without_logs_or_database_is_unready() {
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    let output = cmd
+        .arg("--output-format")
+        .arg("json")
+        .arg("--quiet")
+        .arg("inspect")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+
+    assert_eq!(json["operating_mode"], "unready");
+    assert_eq!(
+        json["payload"]["inspect"]["database_inspect"]["checks"]["log_source_reachable"]["status"],
+        "skipped"
+    );
+    assert!(json["limitations"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|value| value == "database_connection_not_configured"));
 }
 
 #[test]

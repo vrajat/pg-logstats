@@ -64,7 +64,7 @@ pg-logstats suggest-sql --findings-file findings.json --rank 1
 ```
 
 Global flags such as `--input-format`, `--output-format`, `--outfile`,
-`--outdir`, `--config`, and `--quiet` can be placed before or after the
+`--outdir`, `--config`, `--dsn`, and `--quiet` can be placed before or after the
 workflow command.
 
 ## CloudWatch Logs Input
@@ -133,6 +133,31 @@ cargo run -- top query-families tests/fixtures/cli/sample_stderr.log
 ```
 
 ## Commands
+
+### Inspect
+
+Inspect the environment and determine the supported operating mode:
+
+```bash
+pg-logstats inspect --output-format json
+```
+
+Use supported log input to determine `log_backed` mode even when no PostgreSQL
+connection is configured:
+
+```bash
+pg-logstats inspect \
+  --output-format json \
+  tests/fixtures/cli/sample_stderr.log
+```
+
+When live checks are needed, connection discovery precedence is:
+
+1. `--dsn <postgres-url>`
+2. `PG_LOGSTATS_DATABASE_URL`
+3. `[database].dsn` from the resolved config
+
+The dedicated inspect guide lives in [docs/inspect.md](docs/inspect.md).
 
 ### Top Query Families
 
