@@ -24,18 +24,10 @@ pub struct DatabaseConfig {
     pub connect_timeout_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RunningQueriesConfig {
     pub thresholds: RunningQueriesThresholds,
-}
-
-impl Default for RunningQueriesConfig {
-    fn default() -> Self {
-        Self {
-            thresholds: RunningQueriesThresholds::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
