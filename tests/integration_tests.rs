@@ -3,7 +3,13 @@
 //! These tests verify the complete workflow from CLI arguments to output generation.
 
 use assert_cmd::Command;
+use pg_logstats::{
+    inspect::{AgentInspect, AgentTargetInspect, DatabaseInspect},
+    CheckStatus, InspectDetails, InspectReportPayload, OperatingMode, PgTriageReport, WorkflowId,
+    PG_TRIAGE_SCHEMA_VERSION,
+};
 use predicates::prelude::*;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use tempfile::TempDir;
@@ -89,41 +95,50 @@ fn golden_fixture(path: &str) -> std::path::PathBuf {
         .join(path)
 }
 
-fn write_inspect_report(dir: &Path, operating_mode: &str) -> std::path::PathBuf {
+fn write_inspect_report(dir: &Path, operating_mode: OperatingMode) -> std::path::PathBuf {
     let report_path = dir.join("inspect.json");
-    fs::write(
-        &report_path,
-        format!(
-            r#"{{
-  "schema_version": 1,
-  "workflow": "inspect",
-  "operating_mode": "{operating_mode}",
-  "limitations": [],
-  "payload": {{
-    "inspect": {{
-      "database_inspect": {{
-        "mode_candidate": "{operating_mode}",
-        "checks": {{}}
-      }},
-      "agent_inspect": {{
-        "codex": {{"status": "passed", "installed": true, "install_location": "ok"}},
-        "claude": {{"status": "passed", "installed": true, "install_location": "ok"}},
-        "gemini": {{"status": "passed", "installed": true, "install_location": "ok"}}
-      }},
-      "required_checks": [],
-      "failed_checks": [],
-      "recommended_next_commands": []
-    }}
-  }}
-}}"#
-        ),
-    )
-    .unwrap();
+    let report = PgTriageReport {
+        schema_version: PG_TRIAGE_SCHEMA_VERSION,
+        workflow: WorkflowId::Inspect,
+        operating_mode,
+        limitations: Vec::new(),
+        verdict: None,
+        verdict_reasons: Vec::new(),
+        allowed_actions: None,
+        blocked_actions: None,
+        analysis_window: None,
+        source_summary: None,
+        payload: InspectReportPayload {
+            inspect: InspectDetails {
+                database_inspect: DatabaseInspect {
+                    mode_candidate: operating_mode,
+                    checks: BTreeMap::new(),
+                },
+                agent_inspect: AgentInspect {
+                    codex: passing_agent_target(),
+                    claude: passing_agent_target(),
+                    gemini: passing_agent_target(),
+                },
+                required_checks: Vec::new(),
+                failed_checks: Vec::new(),
+                recommended_next_commands: Vec::new(),
+            },
+        },
+    };
+    fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
     report_path
 }
 
+fn passing_agent_target() -> AgentTargetInspect {
+    AgentTargetInspect {
+        status: CheckStatus::Passed,
+        installed: true,
+        install_location: "ok".to_string(),
+    }
+}
+
 fn with_log_backed_inspect<'a>(cmd: &'a mut Command, dir: &Path) -> &'a mut Command {
-    let report_path = write_inspect_report(dir, "log_backed");
+    let report_path = write_inspect_report(dir, OperatingMode::LogBacked);
     let workspace = report_path.parent().unwrap().to_path_buf();
     cmd.env("PG_LOGSTATS_WORKSPACE", workspace)
 }
