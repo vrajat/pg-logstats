@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::{Path, PathBuf};
 
-const CONFIG_ENV_VAR: &str = "PG_LOGSTATS_CONFIG";
-const DEFAULT_CONFIG_RELATIVE_PATH: &str = ".config/pg-logstats/config.toml";
+const WORKSPACE_ENV_VAR: &str = "PG_LOGSTATS_WORKSPACE";
+const DEFAULT_WORKSPACE_RELATIVE_PATH: &str = ".local/share/pg-logstats";
+const CONFIG_FILE_NAME: &str = "config.toml";
+const INSPECT_FILE_NAME: &str = "inspect.json";
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -22,18 +24,10 @@ pub struct DatabaseConfig {
     pub connect_timeout_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RunningQueriesConfig {
     pub thresholds: RunningQueriesThresholds,
-}
-
-impl Default for RunningQueriesConfig {
-    fn default() -> Self {
-        Self {
-            thresholds: RunningQueriesThresholds::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -92,9 +86,9 @@ pub struct AgentInstallTargetConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigSource {
     BuiltInDefaults,
-    ExplicitPath(PathBuf),
-    EnvPath(PathBuf),
-    DefaultPath(PathBuf),
+    ExplicitWorkspace(PathBuf),
+    EnvWorkspace(PathBuf),
+    DefaultWorkspace(PathBuf),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -103,28 +97,64 @@ pub struct ResolvedConfig {
     pub source: ConfigSource,
 }
 
-pub fn default_config_path() -> Option<PathBuf> {
-    env::var_os("HOME").map(|home| PathBuf::from(home).join(DEFAULT_CONFIG_RELATIVE_PATH))
+pub fn workspace_env_var_name() -> &'static str {
+    WORKSPACE_ENV_VAR
 }
 
-pub fn config_env_var_name() -> &'static str {
-    CONFIG_ENV_VAR
+pub fn default_workspace_path() -> Option<PathBuf> {
+    env::var_os("HOME").map(|home| PathBuf::from(home).join(DEFAULT_WORKSPACE_RELATIVE_PATH))
 }
 
-pub fn load_config(explicit_path: Option<&Path>) -> Result<ResolvedConfig> {
+pub fn resolve_workspace_path(explicit_path: Option<&Path>) -> Result<PathBuf> {
     if let Some(path) = explicit_path {
-        return load_config_from_path(path, ConfigSource::ExplicitPath(path.to_path_buf()));
+        return Ok(path.to_path_buf());
     }
 
-    if let Some(path) = env::var_os(CONFIG_ENV_VAR) {
-        let path = PathBuf::from(path);
-        return load_config_from_path(&path, ConfigSource::EnvPath(path.clone()));
+    if let Some(path) = env::var_os(WORKSPACE_ENV_VAR) {
+        return Ok(PathBuf::from(path));
     }
 
-    if let Some(path) = default_config_path() {
-        if path.exists() {
-            return load_config_from_path(&path, ConfigSource::DefaultPath(path.clone()));
-        }
+    default_workspace_path().ok_or_else(|| {
+        config_error(
+            "Could not resolve workspace path because HOME is not set. Set --workspace, PG_LOGSTATS_WORKSPACE, or HOME.",
+            Some("workspace"),
+        )
+    })
+}
+
+pub fn workspace_config_path(workspace: &Path) -> PathBuf {
+    workspace.join(CONFIG_FILE_NAME)
+}
+
+pub fn workspace_inspect_report_path(workspace: &Path) -> PathBuf {
+    workspace.join(INSPECT_FILE_NAME)
+}
+
+pub fn workspace_results_dir(workspace: &Path) -> PathBuf {
+    workspace.join("results")
+}
+
+pub fn load_config(explicit_workspace: Option<&Path>) -> Result<ResolvedConfig> {
+    if let Some(workspace) = explicit_workspace {
+        return load_config_from_workspace(
+            workspace,
+            ConfigSource::ExplicitWorkspace(workspace.to_path_buf()),
+        );
+    }
+
+    if let Some(path) = env::var_os(WORKSPACE_ENV_VAR) {
+        let workspace = PathBuf::from(path);
+        return load_config_from_workspace(
+            &workspace,
+            ConfigSource::EnvWorkspace(workspace.clone()),
+        );
+    }
+
+    if let Some(workspace) = default_workspace_path() {
+        return load_config_from_workspace(
+            &workspace,
+            ConfigSource::DefaultWorkspace(workspace.clone()),
+        );
     }
 
     Ok(ResolvedConfig {
@@ -133,12 +163,13 @@ pub fn load_config(explicit_path: Option<&Path>) -> Result<ResolvedConfig> {
     })
 }
 
-fn load_config_from_path(path: &Path, source: ConfigSource) -> Result<ResolvedConfig> {
+fn load_config_from_workspace(workspace: &Path, source: ConfigSource) -> Result<ResolvedConfig> {
+    let path = workspace_config_path(workspace);
     if !path.exists() {
-        return Err(config_error(
-            &format!("Config file does not exist: {}", path.display()),
-            Some("config"),
-        ));
+        return Ok(ResolvedConfig {
+            config: AppConfig::default(),
+            source: ConfigSource::BuiltInDefaults,
+        });
     }
 
     if !path.is_file() {
@@ -148,7 +179,7 @@ fn load_config_from_path(path: &Path, source: ConfigSource) -> Result<ResolvedCo
         ));
     }
 
-    let content = std::fs::read_to_string(path)?;
+    let content = std::fs::read_to_string(&path)?;
     let config: AppConfig =
         toml::from_str(&content).map_err(|err| PgLogstatsError::Configuration {
             message: format!("Failed to parse config {}: {}", path.display(), err),
@@ -180,89 +211,106 @@ mod tests {
     }
 
     #[test]
-    fn explicit_path_has_highest_precedence() {
+    fn explicit_workspace_has_highest_precedence() {
         let _guard = env_lock().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
-        let explicit = write_config(
+        let explicit_workspace = temp_dir.path().join("explicit-workspace");
+        let env_workspace = temp_dir.path().join("env-workspace");
+        write_config(
             &temp_dir,
-            "explicit.toml",
+            "explicit-workspace/config.toml",
             "[database]\ndsn='postgres://explicit'\n",
         );
-        let env_path = write_config(&temp_dir, "env.toml", "[database]\ndsn='postgres://env'\n");
+        write_config(
+            &temp_dir,
+            "env-workspace/config.toml",
+            "[database]\ndsn='postgres://env'\n",
+        );
         let default = write_config(
             &temp_dir,
-            ".config/pg-logstats/config.toml",
+            ".local/share/pg-logstats/config.toml",
             "[database]\ndsn='postgres://default'\n",
         );
 
         let old_home = env::var_os("HOME");
-        let old_env_config = env::var_os(CONFIG_ENV_VAR);
+        let old_workspace = env::var_os(WORKSPACE_ENV_VAR);
         env::set_var("HOME", temp_dir.path());
-        env::set_var(CONFIG_ENV_VAR, &env_path);
+        env::set_var(WORKSPACE_ENV_VAR, &env_workspace);
 
-        let resolved = load_config(Some(&explicit)).unwrap();
+        let resolved = load_config(Some(&explicit_workspace)).unwrap();
 
-        assert_eq!(resolved.source, ConfigSource::ExplicitPath(explicit));
+        assert_eq!(
+            resolved.source,
+            ConfigSource::ExplicitWorkspace(explicit_workspace)
+        );
         assert_eq!(
             resolved.config.database.dsn.as_deref(),
             Some("postgres://explicit")
         );
 
-        restore_env(old_home, old_env_config);
+        restore_env(old_home, old_workspace);
         assert!(default.exists());
     }
 
     #[test]
-    fn env_path_overrides_default_path() {
+    fn env_workspace_overrides_default_workspace() {
         let _guard = env_lock().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
-        let env_path = write_config(&temp_dir, "env.toml", "[database]\ndsn='postgres://env'\n");
+        let env_workspace = temp_dir.path().join("env-workspace");
         write_config(
             &temp_dir,
-            ".config/pg-logstats/config.toml",
+            "env-workspace/config.toml",
+            "[database]\ndsn='postgres://env'\n",
+        );
+        write_config(
+            &temp_dir,
+            ".local/share/pg-logstats/config.toml",
             "[database]\ndsn='postgres://default'\n",
         );
 
         let old_home = env::var_os("HOME");
-        let old_env_config = env::var_os(CONFIG_ENV_VAR);
+        let old_workspace = env::var_os(WORKSPACE_ENV_VAR);
         env::set_var("HOME", temp_dir.path());
-        env::set_var(CONFIG_ENV_VAR, &env_path);
+        env::set_var(WORKSPACE_ENV_VAR, &env_workspace);
 
         let resolved = load_config(None).unwrap();
 
-        assert_eq!(resolved.source, ConfigSource::EnvPath(env_path));
+        assert_eq!(resolved.source, ConfigSource::EnvWorkspace(env_workspace));
         assert_eq!(
             resolved.config.database.dsn.as_deref(),
             Some("postgres://env")
         );
 
-        restore_env(old_home, old_env_config);
+        restore_env(old_home, old_workspace);
     }
 
     #[test]
-    fn default_path_is_used_when_present() {
+    fn default_workspace_is_used_when_present() {
         let _guard = env_lock().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
-        let default = write_config(
+        write_config(
             &temp_dir,
-            ".config/pg-logstats/config.toml",
+            ".local/share/pg-logstats/config.toml",
             "[database]\ndsn='postgres://default'\n",
         );
 
         let old_home = env::var_os("HOME");
-        let old_env_config = env::var_os(CONFIG_ENV_VAR);
+        let old_workspace = env::var_os(WORKSPACE_ENV_VAR);
         env::set_var("HOME", temp_dir.path());
-        env::remove_var(CONFIG_ENV_VAR);
+        env::remove_var(WORKSPACE_ENV_VAR);
 
         let resolved = load_config(None).unwrap();
 
-        assert_eq!(resolved.source, ConfigSource::DefaultPath(default));
+        assert_eq!(
+            resolved.source,
+            ConfigSource::DefaultWorkspace(temp_dir.path().join(".local/share/pg-logstats"))
+        );
         assert_eq!(
             resolved.config.database.dsn.as_deref(),
             Some("postgres://default")
         );
 
-        restore_env(old_home, old_env_config);
+        restore_env(old_home, old_workspace);
     }
 
     #[test]
@@ -271,29 +319,30 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
 
         let old_home = env::var_os("HOME");
-        let old_env_config = env::var_os(CONFIG_ENV_VAR);
+        let old_workspace = env::var_os(WORKSPACE_ENV_VAR);
         env::set_var("HOME", temp_dir.path());
-        env::remove_var(CONFIG_ENV_VAR);
+        env::remove_var(WORKSPACE_ENV_VAR);
 
         let resolved = load_config(None).unwrap();
 
         assert_eq!(resolved.source, ConfigSource::BuiltInDefaults);
         assert_eq!(resolved.config, AppConfig::default());
 
-        restore_env(old_home, old_env_config);
+        restore_env(old_home, old_workspace);
     }
 
     #[test]
     fn unknown_keys_fail_to_parse() {
         let _guard = env_lock().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
-        let config_path = write_config(
+        let workspace = temp_dir.path().join("workspace");
+        write_config(
             &temp_dir,
-            "custom.toml",
+            "workspace/config.toml",
             "unknown_top = true\n[database]\ndsn='postgres://db'\nextra = 1\n[running_queries.thresholds]\nlong_running_query_ms = 3000\nextra = 9\n",
         );
 
-        let err = load_config(Some(&config_path)).unwrap_err();
+        let err = load_config(Some(&workspace)).unwrap_err();
 
         assert!(matches!(err, PgLogstatsError::Configuration { .. }));
         assert!(err.to_string().contains("unknown field"));
@@ -303,26 +352,30 @@ mod tests {
     fn suggest_sql_max_risk_uses_typed_enum() {
         let _guard = env_lock().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
-        let config_path =
-            write_config(&temp_dir, "custom.toml", "[suggest_sql]\nmax_risk='safe'\n");
+        let workspace = temp_dir.path().join("workspace");
+        write_config(
+            &temp_dir,
+            "workspace/config.toml",
+            "[suggest_sql]\nmax_risk='safe'\n",
+        );
 
-        let resolved = load_config(Some(&config_path)).unwrap();
+        let resolved = load_config(Some(&workspace)).unwrap();
 
         assert_eq!(resolved.config.suggest_sql.max_risk, RiskLabel::Safe);
     }
 
     fn restore_env(
         old_home: Option<std::ffi::OsString>,
-        old_env_config: Option<std::ffi::OsString>,
+        old_workspace: Option<std::ffi::OsString>,
     ) {
         match old_home {
             Some(value) => env::set_var("HOME", value),
             None => env::remove_var("HOME"),
         }
 
-        match old_env_config {
-            Some(value) => env::set_var(CONFIG_ENV_VAR, value),
-            None => env::remove_var(CONFIG_ENV_VAR),
+        match old_workspace {
+            Some(value) => env::set_var(WORKSPACE_ENV_VAR, value),
+            None => env::remove_var(WORKSPACE_ENV_VAR),
         }
     }
 }

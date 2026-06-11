@@ -8,10 +8,11 @@ use pg_logstats::{
         validate_file_input_args, CloudWatchInput, CloudWatchSince, CloudWatchUntil, LocalLogInput,
     },
     load_config, normalize_log_entries, query_family_findings, resolve_database_dsn,
-    slow_query_diff_findings, top_query_families_report, Correlator, EventSourceKind, Finding,
-    FindingSet, FindingsPayload, JsonFormatter, PgLogstatsError, PgTriageReport,
-    ProcessOrderCorrelator, Result, SlowQueryDiffOptions, TextFormatter, TextLogFormat,
-    TextLogParser,
+    resolve_workspace_path, slow_query_diff_findings, top_query_families_report,
+    workspace_inspect_report_path, Correlator, EventSourceKind, Finding, FindingSet,
+    FindingsPayload, InspectReportPayload, JsonFormatter, OperatingMode, PgLogstatsError,
+    PgTriageReport, ProcessOrderCorrelator, Result, SlowQueryDiffOptions, TextFormatter,
+    TextLogFormat, TextLogParser, WorkflowId,
 };
 use serde_json::json;
 use std::fs;
@@ -45,9 +46,9 @@ struct Arguments {
     #[clap(short = 'O', long, global = true, value_name = "DIR")]
     outdir: Option<String>,
 
-    /// Explicit config file path
-    #[clap(long, global = true, value_name = "PATH")]
-    config: Option<PathBuf>,
+    /// Workspace directory for config, inspect output, and cached results
+    #[clap(long, global = true, value_name = "DIR")]
+    workspace: Option<PathBuf>,
 
     /// Suppress progress output and the completion footer
     #[clap(short = 'q', long, global = true)]
@@ -266,13 +267,19 @@ fn main() -> Result<()> {
     // Validate CLI arguments
     validate_arguments(&args)?;
 
-    let resolved_config = load_config(args.config.as_deref())?;
+    let resolved_config = load_config(args.workspace.as_deref())?;
     debug!("Loaded config from {:?}", resolved_config.source);
+    let inspect_report = load_startup_inspect_report(&args)?;
 
     // Initialize parser based on format
     let parser = initialize_parser(&args)?;
 
-    run_command(&args, &parser, &resolved_config.config)?;
+    run_command(
+        &args,
+        &parser,
+        &resolved_config.config,
+        inspect_report.as_ref(),
+    )?;
 
     let elapsed = start_time.elapsed();
     if !args.quiet {
@@ -286,11 +293,12 @@ fn run_command(
     args: &Arguments,
     parser: &TextLogParser,
     config: &pg_logstats::AppConfig,
+    inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
     match &args.command {
         Command::Top {
             command: TopCommand::QueryFamilies { limit, input },
-        } => run_top_query_families_command(args, parser, input, *limit),
+        } => run_top_query_families_command(args, parser, input, *limit, inspect_report),
         Command::Inspect { input } => {
             run_inspect_command(args, parser, config, args.dsn.as_deref(), input)
         }
@@ -403,7 +411,9 @@ fn run_top_query_families_command(
     parser: &TextLogParser,
     input: &LogInputArgs,
     limit: usize,
+    inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
+    require_log_backed_mode(inspect_report)?;
     let all_entries = load_default_log_entries(args, input, parser)?;
     let findings = run_top_query_families(&all_entries, limit, source_kind_for_input(args, input))?;
 
@@ -441,6 +451,7 @@ fn run_inspect_command(
         resolve_database_dsn(dsn, config).as_deref(),
         log_evidence,
     );
+    persist_inspect_report(&report, args.workspace.as_deref())?;
 
     match args.output_format {
         OutputFormat::Json => {
@@ -656,6 +667,84 @@ fn load_findings_file(path: &Path) -> Result<FindingSet> {
     let report: PgTriageReport<FindingsPayload> =
         serde_json::from_str(&content).map_err(PgLogstatsError::Serialization)?;
     Ok(FindingSet::new(report.payload.findings))
+}
+
+fn load_startup_inspect_report(
+    args: &Arguments,
+) -> Result<Option<PgTriageReport<InspectReportPayload>>> {
+    if matches!(args.command, Command::Inspect { .. }) {
+        return Ok(None);
+    }
+
+    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
+    let path = workspace_inspect_report_path(&workspace);
+    if !path.exists() {
+        return Err(PgLogstatsError::Configuration {
+            message: format!(
+                "Inspect output not found at {}. Run `pg-logstats inspect` first.",
+                path.display()
+            ),
+            field: Some("inspect_report".to_string()),
+        });
+    }
+
+    let content = fs::read_to_string(&path)?;
+    let report: PgTriageReport<InspectReportPayload> =
+        serde_json::from_str(&content).map_err(PgLogstatsError::Serialization)?;
+
+    if report.workflow != WorkflowId::Inspect {
+        return Err(PgLogstatsError::Configuration {
+            message: format!(
+                "Inspect output at {} is not an inspect report.",
+                path.display()
+            ),
+            field: Some("inspect_report".to_string()),
+        });
+    }
+
+    Ok(Some(report))
+}
+
+fn require_log_backed_mode(
+    inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
+) -> Result<()> {
+    let Some(report) = inspect_report else {
+        return Err(PgLogstatsError::Configuration {
+            message: "Inspect output is required before running this command.".to_string(),
+            field: Some("inspect_report".to_string()),
+        });
+    };
+
+    if report.operating_mode != OperatingMode::LogBacked {
+        return Err(PgLogstatsError::Configuration {
+            message: format!(
+                "This command requires log_backed mode, but inspect reported {}.",
+                match report.operating_mode {
+                    OperatingMode::LogBacked => "log_backed",
+                    OperatingMode::LiveOnly => "live_only",
+                    OperatingMode::Unready => "unready",
+                }
+            ),
+            field: Some("operating_mode".to_string()),
+        });
+    }
+
+    Ok(())
+}
+
+fn persist_inspect_report(
+    report: &PgTriageReport<InspectReportPayload>,
+    workspace: Option<&Path>,
+) -> Result<()> {
+    let workspace = resolve_workspace_path(workspace)?;
+    let path = workspace_inspect_report_path(&workspace);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let output = serde_json::to_string_pretty(report).map_err(PgLogstatsError::Serialization)?;
+    fs::write(path, output)?;
+    Ok(())
 }
 
 fn select_finding<'a>(

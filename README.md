@@ -64,7 +64,7 @@ pg-logstats suggest-sql --findings-file findings.json --rank 1
 ```
 
 Global flags such as `--input-format`, `--output-format`, `--outfile`,
-`--outdir`, `--config`, `--dsn`, and `--quiet` can be placed before or after the
+`--outdir`, `--workspace`, `--dsn`, and `--quiet` can be placed before or after the
 workflow command.
 
 ## CloudWatch Logs Input
@@ -256,6 +256,7 @@ Useful fields include:
 - `payload.findings[].query_family.database`
 - `payload.findings[].query_family.user`
 - `payload.findings[].query_family.application_name`
+- `payload.findings[].query_family.missing_attribution`
 - `payload.findings[].metrics.execution_count`
 - `payload.findings[].metrics.total_duration_ms`
 - `payload.findings[].metrics.max_duration_ms`
@@ -264,14 +265,31 @@ Useful fields include:
 For diff findings, each finding also includes `baseline`, `target`, and `delta`
 duration summaries.
 
+`top query-families` is a `log_backed` workflow. It requires PostgreSQL
+statement and duration evidence in supported logs. On startup, non-`inspect`
+commands require a persisted inspect report. By default that report is written
+inside the workspace as `inspect.json`. By default the workspace is
+`~/.local/share/pg-logstats`, or you can override it with `--workspace` or
+`PG_LOGSTATS_WORKSPACE`. The report window is described by
+`analysis_window.{since,until}` and `source_summary.*`.
+
+See [docs/top-query-families.md](docs/top-query-families.md) for the bounded
+window model, supported formats, missing-attribution behavior, and the logging
+references used during design.
+
 ## Configuration
 
-Config discovery precedence is:
+Workspace precedence is:
 
-1. `--config <path>`
-2. `PG_LOGSTATS_CONFIG`
-3. `~/.config/pg-logstats/config.toml`
-4. built-in defaults
+1. `--workspace <dir>`
+2. `PG_LOGSTATS_WORKSPACE`
+3. `~/.local/share/pg-logstats`
+
+Within the workspace, `pg-logstats` expects:
+
+- `config.toml`
+- `inspect.json`
+- `results/` for future command output and cached artifacts
 
 Minimal example:
 
