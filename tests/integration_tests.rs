@@ -39,8 +39,24 @@ Yet another malformed line"#
 
 /// Helper function to create large log content for performance testing
 fn large_log_content(num_entries: usize) -> String {
-    let base_entry = "2024-01-15 10:00:00.123 UTC [1234] testuser@testdb psql: LOG: statement: SELECT * FROM users WHERE id = 1;\n";
-    base_entry.repeat(num_entries)
+    let mut content = String::new();
+
+    for entry in 0..num_entries {
+        let process_id = 10_000 + entry;
+        content.push_str(&format!(
+            "2024-01-15 10:00:{:02}.000 UTC [{}] testuser@testdb psql: LOG: statement: SELECT * FROM users WHERE id = {};\n",
+            entry % 60,
+            process_id,
+            entry + 1
+        ));
+        content.push_str(&format!(
+            "2024-01-15 10:00:{:02}.010 UTC [{}] testuser@testdb psql: LOG: duration: 15.234 ms\n",
+            entry % 60,
+            process_id
+        ));
+    }
+
+    content
 }
 
 fn baseline_slow_query_diff_content() -> &'static str {
@@ -71,6 +87,45 @@ fn golden_fixture(path: &str) -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/golden")
         .join(path)
+}
+
+fn write_inspect_report(dir: &Path, operating_mode: &str) -> std::path::PathBuf {
+    let report_path = dir.join("inspect.json");
+    fs::write(
+        &report_path,
+        format!(
+            r#"{{
+  "schema_version": 1,
+  "workflow": "inspect",
+  "operating_mode": "{operating_mode}",
+  "limitations": [],
+  "payload": {{
+    "inspect": {{
+      "database_inspect": {{
+        "mode_candidate": "{operating_mode}",
+        "checks": {{}}
+      }},
+      "agent_inspect": {{
+        "codex": {{"status": "passed", "installed": true, "install_location": "ok"}},
+        "claude": {{"status": "passed", "installed": true, "install_location": "ok"}},
+        "gemini": {{"status": "passed", "installed": true, "install_location": "ok"}}
+      }},
+      "required_checks": [],
+      "failed_checks": [],
+      "recommended_next_commands": []
+    }}
+  }}
+}}"#
+        ),
+    )
+    .unwrap();
+    report_path
+}
+
+fn with_log_backed_inspect<'a>(cmd: &'a mut Command, dir: &Path) -> &'a mut Command {
+    let report_path = write_inspect_report(dir, "log_backed");
+    let workspace = report_path.parent().unwrap().to_path_buf();
+    cmd.env("PG_LOGSTATS_WORKSPACE", workspace)
 }
 
 fn normalize_findings_json(value: serde_json::Value) -> serde_json::Value {
@@ -111,6 +166,7 @@ fn test_single_log_file_text_output() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--output-format")
         .arg("text")
         .arg("--quiet")
@@ -139,6 +195,7 @@ fn test_single_log_file_json_output() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--output-format")
         .arg("json")
         .arg("--quiet")
@@ -159,9 +216,13 @@ fn test_single_log_file_json_output() {
 fn test_inspect_uses_log_input_without_database_access() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
+    let workspace = temp_dir.path().join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+    let inspect_report = workspace.join("inspect.json");
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     let output = cmd
+        .env("PG_LOGSTATS_WORKSPACE", &workspace)
         .arg("--output-format")
         .arg("json")
         .arg("--quiet")
@@ -188,6 +249,7 @@ fn test_inspect_uses_log_input_without_database_access() {
         json["payload"]["inspect"]["recommended_next_commands"][0],
         "pg-logstats top query-families --output-format json"
     );
+    assert!(inspect_report.exists());
 }
 
 #[test]
@@ -217,12 +279,47 @@ fn test_inspect_without_logs_or_database_is_unready() {
 }
 
 #[test]
+fn test_top_query_families_can_follow_persisted_inspect_output() {
+    let temp_dir = TempDir::new().unwrap();
+    let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
+    let workspace = temp_dir.path().join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+
+    Command::cargo_bin("pg-logstats")
+        .unwrap()
+        .env("PG_LOGSTATS_WORKSPACE", &workspace)
+        .arg("--output-format")
+        .arg("json")
+        .arg("--quiet")
+        .arg("inspect")
+        .arg(log_file.to_str().unwrap())
+        .assert()
+        .success();
+
+    Command::cargo_bin("pg-logstats")
+        .unwrap()
+        .env("PG_LOGSTATS_WORKSPACE", &workspace)
+        .arg("--output-format")
+        .arg("json")
+        .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg(log_file.to_str().unwrap())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\"workflow\": \"top_query_families\"",
+        ));
+}
+
+#[test]
 fn test_log_directory_processing() {
     let temp_dir = TempDir::new().unwrap();
     create_test_log_file(temp_dir.path(), "postgres.log", sample_log_content());
     create_test_log_file(temp_dir.path(), "queries.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--output-format")
         .arg("json")
         .arg("--quiet")
@@ -243,6 +340,7 @@ fn test_sample_size_limiting() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--output-format")
         .arg("json")
         .arg("--quiet")
@@ -268,6 +366,7 @@ fn test_output_to_file() {
     let output_file = temp_dir.path().join("results.json");
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--output-format")
         .arg("json")
         .arg("--outfile")
@@ -295,6 +394,7 @@ fn test_top_query_families_json_output() {
     create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--output-format")
         .arg("json")
         .arg("--quiet")
@@ -321,6 +421,7 @@ fn test_top_query_families_text_output() {
     create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--quiet")
         .arg("top")
         .arg("query-families")
@@ -355,6 +456,7 @@ fn test_slow_queries_diff_json_output() {
     );
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--output-format")
         .arg("json")
         .arg("--quiet")
@@ -396,6 +498,7 @@ fn test_slow_queries_diff_thresholds_filter_results() {
     );
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--output-format")
         .arg("json")
         .arg("--quiet")
@@ -418,8 +521,9 @@ fn test_suggest_sql_by_rank_from_findings_file() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
     let findings_file = temp_dir.path().join("findings.json");
 
-    Command::cargo_bin("pg-logstats")
-        .unwrap()
+    let mut top_cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut top_cmd, temp_dir.path());
+    top_cmd
         .arg("--output-format")
         .arg("json")
         .arg("--outfile")
@@ -433,8 +537,9 @@ fn test_suggest_sql_by_rank_from_findings_file() {
         .assert()
         .success();
 
-    Command::cargo_bin("pg-logstats")
-        .unwrap()
+    let mut suggest_cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut suggest_cmd, temp_dir.path());
+    suggest_cmd
         .arg("--output-format")
         .arg("json")
         .arg("--quiet")
@@ -457,8 +562,9 @@ fn test_suggest_sql_by_finding_id() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
     let findings_file = temp_dir.path().join("findings.json");
 
-    Command::cargo_bin("pg-logstats")
-        .unwrap()
+    let mut top_cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut top_cmd, temp_dir.path());
+    top_cmd
         .arg("--output-format")
         .arg("json")
         .arg("--outfile")
@@ -472,8 +578,9 @@ fn test_suggest_sql_by_finding_id() {
         .assert()
         .success();
 
-    Command::cargo_bin("pg-logstats")
-        .unwrap()
+    let mut suggest_cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut suggest_cmd, temp_dir.path());
+    suggest_cmd
         .arg("--quiet")
         .arg("suggest-sql")
         .arg("--findings-file")
@@ -493,6 +600,7 @@ fn test_empty_log_file() {
     let log_file = create_test_log_file(temp_dir.path(), "empty.log", "");
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg(log_file.to_str().unwrap())
         .arg("--quiet")
         .arg("top")
@@ -503,7 +611,9 @@ fn test_empty_log_file() {
 
 #[test]
 fn test_nonexistent_log_file() {
+    let temp_dir = TempDir::new().unwrap();
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--quiet")
         .arg("top")
         .arg("query-families")
@@ -514,7 +624,9 @@ fn test_nonexistent_log_file() {
 
 #[test]
 fn test_nonexistent_log_directory() {
+    let temp_dir = TempDir::new().unwrap();
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--quiet")
         .arg("top")
         .arg("query-families")
@@ -531,6 +643,7 @@ fn test_invalid_sample_size() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--quiet")
         .arg("top")
         .arg("query-families")
@@ -550,6 +663,7 @@ fn test_malformed_log_lines() {
     let log_file = create_test_log_file(temp_dir.path(), "malformed.log", malformed_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--output-format")
         .arg("json")
         .arg("--quiet")
@@ -568,6 +682,7 @@ fn test_progress_bar_disabled_in_quiet_mode() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--quiet")
         .arg("top")
         .arg("query-families")
@@ -583,6 +698,7 @@ fn test_progress_bar_enabled_by_default() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("top")
         .arg("query-families")
         .arg(log_file.to_str().unwrap())
@@ -596,8 +712,10 @@ fn test_progress_bar_enabled_by_default() {
 #[test]
 fn test_global_flags_work_after_subcommand() {
     let fixture = repo_fixture("tests/fixtures/cli/sample_stderr.log");
+    let temp_dir = TempDir::new().unwrap();
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("top")
         .arg("query-families")
         .arg("--quiet")
@@ -612,8 +730,10 @@ fn test_global_flags_work_after_subcommand() {
 #[test]
 fn test_checked_in_top_query_families_fixture_smoke() {
     let fixture = repo_fixture("tests/fixtures/cli/sample_stderr.log");
+    let temp_dir = TempDir::new().unwrap();
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("top")
         .arg("query-families")
         .arg("--quiet")
@@ -628,8 +748,10 @@ fn test_checked_in_top_query_families_fixture_smoke() {
 #[test]
 fn test_checked_in_aws_rds_fixture_auto_detect_smoke() {
     let fixture = repo_fixture("tests/fixtures/cli/aws_rds.log");
+    let temp_dir = TempDir::new().unwrap();
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("top")
         .arg("query-families")
         .arg("--quiet")
@@ -647,8 +769,10 @@ fn test_checked_in_aws_rds_fixture_auto_detect_smoke() {
 #[test]
 fn test_checked_in_aws_rds_fixture_explicit_input_format_marks_evidence() {
     let fixture = repo_fixture("tests/fixtures/cli/aws_rds.log");
+    let temp_dir = TempDir::new().unwrap();
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("top")
         .arg("query-families")
         .arg("--quiet")
@@ -662,7 +786,27 @@ fn test_checked_in_aws_rds_fixture_explicit_input_format_marks_evidence() {
         .stdout(predicate::str::contains("\"entries_scanned\": 5"))
         .stdout(predicate::str::contains("\"source_kind\": \"AwsRds\""))
         .stdout(predicate::str::contains("\"execution_count\": 2"))
-        .stdout(predicate::str::contains("\"application_name\": null"));
+        .stdout(predicate::str::contains("\"application_name\": null"))
+        .stdout(predicate::str::contains("\"missing_attribution\": ["))
+        .stdout(predicate::str::contains("\"application_name\""));
+}
+
+#[test]
+fn test_startup_fails_without_inspect_output() {
+    let temp_dir = TempDir::new().unwrap();
+    let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
+    let workspace = temp_dir.path().join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_WORKSPACE", workspace)
+        .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg(log_file.to_str().unwrap())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Run `pg-logstats inspect` first"));
 }
 
 #[test]
@@ -688,7 +832,8 @@ fn test_cloudwatch_rds_input_uses_fixture_events() {
     );
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.env("PG_LOGSTATS_CLOUDWATCH_FIXTURE", cloudwatch_fixture)
+    with_log_backed_inspect(&mut cmd, temp_dir.path())
+        .env("PG_LOGSTATS_CLOUDWATCH_FIXTURE", cloudwatch_fixture)
         .arg("top")
         .arg("query-families")
         .arg("--quiet")
@@ -712,6 +857,7 @@ fn test_cloudwatch_input_rejects_local_files() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("top")
         .arg("query-families")
         .arg("--quiet")
@@ -729,8 +875,10 @@ fn test_cloudwatch_input_rejects_local_files() {
 fn test_checked_in_slow_query_diff_fixture_smoke() {
     let baseline = repo_fixture("tests/fixtures/cli/diff_baseline.log");
     let target = repo_fixture("tests/fixtures/cli/diff_target.log");
+    let temp_dir = TempDir::new().unwrap();
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("slow-queries")
         .arg("diff")
         .arg("--quiet")
@@ -754,8 +902,9 @@ fn test_checked_in_suggest_sql_happy_path() {
     let temp_dir = TempDir::new().unwrap();
     let findings_file = temp_dir.path().join("findings.json");
 
-    Command::cargo_bin("pg-logstats")
-        .unwrap()
+    let mut top_cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut top_cmd, temp_dir.path());
+    top_cmd
         .arg("top")
         .arg("query-families")
         .arg("--quiet")
@@ -767,8 +916,9 @@ fn test_checked_in_suggest_sql_happy_path() {
         .assert()
         .success();
 
-    Command::cargo_bin("pg-logstats")
-        .unwrap()
+    let mut suggest_cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut suggest_cmd, temp_dir.path());
+    suggest_cmd
         .arg("suggest-sql")
         .arg("--quiet")
         .arg("--findings-file")
@@ -785,9 +935,10 @@ fn test_checked_in_suggest_sql_happy_path() {
 fn test_top_query_families_text_golden() {
     let fixture = repo_fixture("tests/fixtures/cli/sample_stderr.log");
     let expected = fs::read_to_string(golden_fixture("top_query_families_sample.txt")).unwrap();
+    let temp_dir = TempDir::new().unwrap();
 
-    let output = Command::cargo_bin("pg-logstats")
-        .unwrap()
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    let output = with_log_backed_inspect(&mut cmd, temp_dir.path())
         .arg("top")
         .arg("query-families")
         .arg("--quiet")
@@ -806,9 +957,10 @@ fn test_top_query_families_json_golden() {
         &fs::read_to_string(golden_fixture("top_query_families_sample.json")).unwrap(),
     )
     .unwrap();
+    let temp_dir = TempDir::new().unwrap();
 
-    let output = Command::cargo_bin("pg-logstats")
-        .unwrap()
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    let output = with_log_backed_inspect(&mut cmd, temp_dir.path())
         .arg("top")
         .arg("query-families")
         .arg("--quiet")
@@ -827,9 +979,10 @@ fn test_top_query_families_json_golden() {
 #[test]
 fn test_suggest_sql_from_checked_in_findings_json() {
     let findings = golden_fixture("top_query_families_sample.json");
+    let temp_dir = TempDir::new().unwrap();
 
-    Command::cargo_bin("pg-logstats")
-        .unwrap()
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path())
         .arg("suggest-sql")
         .arg("--quiet")
         .arg("--findings-file")
@@ -846,10 +999,11 @@ fn test_suggest_sql_from_checked_in_findings_json() {
 #[test]
 fn test_large_file_processing() {
     let temp_dir = TempDir::new().unwrap();
-    let large_content = large_log_content(1000); // 1000 log entries
+    let large_content = large_log_content(1000); // 1000 query executions
     let log_file = create_test_log_file(temp_dir.path(), "large.log", &large_content);
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--output-format")
         .arg("json")
         .arg("--quiet")
@@ -869,6 +1023,7 @@ fn test_multiple_log_files() {
     let log_file2 = create_test_log_file(temp_dir.path(), "test2.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--output-format")
         .arg("json")
         .arg("--quiet")
@@ -888,6 +1043,7 @@ fn test_mixed_valid_invalid_files() {
     let invalid_file = temp_dir.path().join("nonexistent.log");
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
     cmd.arg("--output-format")
         .arg("json")
         .arg("--quiet")
@@ -906,7 +1062,8 @@ fn test_verbose_logging() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.env("RUST_LOG", "debug")
+    with_log_backed_inspect(&mut cmd, temp_dir.path())
+        .env("RUST_LOG", "debug")
         .arg("--quiet")
         .arg("top")
         .arg("query-families")
@@ -923,7 +1080,7 @@ fn test_json_output_structure() {
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    let output = cmd
+    let output = with_log_backed_inspect(&mut cmd, temp_dir.path())
         .arg("--output-format")
         .arg("json")
         .arg("--quiet")
@@ -959,7 +1116,8 @@ fn test_performance_with_sample_size() {
     let start = std::time::Instant::now();
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    cmd.arg("--output-format")
+    with_log_backed_inspect(&mut cmd, temp_dir.path())
+        .arg("--output-format")
         .arg("json")
         .arg("--quiet")
         .arg("top")
@@ -970,7 +1128,7 @@ fn test_performance_with_sample_size() {
         .timeout(std::time::Duration::from_secs(10))
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"execution_count\": 100"));
+        .stdout(predicate::str::contains("\"execution_count\": 50"));
 
     let elapsed = start.elapsed();
     assert!(elapsed < std::time::Duration::from_secs(5)); // Should be fast with sampling
@@ -1003,7 +1161,8 @@ mod benchmark_tests {
         let start = Instant::now();
 
         let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-        cmd.arg("--quiet")
+        with_log_backed_inspect(&mut cmd, temp_dir.path())
+            .arg("--quiet")
             .arg("top")
             .arg("query-families")
             .arg(log_file.to_str().unwrap())
@@ -1026,7 +1185,8 @@ mod benchmark_tests {
 
         // This is a basic test - in production you'd use more sophisticated memory profiling
         let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-        cmd.arg("--output-format")
+        with_log_backed_inspect(&mut cmd, temp_dir.path())
+            .arg("--output-format")
             .arg("json")
             .arg("--quiet")
             .arg("top")

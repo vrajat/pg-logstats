@@ -159,6 +159,7 @@ fn create_test_finding_set() -> FindingSet {
             database: Some("appdb".to_string()),
             user: Some("app".to_string()),
             application_name: Some("api".to_string()),
+            missing_attribution: Vec::new(),
         }),
         metrics: FindingMetrics {
             execution_count: 2,

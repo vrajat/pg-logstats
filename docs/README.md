@@ -29,10 +29,21 @@ published to CloudWatch Logs, including:
 User-facing guide for `pg-logstats inspect`, including:
 
 - operating-mode detection
+- persisted inspect report behavior
 - DB connection precedence
 - supported log-backed and live-only evidence
 - JSON output shape and reason codes
 - next-command guidance
+
+### top-query-families.md
+
+User-facing guide for `pg-logstats top query-families`, including:
+
+- `log_backed` mode requirements
+- bounded historical window behavior
+- supported formats and required log evidence
+- explicit missing-attribution behavior
+- prior-art references used during design
 
 ## Building Documentation
 

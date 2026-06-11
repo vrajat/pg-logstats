@@ -50,6 +50,11 @@ Documented but not yet `log_backed`-ready:
 The JSON output is a `PgTriageReport` with `workflow = "inspect"` and
 `payload.inspect` containing the inspect-specific fields.
 
+Every successful `inspect` run also persists this JSON report for later
+commands. The default workspace is `~/.local/share/pg-logstats`, and the report
+is persisted there as `inspect.json`. Set `--workspace` or
+`PG_LOGSTATS_WORKSPACE` to override the workspace directory.
+
 Example:
 
 ```json

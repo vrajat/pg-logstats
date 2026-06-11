@@ -25,7 +25,9 @@ pub mod triage;
 // Re-export commonly used items
 pub use analytics::{QueryAnalyzer, TimingAnalysis, TimingAnalyzer};
 pub use config::{
-    config_env_var_name, default_config_path, load_config, AppConfig, ConfigSource, ResolvedConfig,
+    default_workspace_path, load_config, resolve_workspace_path, workspace_config_path,
+    workspace_env_var_name, workspace_inspect_report_path, workspace_results_dir, AppConfig,
+    ConfigSource, ResolvedConfig,
 };
 pub use correlation::{
     correlate_query_executions, CorrelationConfidence, Correlator, ProcessOrderCorrelator,
@@ -37,9 +39,9 @@ pub use events::{
     SessionIdentity, SourceReference, StatementEvent,
 };
 pub use findings::{
-    query_family_findings, slow_query_diff_findings, ComparisonMetrics, DeltaMetrics, Finding,
-    FindingConfidence, FindingKind, FindingMetrics, FindingSet, QueryFamilyFinding, ReasonCode,
-    SlowQueryDiffOptions, FINDING_SCHEMA_VERSION,
+    query_family_findings, slow_query_diff_findings, AttributionField, ComparisonMetrics,
+    DeltaMetrics, Finding, FindingConfidence, FindingKind, FindingMetrics, FindingSet,
+    QueryFamilyFinding, ReasonCode, SlowQueryDiffOptions, FINDING_SCHEMA_VERSION,
 };
 pub use inspect::{
     build_inspect_report, collect_log_inspect_evidence, format_inspect_text, InspectCheckId,

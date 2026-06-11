@@ -87,10 +87,32 @@ pub struct QueryFamilyFinding {
     pub database: Option<String>,
     pub user: Option<String>,
     pub application_name: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub missing_attribution: Vec<AttributionField>,
+}
+
+/// Attribution dimensions that were unavailable in the supporting log evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AttributionField {
+    ApplicationName,
+    Database,
+    User,
 }
 
 impl From<&QueryFamilyIdentity> for QueryFamilyFinding {
     fn from(identity: &QueryFamilyIdentity) -> Self {
+        let mut missing_attribution = Vec::new();
+        if identity.application_name.is_none() {
+            missing_attribution.push(AttributionField::ApplicationName);
+        }
+        if identity.database.is_none() {
+            missing_attribution.push(AttributionField::Database);
+        }
+        if identity.user.is_none() {
+            missing_attribution.push(AttributionField::User);
+        }
+
         Self {
             query_family_id: identity.family_id.clone(),
             normalized_sql: identity.normalized_sql.clone(),
@@ -98,6 +120,7 @@ impl From<&QueryFamilyIdentity> for QueryFamilyFinding {
             database: identity.database.clone(),
             user: identity.user.clone(),
             application_name: identity.application_name.clone(),
+            missing_attribution,
         }
     }
 }
@@ -675,6 +698,52 @@ mod tests {
         assert_eq!(finding.next_sql.len(), 2);
         assert!(finding.next_sql[0].contains("pg_stat_statements"));
         assert!(finding.next_sql[1].contains("pg_stat_activity"));
+    }
+
+    #[test]
+    fn represents_missing_attribution_explicitly() {
+        let session = SessionIdentity {
+            process_id: "12345".to_string(),
+            user: None,
+            database: None,
+            client_host: None,
+            application_name: None,
+        };
+        let queries = Query::from_sql("SELECT * FROM users WHERE id = 1").unwrap();
+        let normalized_sql = queries[0].normalized_query.clone();
+        let query_family = QueryFamilyIdentity::new(normalized_sql, &session, None);
+
+        let mut findings = query_family_findings(
+            &[QueryExecution {
+                execution_id: "stderr:0".to_string(),
+                timestamp: Utc.with_ymd_and_hms(2024, 8, 15, 10, 30, 0).unwrap(),
+                session,
+                statement: "SELECT * FROM users WHERE id = 1".to_string(),
+                queries,
+                query_family,
+                duration_ms: Some(50.0),
+                evidence: vec![SourceReference {
+                    source_kind: EventSourceKind::Stderr,
+                    record_index: 0,
+                }],
+                confidence: CorrelationConfidence::Exact,
+            }],
+            10,
+        );
+        let finding = findings.findings.remove(0);
+
+        let query_family = finding.query_family.unwrap();
+        assert_eq!(query_family.database, None);
+        assert_eq!(query_family.user, None);
+        assert_eq!(query_family.application_name, None);
+        assert_eq!(
+            query_family.missing_attribution,
+            vec![
+                AttributionField::ApplicationName,
+                AttributionField::Database,
+                AttributionField::User,
+            ]
+        );
     }
 
     #[test]
