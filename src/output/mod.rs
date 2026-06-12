@@ -68,7 +68,7 @@ pub fn output_report<T: serde::Serialize>(
             ActionKind::TopQueryFamilies => {
                 let json_val =
                     serde_json::to_value(report).map_err(crate::PgLogstatsError::Serialization)?;
-                let top_report: PgTriageReport<crate::triage::FindingsPayload> =
+                let top_report: PgTriageReport<crate::findings::FindingsPayload> =
                     serde_json::from_value(json_val)
                         .map_err(crate::PgLogstatsError::Serialization)?;
                 let findings = crate::findings::FindingSet::new(top_report.payload.findings);

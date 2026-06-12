@@ -1,5 +1,5 @@
-use crate::guidance::{GuidancePayload, RuleDefinition, RuleId, DEFAULT_RULE_LIMIT};
-use crate::{EventSourceKind, Finding, FindingSet, LogEntry};
+use crate::guidance::GuidancePayload;
+use crate::EventSourceKind;
 use serde::{Deserialize, Serialize};
 
 /// The version of the schema used for triage reports.
@@ -241,13 +241,6 @@ pub struct SourceSummary {
     pub entries_scanned: usize,
 }
 
-/// Triage payload holding query findings.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FindingsPayload {
-    /// List of diagnostic findings.
-    pub findings: Vec<Finding>,
-}
-
 /// The structured triage report JSON format.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PgTriageReport<T> {
@@ -299,175 +292,19 @@ pub struct PgTriageReport<T> {
     pub payload: T,
 }
 
-/// Helper function to build a top query families report.
-pub fn top_query_families_report(
-    findings: FindingSet,
-    entries: &[LogEntry],
-    source_kind: EventSourceKind,
-) -> PgTriageReport<FindingsPayload> {
-    PgTriageReport {
-        schema_version: PG_TRIAGE_SCHEMA_VERSION,
-        workflow: ActionKind::TopQueryFamilies,
-        operating_mode: OperatingMode::LogBackedOnly,
-        limitations: Vec::new(),
-        verdict: Some(Verdict::Unknown),
-        verdict_reasons: vec!["live_state_verdict_not_evaluated".to_string()],
-        allowed_actions: None,
-        blocked_actions: None,
-        analysis_window: analysis_window(entries),
-        source_summary: Some(SourceSummary {
-            kind: source_kind.into(),
-            entries_scanned: entries.len(),
-        }),
-        next_actions: Vec::new(),
-        report_id: None,
-        session_id: None,
-        parent_report_id: None,
-        selected_action_id: None,
-        created_at: None,
-        payload: FindingsPayload {
-            findings: findings.findings,
-        },
-    }
-}
-
-pub fn findings_rules() -> Vec<RuleDefinition> {
-    vec![RuleDefinition {
-        rule_id: RuleId::QueryFamilyPgStatStatementsLookup,
-        emitted_action_id: RuleId::QueryFamilyPgStatStatementsLookup,
-        kind: ActionKind::RunSql,
-        target_workflow: ActionKind::TopQueryFamilies,
-        target_finding_kind: Some(crate::findings::FindingKind::QueryFamily),
-        destination_workflow: Some(ActionKind::RunSql),
-        required_identifiers: vec!["normalized_sql".to_string()],
-        label: "Lookup query stats in pg_stat_statements".to_string(),
-        reason: "Query normalized text is available. Search pg_stat_statements for matching stats.".to_string(),
-        priority: NextActionPriority::Recommended,
-        risk: Some(RiskLabel::Bounded),
-        action_class: Some(ActionClass::TextPatternStatsSearch),
-        command_template: None,
-        sql_template: Some("SELECT queryid, calls, total_exec_time, mean_exec_time, rows, query FROM pg_stat_statements WHERE query ILIKE '%{normalized_sql}%' ORDER BY total_exec_time DESC LIMIT 20;".to_string()),
-        required_operating_mode: Some(OperatingMode::LiveOnly),
-        produces: vec!["workflow:sql_action".to_string()],
-        attribution: "pg_stat_statements docs lookup".to_string(),
-    }]
-}
-
-impl GuidancePayload for FindingsPayload {
-    fn evaluate_rules(
-        &self,
-        operating_mode: OperatingMode,
-        verdict: Option<Verdict>,
-        config: &crate::AppConfig,
-    ) -> Vec<NextAction> {
-        let rules = findings_rules();
-        let mut actions = Vec::new();
-
-        for rule in rules {
-            let rule_limit = config
-                .guidance
-                .rules
-                .get(&rule.rule_id)
-                .and_then(|rc| rc.limit)
-                .unwrap_or(DEFAULT_RULE_LIMIT);
-
-            if let Some(target_finding_kind) = rule.target_finding_kind {
-                let mut count = 0;
-                for finding in &self.findings {
-                    if finding.kind != target_finding_kind {
-                        continue;
-                    }
-                    if count >= rule_limit {
-                        break;
-                    }
-
-                    let (mut status, mut reason) = crate::guidance::evaluate_rule_constraints(
-                        &rule,
-                        operating_mode,
-                        verdict,
-                        config,
-                    );
-
-                    let mut sql_preview = None;
-                    let mut command = None;
-                    let mut has_required_ids = true;
-                    let mut missing_ids = Vec::new();
-
-                    if rule.kind == ActionKind::RunSql {
-                        if let Some(sql_temp) = &rule.sql_template {
-                            let mut sql = sql_temp.clone();
-                            if let Some(qf) = &finding.query_family {
-                                if sql.contains("{normalized_sql}") {
-                                    sql = sql.replace(
-                                        "{normalized_sql}",
-                                        &crate::guidance::escape_like_literal(&qf.normalized_sql),
-                                    );
-                                }
-                                if sql.contains("{queryid}") {
-                                    if let Some(qid) = &qf.queryid {
-                                        sql = sql.replace("{queryid}", qid);
-                                    } else {
-                                        has_required_ids = false;
-                                        missing_ids.push("queryid".to_string());
-                                    }
-                                }
-                                if sql.contains("{database}") {
-                                    if let Some(db) = &qf.database {
-                                        sql = sql.replace(
-                                            "{database}",
-                                            &crate::guidance::escape_sql_literal(db),
-                                        );
-                                    } else {
-                                        has_required_ids = false;
-                                        missing_ids.push("database".to_string());
-                                    }
-                                }
-                            } else {
-                                has_required_ids = false;
-                                missing_ids.push("query_family".to_string());
-                            }
-
-                            sql_preview = Some(sql.clone());
-                            if has_required_ids {
-                                command = Some(NextActionCommand {
-                                    argv: vec![
-                                        "pg-logstats".to_string(),
-                                        "run-sql".to_string(),
-                                        "--sql".to_string(),
-                                        sql,
-                                    ],
-                                });
-                            }
-                        }
-                    }
-
-                    if status == NextActionStatus::Allowed && !has_required_ids {
-                        status = NextActionStatus::OmittedNotEnoughContext;
-                        reason =
-                            format!("Omitted: missing required identifiers: {:?}", missing_ids);
-                    }
-
-                    if status == NextActionStatus::OmittedNotEnoughContext
-                        && !config.guidance.show_omitted
-                    {
-                        continue;
-                    }
-
-                    let next_act = crate::guidance::build_next_action(
-                        &rule,
-                        status,
-                        reason,
-                        Some(finding.finding_id.clone()),
-                        command,
-                        sql_preview,
-                    );
-                    actions.push(next_act);
-                    count += 1;
-                }
-            }
-        }
-
-        actions
+pub fn workflow_slug(workflow: ActionKind) -> &'static str {
+    match workflow {
+        ActionKind::AgentInstall => "agent_install",
+        ActionKind::Inspect => "inspect",
+        ActionKind::RunningQueries => "running_queries",
+        ActionKind::TopQueryFamilies => "top_query_families",
+        ActionKind::SlowQueriesDiff => "slow_queries_diff",
+        ActionKind::RunSql => "run_sql",
+        ActionKind::CollectLogs => "collect_logs",
+        ActionKind::Escalate => "escalate",
+        ActionKind::Stop => "stop",
+        ActionKind::Errors => "errors",
+        ActionKind::TempFiles => "temp_files",
     }
 }
 
@@ -527,22 +364,13 @@ pub fn sql_action_report(
     }
 }
 
-fn analysis_window(entries: &[LogEntry]) -> Option<AnalysisWindow> {
-    let since = entries.iter().map(|entry| entry.timestamp).min()?;
-    let until = entries.iter().map(|entry| entry.timestamp).max()?;
-
-    Some(AnalysisWindow {
-        since: since.to_rfc3339(),
-        until: until.to_rfc3339(),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::AppConfig;
     use crate::{
-        Finding, FindingConfidence, FindingKind, FindingMetrics, QueryFamilyFinding, ReasonCode,
-        SourceReference,
+        Finding, FindingConfidence, FindingKind, FindingMetrics, FindingSet, FindingsPayload,
+        LogEntry, QueryFamilyFinding, ReasonCode, SourceReference,
     };
     use chrono::{TimeZone, Utc};
 
@@ -602,9 +430,15 @@ mod tests {
         ]
     }
 
+    fn sample_report_payload() -> FindingsPayload {
+        FindingsPayload {
+            findings: sample_findings().findings,
+        }
+    }
+
     #[test]
     fn serializes_top_query_families_report() {
-        let report = top_query_families_report(
+        let report = crate::findings::top_query_families_report(
             sample_findings(),
             &sample_entries(),
             EventSourceKind::Stderr,
@@ -622,5 +456,82 @@ mod tests {
             value["payload"]["findings"][0]["finding_id"],
             "query_family:demo"
         );
+    }
+
+    #[test]
+    fn query_family_rules_emit_activity_action_and_omit_queryid_without_context() {
+        let actions = sample_report_payload().evaluate_rules(
+            OperatingMode::LogBackedAndLive,
+            Some(Verdict::Clear),
+            &AppConfig::default(),
+        );
+
+        let activity = actions
+            .iter()
+            .find(|a| {
+                a.action_id == "query_family.pg_stat_activity.by_dimensions:query_family:demo"
+            })
+            .unwrap();
+        assert_eq!(activity.status, NextActionStatus::Allowed);
+        assert_eq!(activity.risk, Some(RiskLabel::Safe));
+        assert!(activity
+            .sql_preview
+            .as_deref()
+            .unwrap()
+            .contains("application_name = 'api'"));
+
+        let queryid = actions
+            .iter()
+            .find(|a| a.action_id == "query_family.pg_stat_statements.by_queryid:query_family:demo")
+            .unwrap();
+        assert_eq!(queryid.status, NextActionStatus::OmittedNotEnoughContext);
+    }
+
+    #[test]
+    fn query_family_rules_emit_exact_queryid() {
+        let mut payload = sample_report_payload();
+        payload.findings[0].query_family.as_mut().unwrap().queryid = Some("918273645".to_string());
+
+        let actions = payload.evaluate_rules(
+            OperatingMode::LogBackedAndLive,
+            Some(Verdict::Clear),
+            &AppConfig::default(),
+        );
+
+        let queryid = actions
+            .iter()
+            .find(|a| a.action_id == "query_family.pg_stat_statements.by_queryid:query_family:demo")
+            .unwrap();
+        assert_eq!(queryid.status, NextActionStatus::Allowed);
+        assert!(queryid
+            .sql_preview
+            .as_deref()
+            .unwrap()
+            .contains("WHERE queryid = $1"));
+    }
+
+    #[test]
+    fn query_family_rules_escape_activity_literals() {
+        let mut payload = sample_report_payload();
+        let qf = payload.findings[0].query_family.as_mut().unwrap();
+        qf.application_name = Some("api's worker".to_string());
+
+        let actions = payload.evaluate_rules(
+            OperatingMode::LogBackedAndLive,
+            Some(Verdict::Clear),
+            &AppConfig::default(),
+        );
+
+        let activity = actions
+            .iter()
+            .find(|a| {
+                a.action_id == "query_family.pg_stat_activity.by_dimensions:query_family:demo"
+            })
+            .unwrap();
+        assert!(activity
+            .sql_preview
+            .as_deref()
+            .unwrap()
+            .contains("application_name = 'api''s worker'"));
     }
 }

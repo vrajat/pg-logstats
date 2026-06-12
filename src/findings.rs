@@ -1,6 +1,15 @@
 //! Structured findings for investigation-oriented output.
 
-use crate::{CorrelationConfidence, QueryExecution, QueryFamilyIdentity, SourceReference};
+use crate::guidance::{build_next_action, evaluate_rule_constraints, GuidancePayload};
+use crate::triage::{
+    ActionClass, ActionKind, AnalysisWindow, NextAction, NextActionCommand, NextActionPriority,
+    NextActionStatus, OperatingMode, PgTriageReport, RiskLabel, SourceSummary, SourceSummaryKind,
+    Verdict, PG_TRIAGE_SCHEMA_VERSION,
+};
+use crate::{
+    CorrelationConfidence, EventSourceKind, LogEntry, QueryExecution, QueryFamilyIdentity,
+    RuleDefinition, RuleId, SourceReference, DEFAULT_RULE_LIMIT,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -43,6 +52,8 @@ pub struct Finding {
     pub delta: Option<DeltaMetrics>,
     pub evidence: Vec<SourceReference>,
     pub confidence: FindingConfidence,
+    /// Non-executable SQL hints for human follow-up. These are not the same
+    /// thing as built-in `run-sql` actions.
     pub next_sql: Vec<String>,
 }
 
@@ -83,6 +94,7 @@ pub enum FindingConfidence {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryFamilyFinding {
     pub query_family_id: String,
+    /// The normalized query-family text used for grouping and evidence display.
     pub normalized_sql: String,
     pub queryid: Option<String>,
     pub database: Option<String>,
@@ -124,6 +136,13 @@ impl From<&QueryFamilyIdentity> for QueryFamilyFinding {
             missing_attribution,
         }
     }
+}
+
+/// Triage payload holding serialized findings for report-shaped workflows.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FindingsPayload {
+    /// List of diagnostic findings.
+    pub findings: Vec<Finding>,
 }
 
 /// Summary metrics attached to a finding.
@@ -174,6 +193,231 @@ impl Default for SlowQueryDiffOptions {
             min_target_total_ms: 0.0,
             min_p95_delta_ms: 0.0,
         }
+    }
+}
+
+/// Build a top-query-families triage report from ranked findings and source
+/// metadata.
+pub fn top_query_families_report(
+    findings: FindingSet,
+    entries: &[LogEntry],
+    source_kind: EventSourceKind,
+) -> PgTriageReport<FindingsPayload> {
+    PgTriageReport {
+        schema_version: PG_TRIAGE_SCHEMA_VERSION,
+        workflow: ActionKind::TopQueryFamilies,
+        operating_mode: OperatingMode::LogBackedOnly,
+        limitations: Vec::new(),
+        verdict: Some(Verdict::Unknown),
+        verdict_reasons: vec!["live_state_verdict_not_evaluated".to_string()],
+        allowed_actions: None,
+        blocked_actions: None,
+        analysis_window: analysis_window(entries),
+        source_summary: Some(SourceSummary {
+            kind: SourceSummaryKind::from(source_kind),
+            entries_scanned: entries.len(),
+        }),
+        next_actions: Vec::new(),
+        report_id: None,
+        session_id: None,
+        parent_report_id: None,
+        selected_action_id: None,
+        created_at: None,
+        payload: FindingsPayload {
+            findings: findings.findings,
+        },
+    }
+}
+
+/// Built-in rule definitions for findings-backed workflow follow-up actions.
+pub fn findings_rules() -> Vec<RuleDefinition> {
+    vec![
+        RuleDefinition {
+            rule_id: RuleId::QueryFamilyPgStatStatementsByQueryId,
+            emitted_action_id: RuleId::QueryFamilyPgStatStatementsByQueryId,
+            kind: ActionKind::RunSql,
+            target_workflow: ActionKind::TopQueryFamilies,
+            target_finding_kind: Some(FindingKind::QueryFamily),
+            destination_workflow: Some(ActionKind::RunSql),
+            required_identifiers: vec!["queryid".to_string()],
+            label: "Inspect statement statistics for the exact query family".to_string(),
+            reason: "The finding includes queryid, so this is an exact stats-view lookup."
+                .to_string(),
+            priority: NextActionPriority::Recommended,
+            risk: Some(RiskLabel::Safe),
+            action_class: Some(ActionClass::StatsViewReads),
+            command_template: None,
+            sql_template: None,
+            required_operating_mode: Some(OperatingMode::LiveOnly),
+            produces: vec!["workflow:sql_action".to_string()],
+            attribution: "PostgreSQL pg_stat_statements exact queryid lookup".to_string(),
+        },
+        RuleDefinition {
+            rule_id: RuleId::QueryFamilyPgStatActivityByDimensions,
+            emitted_action_id: RuleId::QueryFamilyPgStatActivityByDimensions,
+            kind: ActionKind::RunSql,
+            target_workflow: ActionKind::TopQueryFamilies,
+            target_finding_kind: Some(FindingKind::QueryFamily),
+            destination_workflow: Some(ActionKind::RunSql),
+            required_identifiers: vec!["database|user|application_name".to_string()],
+            label: "Find current active sessions for the same query-family dimensions"
+                .to_string(),
+            reason: "The finding includes database, user, or application attribution that can bound pg_stat_activity."
+                .to_string(),
+            priority: NextActionPriority::Optional,
+            risk: Some(RiskLabel::Bounded),
+            action_class: Some(ActionClass::BoundedActivityQueries),
+            command_template: None,
+            sql_template: None,
+            required_operating_mode: Some(OperatingMode::LiveOnly),
+            produces: vec!["workflow:sql_action".to_string()],
+            attribution: "PostgreSQL pg_stat_activity lookup by app, database, and user"
+                .to_string(),
+        },
+    ]
+}
+
+fn query_family_queryid_sql() -> String {
+    "SELECT queryid, calls, total_exec_time, mean_exec_time, min_exec_time, max_exec_time, rows, shared_blks_hit, shared_blks_read, temp_blks_read, temp_blks_written, query FROM pg_stat_statements WHERE queryid = $1;".to_string()
+}
+
+fn query_family_activity_sql(
+    database: Option<&str>,
+    user: Option<&str>,
+    application_name: Option<&str>,
+) -> Option<String> {
+    let mut predicates = Vec::new();
+    if let Some(database) = database {
+        predicates.push(format!(
+            "datname = '{}'",
+            crate::guidance::escape_sql_literal(database)
+        ));
+    }
+    if let Some(user) = user {
+        predicates.push(format!(
+            "usename = '{}'",
+            crate::guidance::escape_sql_literal(user)
+        ));
+    }
+    if let Some(application_name) = application_name {
+        predicates.push(format!(
+            "application_name = '{}'",
+            crate::guidance::escape_sql_literal(application_name)
+        ));
+    }
+
+    if predicates.is_empty() {
+        return None;
+    }
+
+    Some(format!(
+        "SELECT pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query_id, query FROM pg_stat_activity WHERE {} AND state <> 'idle' ORDER BY query_start DESC NULLS LAST LIMIT 20;",
+        predicates.join(" AND ")
+    ))
+}
+
+impl GuidancePayload for FindingsPayload {
+    fn evaluate_rules(
+        &self,
+        operating_mode: OperatingMode,
+        verdict: Option<Verdict>,
+        config: &crate::AppConfig,
+    ) -> Vec<NextAction> {
+        let mut actions = Vec::new();
+
+        for rule in findings_rules() {
+            let Some(target_finding_kind) = rule.target_finding_kind else {
+                continue;
+            };
+
+            let rule_limit = config
+                .guidance
+                .rules
+                .get(&rule.rule_id)
+                .and_then(|rc| rc.limit)
+                .unwrap_or(DEFAULT_RULE_LIMIT);
+
+            let matching_findings = self
+                .findings
+                .iter()
+                .filter(|finding| finding.kind == target_finding_kind)
+                .take(rule_limit);
+
+            for finding in matching_findings {
+                let mut resolved_rule = rule.clone();
+                let mut sql_preview = None;
+                let mut command = None;
+                let mut missing_ids = Vec::new();
+
+                match rule.rule_id {
+                    RuleId::QueryFamilyPgStatStatementsByQueryId => {
+                        if let Some(qf) = &finding.query_family {
+                            if qf.queryid.is_some() {
+                                let sql = query_family_queryid_sql();
+                                sql_preview = Some(sql);
+                                command = Some(NextActionCommand {
+                                    argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
+                                });
+                            } else {
+                                missing_ids.push("queryid".to_string());
+                            }
+                        } else {
+                            missing_ids.push("query_family".to_string());
+                        }
+                    }
+                    RuleId::QueryFamilyPgStatActivityByDimensions => {
+                        if let Some(qf) = &finding.query_family {
+                            let sql = query_family_activity_sql(
+                                qf.database.as_deref(),
+                                qf.user.as_deref(),
+                                qf.application_name.as_deref(),
+                            );
+                            if let Some(sql) = sql {
+                                resolved_rule.risk = Some(if qf.application_name.is_some() {
+                                    RiskLabel::Safe
+                                } else {
+                                    RiskLabel::Bounded
+                                });
+                                sql_preview = Some(sql);
+                                command = Some(NextActionCommand {
+                                    argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
+                                });
+                            } else {
+                                missing_ids.push("database|user|application_name".to_string());
+                            }
+                        } else {
+                            missing_ids.push("query_family".to_string());
+                        }
+                    }
+                    _ => {}
+                }
+
+                let (mut status, mut reason) =
+                    evaluate_rule_constraints(&resolved_rule, operating_mode, verdict, config);
+
+                if status == NextActionStatus::Allowed && !missing_ids.is_empty() {
+                    status = NextActionStatus::OmittedNotEnoughContext;
+                    reason = format!("Omitted: missing required identifiers: {:?}", missing_ids);
+                }
+
+                if status == NextActionStatus::OmittedNotEnoughContext
+                    && !config.guidance.show_omitted
+                {
+                    continue;
+                }
+
+                actions.push(build_next_action(
+                    &resolved_rule,
+                    status,
+                    reason,
+                    Some(finding.finding_id.clone()),
+                    command,
+                    sql_preview,
+                ));
+            }
+        }
+
+        actions
     }
 }
 
@@ -566,12 +810,6 @@ pub fn suggest_sql_for_query_family(identity: &QueryFamilyIdentity) -> Vec<Strin
 from pg_stat_statements where queryid = {};",
             queryid
         ));
-    } else {
-        statements.push(format!(
-            "select queryid, calls, total_exec_time, mean_exec_time, rows, query \
-from pg_stat_statements where query ilike '%{}%' order by total_exec_time desc limit 20;",
-            escape_like_literal(&identity.normalized_sql)
-        ));
     }
 
     let mut activity_filters = Vec::new();
@@ -588,18 +826,14 @@ from pg_stat_statements where query ilike '%{}%' order by total_exec_time desc l
         ));
     }
 
-    let where_clause = if activity_filters.is_empty() {
-        "state <> 'idle'".to_string()
-    } else {
-        activity_filters.join(" and ")
-    };
-
-    statements.push(format!(
-        "select pid, usename, datname, application_name, state, wait_event_type, \
+    if !activity_filters.is_empty() {
+        statements.push(format!(
+            "select pid, usename, datname, application_name, state, wait_event_type, \
 wait_event, query_start, query from pg_stat_activity where {} \
 order by query_start desc nulls last limit 20;",
-        where_clause
-    ));
+            activity_filters.join(" and ")
+        ));
+    }
 
     statements
 }
@@ -608,11 +842,14 @@ fn escape_sql_literal(value: &str) -> String {
     value.replace('\'', "''")
 }
 
-fn escape_like_literal(value: &str) -> String {
-    escape_sql_literal(value)
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
+fn analysis_window(entries: &[LogEntry]) -> Option<AnalysisWindow> {
+    let since = entries.iter().map(|entry| entry.timestamp).min()?;
+    let until = entries.iter().map(|entry| entry.timestamp).max()?;
+
+    Some(AnalysisWindow {
+        since: since.to_rfc3339(),
+        until: until.to_rfc3339(),
+    })
 }
 
 #[cfg(test)]
@@ -696,9 +933,8 @@ mod tests {
         assert_eq!(finding.metrics.execution_count, 2);
         assert_eq!(finding.metrics.correlated_execution_count, 1);
         assert_eq!(finding.metrics.uncorrelated_execution_count, 1);
-        assert_eq!(finding.next_sql.len(), 2);
-        assert!(finding.next_sql[0].contains("pg_stat_statements"));
-        assert!(finding.next_sql[1].contains("pg_stat_activity"));
+        assert_eq!(finding.next_sql.len(), 1);
+        assert!(finding.next_sql[0].contains("pg_stat_activity"));
     }
 
     #[test]
@@ -807,7 +1043,7 @@ mod tests {
         assert_eq!(finding.baseline.unwrap().p95_duration_ms, 30.0);
         assert_eq!(finding.target.unwrap().p95_duration_ms, 150.0);
         assert_eq!(finding.delta.unwrap().p95_duration_ms, 120.0);
-        assert_eq!(finding.next_sql.len(), 2);
+        assert_eq!(finding.next_sql.len(), 1);
     }
 
     #[test]
@@ -846,10 +1082,8 @@ mod tests {
 
         let sql = suggest_sql_for_query_family(&identity);
 
-        assert_eq!(sql.len(), 2);
-        assert!(sql[0].contains("pg_stat_statements"));
-        assert!(sql[0].contains("abc\\_\\%"));
-        assert!(sql[1].contains("usename = 'app''user'"));
-        assert!(sql[1].contains("application_name = 'api%worker'"));
+        assert_eq!(sql.len(), 1);
+        assert!(sql[0].contains("usename = 'app''user'"));
+        assert!(sql[0].contains("application_name = 'api%worker'"));
     }
 }

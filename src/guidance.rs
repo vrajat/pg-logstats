@@ -23,9 +23,12 @@ pub enum RuleId {
     /// Inspect-level rule to install agent skills.
     #[serde(rename = "inspect.agent_install")]
     InspectAgentInstall,
-    /// Query-family-level rule to check stats views for a specific query pattern.
-    #[serde(rename = "query_family.pg_stat_statements.by_query_pattern")]
-    QueryFamilyPgStatStatementsLookup,
+    /// Query-family-level rule to check stats views for an exact queryid.
+    #[serde(rename = "query_family.pg_stat_statements.by_queryid")]
+    QueryFamilyPgStatStatementsByQueryId,
+    /// Query-family-level rule to inspect active sessions by finding dimensions.
+    #[serde(rename = "query_family.pg_stat_activity.by_dimensions")]
+    QueryFamilyPgStatActivityByDimensions,
 }
 
 impl std::fmt::Display for RuleId {
@@ -34,8 +37,11 @@ impl std::fmt::Display for RuleId {
             RuleId::InspectTopQueryFamilies => "inspect.top_query_families",
             RuleId::InspectRunningQueries => "inspect.running_queries",
             RuleId::InspectAgentInstall => "inspect.agent_install",
-            RuleId::QueryFamilyPgStatStatementsLookup => {
-                "query_family.pg_stat_statements.by_query_pattern"
+            RuleId::QueryFamilyPgStatStatementsByQueryId => {
+                "query_family.pg_stat_statements.by_queryid"
+            }
+            RuleId::QueryFamilyPgStatActivityByDimensions => {
+                "query_family.pg_stat_activity.by_dimensions"
             }
         };
         write!(f, "{}", s)
@@ -53,11 +59,15 @@ pub struct RuleDefinition {
     pub kind: ActionKind,
     /// The workflow/action category that this rule applies to.
     pub target_workflow: ActionKind,
-    /// The type of diagnostic finding this rule targets (e.g., query family, temp file).
+    /// The type of diagnostic finding this rule targets. Payload-specific rule
+    /// evaluators use this as a filter before attempting to instantiate an
+    /// action for an individual finding.
     pub target_finding_kind: Option<FindingKind>,
     /// The workflow category the recommended action will transition into.
     pub destination_workflow: Option<ActionKind>,
     /// Identifiers required in context to populate templates for this action.
+    /// This is emitted as action metadata; payload evaluators still enforce the
+    /// actual missing-context checks explicitly.
     pub required_identifiers: Vec<String>,
     /// Human-readable description of the recommended action.
     pub label: String,
@@ -267,11 +277,6 @@ pub fn populate_next_actions<T: GuidancePayload>(
 /// Escapes single quotes in database text literals to prevent SQL injection.
 pub fn escape_sql_literal(s: &str) -> String {
     s.replace("'", "''")
-}
-
-/// Escapes special characters (`%`, `_`, `'`) used in SQL `LIKE`/`ILIKE` patterns.
-pub fn escape_like_literal(s: &str) -> String {
-    s.replace("'", "''").replace("%", "\\%").replace("_", "\\_")
 }
 
 #[cfg(test)]

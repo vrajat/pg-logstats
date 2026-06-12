@@ -584,12 +584,10 @@ fn test_run_action_sql_missing_db() {
         .arg("0001-top_query_families")
         .arg("--selected-action-id")
         .arg(format!(
-            "query_family.pg_stat_statements.by_query_pattern:{}",
+            "query_family.pg_stat_activity.by_dimensions:{}",
             finding_id_for_users_select()
         ))
         .arg("run-sql")
-        .arg("--sql")
-        .arg("SELECT 1;")
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -629,8 +627,6 @@ fn test_run_action_unknown_or_blocked() {
         .arg("--selected-action-id")
         .arg("nonexistent_action_id")
         .arg("run-sql")
-        .arg("--sql")
-        .arg("SELECT 1;")
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -980,12 +976,10 @@ fn test_checked_in_run_action_happy_path() {
         .arg("0001-top_query_families")
         .arg("--selected-action-id")
         .arg(format!(
-            "query_family.pg_stat_statements.by_query_pattern:query_family:{}",
+            "query_family.pg_stat_activity.by_dimensions:query_family:{}",
             "qf_51125b8829ab1fdf"
         ))
         .arg("run-sql")
-        .arg("--sql")
-        .arg("SELECT 1;")
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -1068,16 +1062,63 @@ fn test_run_action_from_checked_in_findings_json() {
         .arg("0001-top_query_families")
         .arg("--selected-action-id")
         .arg(format!(
-            "query_family.pg_stat_statements.by_query_pattern:query_family:{}",
+            "query_family.pg_stat_activity.by_dimensions:query_family:{}",
             "qf_51125b8829ab1fdf"
         ))
         .arg("run-sql")
-        .arg("--sql")
-        .arg("SELECT 1;")
         .assert()
         .failure()
         .stderr(predicate::str::contains(
             "database_connection_not_configured",
+        ));
+}
+
+#[test]
+fn test_run_action_rejects_conflicting_parameter_override() {
+    let fixture = repo_fixture("tests/fixtures/cli/sample_stderr.log");
+    let temp_dir = TempDir::new().unwrap();
+    let findings_file = temp_dir.path().join("findings.json");
+
+    let mut top_cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_and_live_inspect(&mut top_cmd, temp_dir.path());
+    top_cmd
+        .arg("top")
+        .arg("query-families")
+        .arg("--quiet")
+        .arg("--output-format")
+        .arg("json")
+        .arg("--outfile")
+        .arg(findings_file.to_str().unwrap())
+        .arg("--session-id")
+        .arg("test_sess")
+        .arg(fixture.to_str().unwrap())
+        .assert()
+        .success();
+
+    let report_path = temp_dir
+        .path()
+        .join("sessions/test_sess/reports/0001-top_query_families.json");
+    let content = std::fs::read_to_string(&report_path).unwrap();
+    let mut report: PgTriageReport<FindingsPayload> = serde_json::from_str(&content).unwrap();
+    report.verdict = Some(pg_logstats::Verdict::Clear);
+    pg_logstats::populate_next_actions(&mut report, &pg_logstats::AppConfig::default());
+    std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_and_live_inspect(&mut cmd, temp_dir.path())
+        .arg("--session-id")
+        .arg("test_sess")
+        .arg("--parent-report-id")
+        .arg("0001-top_query_families")
+        .arg("--selected-action-id")
+        .arg("query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf")
+        .arg("run-sql")
+        .arg("--parameter")
+        .arg("database=otherdb")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Parameter 'database' conflicts with the selected action context",
         ));
 }
 

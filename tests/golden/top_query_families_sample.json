@@ -34,7 +34,6 @@
           "uncorrelated_execution_count": 0
         },
         "next_sql": [
-          "select queryid, calls, total_exec_time, mean_exec_time, rows, query from pg_stat_statements where query ilike '%SELECT * FROM users WHERE id = ?%' order by total_exec_time desc limit 20;",
           "select pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query from pg_stat_activity where datname = 'appdb' and usename = 'app' and application_name = 'api' order by query_start desc nulls last limit 20;"
         ],
         "query_family": {
@@ -79,7 +78,6 @@
           "uncorrelated_execution_count": 0
         },
         "next_sql": [
-          "select queryid, calls, total_exec_time, mean_exec_time, rows, query from pg_stat_statements where query ilike '%SELECT COUNT(*) FROM orders WHERE created\\_at >= ?%' order by total_exec_time desc limit 20;",
           "select pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query from pg_stat_activity where datname = 'analytics' and usename = 'reporting' and application_name = 'psql' order by query_start desc nulls last limit 20;"
         ],
         "query_family": {
@@ -124,7 +122,6 @@
           "uncorrelated_execution_count": 0
         },
         "next_sql": [
-          "select queryid, calls, total_exec_time, mean_exec_time, rows, query from pg_stat_statements where query ilike '%UPDATE users SET last\\_login = NOW() WHERE id = ?%' order by total_exec_time desc limit 20;",
           "select pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query from pg_stat_activity where datname = 'appdb' and usename = 'app' and application_name = 'worker' order by query_start desc nulls last limit 20;"
         ],
         "query_family": {

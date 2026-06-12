@@ -2,17 +2,17 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use pg_logstats::{
-    connect_postgres_client,
+    execute_run_sql,
     input::{
         discover_log_files, process_cloudwatch_input, process_log_file, process_log_paths,
         validate_file_input_args, CloudWatchInput, CloudWatchSince, CloudWatchUntil, LocalLogInput,
     },
-    inspect, load_config, normalize_log_entries, query_family_findings, resolve_database_dsn,
-    resolve_workspace_path, slow_query_diff_findings, sql_action_report, top_query_families_report,
-    workspace_inspect_report_path, ActionKind, Correlator, EventSourceKind, InspectReportPayload,
-    JsonFormatter, NextActionStatus, OperatingMode, OutputFormat, PgLogstatsError, PgTriageReport,
-    ProcessOrderCorrelator, Result, SlowQueryDiffOptions, SqlActionPayload, TextFormatter,
-    TextLogFormat, TextLogParser,
+    inspect, load_config, normalize_log_entries, parse_action_parameters, query_family_findings,
+    resolve_workspace_path, slow_query_diff_findings, top_query_families_report, workflow_slug,
+    workspace_inspect_report_path, ActionKind, ActionParameterInput, Correlator, EventSourceKind,
+    InspectReportPayload, JsonFormatter, NextAction, NextActionStatus, OperatingMode, OutputFormat,
+    PgLogstatsError, PgTriageReport, ProcessOrderCorrelator, Result, RunSqlRequest,
+    SlowQueryDiffOptions, TextFormatter, TextLogFormat, TextLogParser,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -69,6 +69,11 @@ struct Arguments {
     /// and then [database].dsn from config.
     #[clap(long, global = true, value_name = "POSTGRES_URL")]
     dsn: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct SessionActionIndex {
+    next_actions: Vec<NextAction>,
 }
 
 #[derive(Debug, Args)]
@@ -174,9 +179,9 @@ enum Command {
     },
     /// Run a diagnostic SQL query against the database
     RunSql {
-        /// SQL query to run
-        #[clap(long)]
-        sql: String,
+        /// Named parameter for the selected action, in NAME=VALUE form.
+        #[clap(long = "parameter", value_name = "NAME=VALUE")]
+        parameters: Vec<String>,
     },
 }
 
@@ -314,7 +319,7 @@ fn validate_session_action(args: &Arguments, workspace_path: &Path) -> Result<()
 
         if parent_path.exists() {
             let parent_content = fs::read_to_string(&parent_path)?;
-            let parent_rep: PgTriageReport<serde_json::Value> =
+            let parent_rep: SessionActionIndex =
                 serde_json::from_str(&parent_content).map_err(PgLogstatsError::Serialization)?;
 
             let action = parent_rep
@@ -540,13 +545,8 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
         Command::SlowQueries {
             command: SlowQueriesCommand::Diff { sample_size, .. },
         } => validate_sample_size(*sample_size)?,
-        Command::RunSql { sql } => {
-            if sql.trim().is_empty() {
-                return Err(PgLogstatsError::Configuration {
-                    message: "SQL query cannot be empty".to_string(),
-                    field: Some("sql".to_string()),
-                });
-            }
+        Command::RunSql { parameters } => {
+            parse_action_parameters(parameters)?;
         }
     }
 
@@ -683,7 +683,7 @@ fn record_session_report<T: serde::Serialize>(
         let parent_path = reports_dir.join(format!("{}.json", parent_id));
         if parent_path.exists() {
             let parent_content = fs::read_to_string(&parent_path)?;
-            let parent_rep: PgTriageReport<serde_json::Value> =
+            let parent_rep: SessionActionIndex =
                 serde_json::from_str(&parent_content).map_err(PgLogstatsError::Serialization)?;
 
             let action = parent_rep
@@ -732,21 +732,7 @@ fn record_session_report<T: serde::Serialize>(
         .count()
         + 1;
 
-    let workflow_name = match report.workflow {
-        ActionKind::AgentInstall => "agent_install",
-        ActionKind::Inspect => "inspect",
-        ActionKind::RunningQueries => "running_queries",
-        ActionKind::TopQueryFamilies => "top_query_families",
-        ActionKind::SlowQueriesDiff => "slow_queries_diff",
-        ActionKind::RunSql => "run_sql",
-        ActionKind::CollectLogs => "collect_logs",
-        ActionKind::Escalate => "escalate",
-        ActionKind::Stop => "stop",
-        ActionKind::Errors => "errors",
-        ActionKind::TempFiles => "temp_files",
-    };
-
-    let report_id_str = format!("{:04}-{}", sequence, workflow_name);
+    let report_id_str = format!("{:04}-{}", sequence, workflow_slug(report.workflow));
     report.report_id = Some(report_id_str.clone());
 
     let report_file = reports_dir.join(format!("{}.json", report_id_str));
@@ -826,113 +812,28 @@ fn run_sql_command(
     args: &Arguments,
     _parser: &TextLogParser,
     config: &pg_logstats::AppConfig,
-    _inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
+    inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
-    let Command::RunSql { sql } = &args.command else {
+    let Command::RunSql { parameters } = &args.command else {
         unreachable!();
     };
 
-    let resolved_dsn = resolve_database_dsn(args.dsn.as_deref(), config)
-        .ok_or_else(|| PgLogstatsError::Configuration {
-            message: "Database connection not configured. Specify --dsn, PG_LOGSTATS_DATABASE_URL, or [database].dsn in config.".to_string(),
-            field: Some("database_connection_not_configured".to_string()),
-        })?;
-
-    let mut client = connect_postgres_client(&resolved_dsn, config.database.connect_timeout_ms)
-        .map_err(|e| PgLogstatsError::Configuration {
-            message: e,
-            field: Some("dsn".to_string()),
-        })?;
-
-    let rows = client
-        .query(sql, &[])
-        .map_err(|e| PgLogstatsError::Unexpected {
-            message: format!("Failed to execute SQL: {}", e),
-            context: None,
-        })?;
-
-    let mut columns = Vec::new();
-    if !rows.is_empty() {
-        for col in rows[0].columns() {
-            columns.push(col.name().to_string());
-        }
-    }
-
-    use postgres::types::Type;
-    let mut json_rows = Vec::new();
-    for row in rows {
-        let mut json_row = Vec::new();
-        for (i, col) in row.columns().iter().enumerate() {
-            let val: serde_json::Value = match col.type_() {
-                &Type::INT4 => {
-                    let v: Option<i32> = row.get(i);
-                    v.map(Into::into).unwrap_or(serde_json::Value::Null)
-                }
-                &Type::INT8 => {
-                    let v: Option<i64> = row.get(i);
-                    v.map(Into::into).unwrap_or(serde_json::Value::Null)
-                }
-                &Type::FLOAT4 => {
-                    let v: Option<f32> = row.get(i);
-                    v.map(Into::into).unwrap_or(serde_json::Value::Null)
-                }
-                &Type::FLOAT8 => {
-                    let v: Option<f64> = row.get(i);
-                    v.map(Into::into).unwrap_or(serde_json::Value::Null)
-                }
-                &Type::VARCHAR | &Type::TEXT | &Type::NAME => {
-                    let v: Option<String> = row.get(i);
-                    v.map(Into::into).unwrap_or(serde_json::Value::Null)
-                }
-                &Type::BOOL => {
-                    let v: Option<bool> = row.get(i);
-                    v.map(Into::into).unwrap_or(serde_json::Value::Null)
-                }
-                _ => {
-                    let v: std::result::Result<String, _> = row.try_get(i);
-                    v.map(Into::into).unwrap_or(serde_json::Value::Null)
-                }
-            };
-            json_row.push(val);
-        }
-        json_rows.push(json_row);
-    }
-
-    let row_count = json_rows.len();
-    let truncated = row_count > 20;
-    if truncated {
-        json_rows.truncate(20);
-    }
-
-    let payload = SqlActionPayload {
-        action_id: args.selected_action_id.clone().unwrap_or_default(),
-        source_report_id: args.parent_report_id.clone(),
-        sql: sql.to_string(),
-        row_count,
-        truncated,
-        columns,
-        rows: json_rows,
-    };
-
     let workspace = resolve_workspace_path(args.workspace.as_deref())?;
-    let inspect_path = workspace_inspect_report_path(&workspace);
-    let mode = if inspect_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&inspect_path) {
-            if let Ok(report) = serde_json::from_str::<PgTriageReport<serde_json::Value>>(&content)
-            {
-                report.operating_mode
-            } else {
-                OperatingMode::LiveOnly
-            }
-        } else {
-            OperatingMode::LiveOnly
-        }
-    } else {
-        OperatingMode::LiveOnly
-    };
-
-    let mut sql_report = sql_action_report(payload, mode);
-    sql_report.session_id = args.session_id.clone();
+    let parsed_parameters: Vec<ActionParameterInput> = parse_action_parameters(parameters)?;
+    let mut sql_report = execute_run_sql(
+        &RunSqlRequest {
+            workspace_path: &workspace,
+            session_id: args.session_id.as_deref(),
+            parent_report_id: args.parent_report_id.as_deref(),
+            selected_action_id: args.selected_action_id.as_deref(),
+            dsn: args.dsn.as_deref(),
+            operating_mode: inspect_report
+                .map(|report| report.operating_mode)
+                .unwrap_or(OperatingMode::LiveOnly),
+            parameters: &parsed_parameters,
+        },
+        config,
+    )?;
 
     pg_logstats::populate_next_actions(&mut sql_report, config);
 
