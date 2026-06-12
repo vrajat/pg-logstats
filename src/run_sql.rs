@@ -12,8 +12,6 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
-const QUERY_FAMILY_BY_QUERYID_RULE: &str = "query_family.pg_stat_statements.by_queryid";
-const QUERY_FAMILY_BY_DIMENSIONS_RULE: &str = "query_family.pg_stat_activity.by_dimensions";
 const MAX_SQL_ROWS: usize = 20;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -211,7 +209,7 @@ pub fn execute_run_sql(
     }
 
     let prepared = match base_report.workflow {
-        ActionKind::TopQueryFamilies => {
+        ActionKind::TopQueryFamilies | ActionKind::Errors | ActionKind::TempFiles => {
             let report: PgTriageReport<FindingsPayload> =
                 serde_json::from_str(&parent_content).map_err(PgLogstatsError::Serialization)?;
             let finding_id =
@@ -238,12 +236,7 @@ pub fn execute_run_sql(
                     ),
                     field: Some("selected_action_id".to_string()),
                 })?;
-            let selected = SelectedQueryFamilyAction {
-                report,
-                action: action.clone(),
-                finding,
-            };
-            prepare_query_family_sql(&selected, request.parameters)?
+            prepare_findings_workflow_sql(&action, &finding, request.parameters)?
         }
         ActionKind::RunningQueries => {
             let rule_id = selected_action_id.split(':').next().ok_or_else(|| {
@@ -363,37 +356,33 @@ pub fn execute_run_sql(
     Ok(sql_report)
 }
 
-fn prepare_query_family_sql(
-    selected: &SelectedQueryFamilyAction,
+fn prepare_findings_workflow_sql(
+    action: &crate::NextAction,
+    finding: &crate::Finding,
     raw_parameters: &[ActionParameterInput],
 ) -> Result<PreparedQuery> {
     let parameters = parameter_map(raw_parameters)?;
-    let query_family =
-        selected
-            .finding
-            .query_family
-            .as_ref()
+    let rule_id =
+        action
+            .action_id
+            .split(':')
+            .next()
             .ok_or_else(|| PgLogstatsError::Configuration {
-                message: format!(
-                    "Action '{}' requires a query_family finding target",
-                    selected.action.action_id
-                ),
+                message: format!("Invalid action id '{}'", action.action_id),
                 field: Some("selected_action_id".to_string()),
             })?;
 
-    let rule_id = selected.action.action_id.split(':').next().ok_or_else(|| {
-        PgLogstatsError::Configuration {
-            message: format!("Invalid action id '{}'", selected.action.action_id),
-            field: Some("selected_action_id".to_string()),
-        }
-    })?;
-
     match rule_id {
-        QUERY_FAMILY_BY_QUERYID_RULE => {
+        // QueryFamily rules
+        "query_family.pg_stat_statements.by_queryid" => {
+            let query_family = finding.query_family.as_ref().ok_or_else(|| PgLogstatsError::Configuration {
+                message: format!("Action '{}' requires a query_family finding target", action.action_id),
+                field: Some("selected_action_id".to_string()),
+            })?;
             let queryid =
                 resolve_i64_parameter("queryid", query_family.queryid.as_deref(), &parameters)?
                     .ok_or_else(|| PgLogstatsError::Configuration {
-                        message: format!("Action '{}' requires queryid", selected.action.action_id),
+                        message: format!("Action '{}' requires queryid", action.action_id),
                         field: Some("selected_action_id".to_string()),
                     })?;
 
@@ -402,58 +391,110 @@ fn prepare_query_family_sql(
                 parameters: vec![BoundParameter::Int8(queryid)],
             })
         }
-        QUERY_FAMILY_BY_DIMENSIONS_RULE => {
-            let database =
-                resolve_text_parameter("database", query_family.database.as_deref(), &parameters)?;
-            let user = resolve_text_parameter("user", query_family.user.as_deref(), &parameters)?;
-            let application_name = resolve_text_parameter(
-                "application_name",
+        "query_family.pg_stat_activity.by_dimensions" => {
+            let query_family = finding.query_family.as_ref().ok_or_else(|| PgLogstatsError::Configuration {
+                message: format!("Action '{}' requires a query_family finding target", action.action_id),
+                field: Some("selected_action_id".to_string()),
+            })?;
+            prepare_dimensions_activity_sql(
+                action,
+                query_family.database.as_deref(),
+                query_family.user.as_deref(),
                 query_family.application_name.as_deref(),
                 &parameters,
-            )?;
-
-            let mut clauses = Vec::new();
-            let mut bound = Vec::new();
-
-            if let Some(database) = database {
-                clauses.push(format!("datname = ${}", bound.len() + 1));
-                bound.push(BoundParameter::Text(database));
-            }
-            if let Some(user) = user {
-                clauses.push(format!("usename = ${}", bound.len() + 1));
-                bound.push(BoundParameter::Text(user));
-            }
-            if let Some(application_name) = application_name {
-                clauses.push(format!("application_name = ${}", bound.len() + 1));
-                bound.push(BoundParameter::Text(application_name));
-            }
-
-            if clauses.is_empty() {
-                return Err(PgLogstatsError::Configuration {
-                    message: format!(
-                        "Action '{}' requires at least one of database, user, or application_name",
-                        selected.action.action_id
-                    ),
-                    field: Some("selected_action_id".to_string()),
-                });
-            }
-
+            )
+        }
+        // ErrorClass rules
+        "error_class.pg_stat_activity.by_dimensions" => {
+            let error_class = finding.error_class.as_ref().ok_or_else(|| PgLogstatsError::Configuration {
+                message: format!("Action '{}' requires an error_class finding target", action.action_id),
+                field: Some("selected_action_id".to_string()),
+            })?;
+            prepare_dimensions_activity_sql(
+                action,
+                error_class.database.as_deref(),
+                error_class.user.as_deref(),
+                error_class.application_name.as_deref(),
+                &parameters,
+            )
+        }
+        // TempFile rules
+        "temp_file.pg_stat_database.temp_counters" => {
+            let temp_file = finding.temp_file.as_ref().ok_or_else(|| PgLogstatsError::Configuration {
+                message: format!("Action '{}' requires a temp_file finding target", action.action_id),
+                field: Some("selected_action_id".to_string()),
+            })?;
+            let database =
+                resolve_text_parameter("database", temp_file.database.as_deref(), &parameters)?
+                    .ok_or_else(|| PgLogstatsError::Configuration {
+                        message: format!("Action '{}' requires database", action.action_id),
+                        field: Some("selected_action_id".to_string()),
+                    })?;
             Ok(PreparedQuery {
-                sql: format!(
-                    "SELECT pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query_id, query FROM pg_stat_activity WHERE {} AND state <> 'idle' ORDER BY query_start DESC NULLS LAST LIMIT 20;",
-                    clauses.join(" AND ")
-                ),
-                parameters: bound,
+                sql: "SELECT datname, temp_files, temp_bytes FROM pg_stat_database WHERE datname = $1;".to_string(),
+                parameters: vec![BoundParameter::Text(database)],
+            })
+        }
+        "temp_file.pg_stat_statements.temp_blocks" => {
+            Ok(PreparedQuery {
+                sql: "SELECT queryid, calls, total_exec_time, temp_blks_read, temp_blks_written, query FROM pg_stat_statements WHERE temp_blks_read > 0 OR temp_blks_written > 0 ORDER BY temp_blks_read + temp_blks_written DESC LIMIT 20;".to_string(),
+                parameters: vec![],
             })
         }
         _ => Err(PgLogstatsError::Configuration {
             message: format!(
                 "run-sql does not support selected action '{}'",
-                selected.action.action_id
+                action.action_id
             ),
             field: Some("selected_action_id".to_string()),
         }),
     }
+}
+
+fn prepare_dimensions_activity_sql(
+    action: &crate::NextAction,
+    db_val: Option<&str>,
+    user_val: Option<&str>,
+    app_val: Option<&str>,
+    parameters: &BTreeMap<String, String>,
+) -> Result<PreparedQuery> {
+    let database = resolve_text_parameter("database", db_val, parameters)?;
+    let user = resolve_text_parameter("user", user_val, parameters)?;
+    let application_name = resolve_text_parameter("application_name", app_val, parameters)?;
+
+    let mut clauses = Vec::new();
+    let mut bound = Vec::new();
+
+    if let Some(database) = database {
+        clauses.push(format!("datname = ${}", bound.len() + 1));
+        bound.push(BoundParameter::Text(database));
+    }
+    if let Some(user) = user {
+        clauses.push(format!("usename = ${}", bound.len() + 1));
+        bound.push(BoundParameter::Text(user));
+    }
+    if let Some(application_name) = application_name {
+        clauses.push(format!("application_name = ${}", bound.len() + 1));
+        bound.push(BoundParameter::Text(application_name));
+    }
+
+    if clauses.is_empty() {
+        return Err(PgLogstatsError::Configuration {
+            message: format!(
+                "Action '{}' requires at least one of database, user, or application_name",
+                action.action_id
+            ),
+            field: Some("selected_action_id".to_string()),
+        });
+    }
+
+    Ok(PreparedQuery {
+        sql: format!(
+            "SELECT pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query_id, query FROM pg_stat_activity WHERE {} AND state <> 'idle' ORDER BY query_start DESC NULLS LAST LIMIT 20;",
+            clauses.join(" AND ")
+        ),
+        parameters: bound,
+    })
 }
 
 fn parameter_map(parameters: &[ActionParameterInput]) -> Result<BTreeMap<String, String>> {
@@ -612,6 +653,8 @@ mod tests {
                 delta: None,
                 evidence: Vec::new(),
                 confidence: FindingConfidence::High,
+                error_class: None,
+                temp_file: None,
             },
         }
     }
@@ -630,13 +673,11 @@ mod tests {
 
     #[test]
     fn queryid_sql_uses_bound_parameter() {
-        let prepared = prepare_query_family_sql(
-            &selected_query_family_action(
-                "query_family.pg_stat_statements.by_queryid:query_family:demo",
-            ),
-            &[],
-        )
-        .unwrap();
+        let selected = selected_query_family_action(
+            "query_family.pg_stat_statements.by_queryid:query_family:demo",
+        );
+        let prepared =
+            prepare_findings_workflow_sql(&selected.action, &selected.finding, &[]).unwrap();
 
         assert_eq!(
             prepared.sql,
@@ -650,13 +691,11 @@ mod tests {
 
     #[test]
     fn activity_sql_binds_exact_dimensions() {
-        let prepared = prepare_query_family_sql(
-            &selected_query_family_action(
-                "query_family.pg_stat_activity.by_dimensions:query_family:demo",
-            ),
-            &[],
-        )
-        .unwrap();
+        let selected = selected_query_family_action(
+            "query_family.pg_stat_activity.by_dimensions:query_family:demo",
+        );
+        let prepared =
+            prepare_findings_workflow_sql(&selected.action, &selected.finding, &[]).unwrap();
 
         assert!(prepared.sql.contains("datname = $1"));
         assert!(prepared.sql.contains("usename = $2"));
@@ -666,10 +705,12 @@ mod tests {
 
     #[test]
     fn conflicting_parameter_override_is_rejected() {
-        let err = prepare_query_family_sql(
-            &selected_query_family_action(
-                "query_family.pg_stat_activity.by_dimensions:query_family:demo",
-            ),
+        let selected = selected_query_family_action(
+            "query_family.pg_stat_activity.by_dimensions:query_family:demo",
+        );
+        let err = prepare_findings_workflow_sql(
+            &selected.action,
+            &selected.finding,
             &[ActionParameterInput {
                 name: "database".to_string(),
                 value: "otherdb".to_string(),

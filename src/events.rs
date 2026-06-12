@@ -107,11 +107,27 @@ impl NormalizedEvent {
             EventKind::Duration(DurationEvent {
                 duration_ms: entry.duration.unwrap_or(0.0),
             })
-        } else if entry.is_error() {
-            EventKind::Error(ErrorEvent {
-                message: entry.message.clone(),
-                sqlstate: None,
-            })
+        } else if entry.is_error()
+            || matches!(entry.message_type, LogLevel::Fatal | LogLevel::Panic)
+        {
+            let mut sqlstate = None;
+            let mut message = entry.message.clone();
+
+            if message.len() >= 7
+                && message.chars().nth(5) == Some(':')
+                && message.chars().nth(6) == Some(' ')
+            {
+                let code = &message[0..5];
+                if code
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+                {
+                    sqlstate = Some(code.to_string());
+                    message = message[7..].to_string();
+                }
+            }
+
+            EventKind::Error(ErrorEvent { message, sqlstate })
         } else {
             EventKind::Log {
                 level: entry.message_type.clone(),
@@ -199,6 +215,20 @@ pub fn normalize_log_entries(
         .collect()
 }
 
+/// Normalizes an error message by replacing database-specific identifiers, quotes, or numbers with placeholders.
+pub fn normalize_error_message(msg: &str) -> String {
+    let re_double = regex::Regex::new(r#""[^"]+""#).unwrap();
+    let msg = re_double.replace_all(msg, "\"?\"");
+
+    let re_single = regex::Regex::new(r#"'[^']+'"#).unwrap();
+    let msg = re_single.replace_all(&msg, "'?'");
+
+    let re_num = regex::Regex::new(r#"\b\d+\b"#).unwrap();
+    let msg = re_num.replace_all(&msg, "?");
+
+    msg.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -277,14 +307,14 @@ mod tests {
 
     #[test]
     fn converts_error_entries_into_error_events() {
-        let entry = entry(
+        let err_entry = entry(
             LogLevel::Error,
             "relation \"missing_table\" does not exist",
             None,
             None,
         );
 
-        let event = NormalizedEvent::from_log_entry(&entry, EventSourceKind::Stderr, 2);
+        let event = NormalizedEvent::from_log_entry(&err_entry, EventSourceKind::Stderr, 2);
 
         assert!(event.is_error());
         assert_eq!(event.message(), "relation \"missing_table\" does not exist");
@@ -295,6 +325,40 @@ mod tests {
             }
             other => panic!("expected error event, got {other:?}"),
         }
+
+        // Test with SQLSTATE prefix
+        let entry_with_state = entry(
+            LogLevel::Error,
+            "42P01: relation \"missing_table\" does not exist",
+            None,
+            None,
+        );
+        let event_with_state =
+            NormalizedEvent::from_log_entry(&entry_with_state, EventSourceKind::Stderr, 22);
+        assert!(event_with_state.is_error());
+        match event_with_state.kind {
+            EventKind::Error(error) => {
+                assert_eq!(error.message, "relation \"missing_table\" does not exist");
+                assert_eq!(error.sqlstate.as_deref(), Some("42P01"));
+            }
+            other => panic!("expected error event, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn test_normalize_error_message() {
+        assert_eq!(
+            normalize_error_message("relation \"users\" does not exist"),
+            "relation \"?\" does not exist"
+        );
+        assert_eq!(
+            normalize_error_message("role 'app_user' does not exist"),
+            "role '?' does not exist"
+        );
+        assert_eq!(
+            normalize_error_message("connection to 127.0.0.1 failed on port 5432"),
+            "connection to ?.?.?.? failed on port ?"
+        );
     }
 
     #[test]

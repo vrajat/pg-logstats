@@ -2,18 +2,18 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use pg_logstats::{
-    execute_run_sql,
+    error_class_findings, errors_report, execute_agent_install, execute_run_sql,
     input::{
         discover_log_files, process_cloudwatch_input, process_log_file, process_log_paths,
         validate_file_input_args, CloudWatchInput, CloudWatchSince, CloudWatchUntil, LocalLogInput,
     },
     inspect, load_config, normalize_log_entries, parse_action_parameters, query_family_findings,
-    resolve_workspace_path, run_running_queries, slow_query_diff_findings,
-    top_query_families_report, workflow_slug, workspace_inspect_report_path, ActionKind,
-    ActionParameterInput, Correlator, EventSourceKind, InspectReportPayload, JsonFormatter,
-    NextAction, NextActionStatus, OperatingMode, OutputFormat, PgLogstatsError, PgTriageReport,
-    ProcessOrderCorrelator, Result, RunSqlRequest, SlowQueryDiffOptions, TextFormatter,
-    TextLogFormat, TextLogParser,
+    resolve_workspace_path, run_running_queries, slow_query_diff_findings, temp_file_findings,
+    temp_files_report, top_query_families_report, workflow_slug, workspace_inspect_report_path,
+    ActionKind, ActionParameterInput, Correlator, EventSourceKind, InspectReportPayload,
+    JsonFormatter, NextAction, NextActionStatus, OperatingMode, OutputFormat, PgLogstatsError,
+    PgTriageReport, ProcessOrderCorrelator, Result, RunSqlRequest, SlowQueryDiffOptions,
+    TextFormatter, TextLogFormat, TextLogParser,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -187,6 +187,48 @@ enum Command {
     /// Monitor active database sessions
     #[clap(name = "running-queries")]
     RunningQueries,
+    /// surface grouped error and event triage in a bounded historical window
+    Errors {
+        /// Maximum number of error-class findings to emit
+        #[clap(long, default_value_t = 10)]
+        limit: usize,
+
+        #[clap(flatten)]
+        input: LogInputArgs,
+    },
+    /// surface temp-file-driven resource pressure in a bounded historical window
+    #[clap(name = "temp-files")]
+    TempFiles {
+        /// Maximum number of temp-file findings to emit
+        #[clap(long, default_value_t = 10)]
+        limit: usize,
+
+        #[clap(flatten)]
+        input: LogInputArgs,
+    },
+    /// AI agent guidance and playbooks commands
+    Agent {
+        #[clap(subcommand)]
+        command: AgentCommand,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum AgentCommand {
+    /// Install agent guidance and playbook skills
+    Install {
+        /// Target AI agent harness (codex, claude, or gemini)
+        #[clap(long, value_name = "HARNESS")]
+        harness: String,
+
+        /// Status check only, do not write or change any files
+        #[clap(long)]
+        status: bool,
+
+        /// Dry run, print intended writes without modifying files
+        #[clap(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -393,6 +435,13 @@ fn run_command(
         Command::RunningQueries => {
             run_running_queries_command(args, parser, config, inspect_report)
         }
+        Command::Errors { limit, input } => {
+            run_errors_command(args, *limit, input, parser, config, inspect_report)
+        }
+        Command::TempFiles { limit, input } => {
+            run_temp_files_command(args, *limit, input, parser, config, inspect_report)
+        }
+        Command::Agent { command } => run_agent_command(args, command, config),
     }
 }
 
@@ -556,6 +605,9 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
             parse_action_parameters(parameters)?;
         }
         Command::RunningQueries => {}
+        Command::Errors { input, .. } => validate_log_input_args(input)?,
+        Command::TempFiles { input, .. } => validate_log_input_args(input)?,
+        Command::Agent { .. } => {}
     }
 
     // Validate output directory if specified
@@ -921,6 +973,111 @@ fn write_or_print_output(output: String, args: &Arguments) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn run_errors_command(
+    args: &Arguments,
+    limit: usize,
+    input: &LogInputArgs,
+    parser: &TextLogParser,
+    config: &pg_logstats::AppConfig,
+    inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
+) -> Result<()> {
+    require_log_backed_mode(inspect_report)?;
+
+    let all_entries = load_default_log_entries(args, input, parser)?;
+    let source_kind = source_kind_for_input(args, input);
+    let normalized_events = normalize_log_entries(&all_entries, source_kind);
+
+    let findings = error_class_findings(&normalized_events, limit);
+    let mut report = errors_report(findings, &all_entries, source_kind);
+
+    if let Some(ir) = inspect_report {
+        report.operating_mode = ir.operating_mode;
+    }
+    report.session_id = args.session_id.clone();
+    pg_logstats::populate_next_actions(&mut report, config);
+
+    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
+    record_session_report(&workspace, &mut report, args)?;
+
+    output_report(&report, args)
+}
+
+fn run_temp_files_command(
+    args: &Arguments,
+    limit: usize,
+    input: &LogInputArgs,
+    parser: &TextLogParser,
+    config: &pg_logstats::AppConfig,
+    inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
+) -> Result<()> {
+    require_log_backed_mode(inspect_report)?;
+
+    let all_entries = load_default_log_entries(args, input, parser)?;
+    let source_kind = source_kind_for_input(args, input);
+    let normalized_events = normalize_log_entries(&all_entries, source_kind);
+
+    let has_temp_events = normalized_events
+        .iter()
+        .any(|e| pg_logstats::findings::parse_temp_file_message(e.message()).is_some());
+
+    let mut log_temp_files_passed = false;
+    if let Some(ir) = inspect_report {
+        if let Some(check) = ir
+            .payload
+            .database_inspect
+            .checks
+            .get(&pg_logstats::InspectCheckId::LogTempFiles)
+        {
+            log_temp_files_passed = check.status == pg_logstats::CheckStatus::Passed;
+        }
+    }
+
+    if !has_temp_events && !log_temp_files_passed {
+        return Err(PgLogstatsError::Configuration {
+            message: "The temp-files command requires `log_temp_files` to be enabled or temp file events present in logs.".to_string(),
+            field: Some("log_temp_files".to_string()),
+        });
+    }
+
+    let findings = temp_file_findings(&normalized_events, limit);
+
+    let has_uncorrelated = findings.findings.iter().any(|f| {
+        f.temp_file
+            .as_ref()
+            .is_some_and(|tf| tf.query_family_id.is_none())
+    });
+
+    let mut report = temp_files_report(findings, &all_entries, source_kind, has_uncorrelated);
+
+    if let Some(ir) = inspect_report {
+        report.operating_mode = ir.operating_mode;
+    }
+    report.session_id = args.session_id.clone();
+    pg_logstats::populate_next_actions(&mut report, config);
+
+    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
+    record_session_report(&workspace, &mut report, args)?;
+
+    output_report(&report, args)
+}
+
+fn run_agent_command(
+    args: &Arguments,
+    command: &AgentCommand,
+    config: &pg_logstats::AppConfig,
+) -> Result<()> {
+    match command {
+        AgentCommand::Install {
+            harness,
+            status,
+            dry_run,
+        } => {
+            let report = execute_agent_install(harness, config, *dry_run, *status)?;
+            output_report(&report, args)
+        }
+    }
 }
 
 fn create_progress_bar() -> ProgressBar {

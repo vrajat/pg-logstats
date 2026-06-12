@@ -13,6 +13,9 @@ inspection.
 - `top query-families`: rank query families in one log window by total runtime.
 - `slow-queries diff`: compare a target log window against a baseline window.
 - `run-sql`: execute a built-in diagnostic SQL action safely with session linkage and safety checks.
+- `errors`: triage, group, and attribute error and event logs.
+- `temp-files`: triage temporary-file resource pressure and correlate to query families.
+- `agent install`: idempotently install playbook instructions and commands into AI agent harnesses.
 
 Supported input is PostgreSQL stderr logs using this prefix shape:
 
@@ -62,6 +65,12 @@ pg-logstats slow-queries diff \
   --target tests/fixtures/cli/diff_target.log
 
 pg-logstats --session-id test_sess --parent-report-id 0001-top_query_families --selected-action-id query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf run-sql
+
+pg-logstats errors tests/fixtures/cli/sample_stderr.log
+
+pg-logstats temp-files tests/fixtures/cli/sample_stderr.log
+
+pg-logstats agent install --harness claude --dry-run
 ```
 
 Global flags such as `--input-format`, `--output-format`, `--outfile`,

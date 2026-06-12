@@ -177,6 +177,8 @@ fn create_test_finding_set() -> FindingSet {
             record_index: 7,
         }],
         confidence: FindingConfidence::High,
+        error_class: None,
+        temp_file: None,
     }])
 }
 

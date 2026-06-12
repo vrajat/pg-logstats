@@ -1336,4 +1336,96 @@ mod benchmark_tests {
                 "database_connection_not_configured",
             ));
     }
+
+    #[test]
+    fn test_errors_subcommand() {
+        let temp_dir = TempDir::new().unwrap();
+        let log_content = r#"2024-01-15 10:00:06.901 UTC [1237] testuser@testdb psql: ERROR:  42P01: relation "nonexistent_table" does not exist
+2024-01-15 10:00:07.123 UTC [1237] testuser@testdb psql: FATAL:  3D000: database "other" does not exist"#;
+        let log_file = create_test_log_file(temp_dir.path(), "errors.log", log_content);
+
+        let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+        let output = with_log_backed_inspect(&mut cmd, temp_dir.path())
+            .arg("--output-format")
+            .arg("json")
+            .arg("--quiet")
+            .arg("errors")
+            .arg(log_file.to_str().unwrap())
+            .output()
+            .unwrap();
+
+        assert!(output.status.success());
+        let json_str = String::from_utf8(output.stdout).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(json["schema_version"], 1);
+        assert_eq!(json["workflow"], "errors");
+        assert_eq!(json["payload"]["findings"][0]["kind"], "error_class");
+        assert_eq!(
+            json["payload"]["findings"][0]["error_class"]["sqlstate"],
+            "3D000"
+        );
+        assert_eq!(
+            json["payload"]["findings"][1]["error_class"]["sqlstate"],
+            "42P01"
+        );
+    }
+
+    #[test]
+    fn test_temp_files_subcommand() {
+        let temp_dir = TempDir::new().unwrap();
+        let log_content = r#"2024-01-15 10:00:00.000 UTC [1234] testuser@testdb psql: LOG:  statement: SELECT * FROM giant_table ORDER BY name;
+2024-01-15 10:00:01.000 UTC [1234] testuser@testdb psql: LOG:  temporary file: path "base/pgsql_tmp/1234.0", size 5000000 bytes"#;
+        let log_file = create_test_log_file(temp_dir.path(), "temp_files.log", log_content);
+
+        let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+        let output = with_log_backed_inspect(&mut cmd, temp_dir.path())
+            .arg("--output-format")
+            .arg("json")
+            .arg("--quiet")
+            .arg("temp-files")
+            .arg(log_file.to_str().unwrap())
+            .output()
+            .unwrap();
+
+        assert!(output.status.success());
+        let json_str = String::from_utf8(output.stdout).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+
+        assert_eq!(json["schema_version"], 1);
+        assert_eq!(json["workflow"], "temp_files");
+        assert_eq!(json["payload"]["findings"][0]["kind"], "temp_file");
+        assert_eq!(
+            json["payload"]["findings"][0]["temp_file"]["largest_observed_bytes"],
+            5000000
+        );
+    }
+
+    #[test]
+    fn test_agent_install_subcommand() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+        with_log_backed_inspect(&mut cmd, temp_dir.path())
+            .arg("--output-format")
+            .arg("json")
+            .arg("agent")
+            .arg("install")
+            .arg("--harness")
+            .arg("claude")
+            .arg("--dry-run")
+            .assert()
+            .success();
+
+        let mut cmd2 = Command::cargo_bin("pg-logstats").unwrap();
+        with_log_backed_inspect(&mut cmd2, temp_dir.path())
+            .arg("--output-format")
+            .arg("json")
+            .arg("agent")
+            .arg("install")
+            .arg("--harness")
+            .arg("claude")
+            .arg("--status")
+            .assert()
+            .success();
+    }
 }
