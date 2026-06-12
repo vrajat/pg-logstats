@@ -8,9 +8,10 @@ most useful findings, and prints follow-up SQL for live PostgreSQL inspection.
 
 ## Supported Workflows
 
+- `inspect`: inspect the environment to check database configuration and agent setup.
 - `top query-families`: rank query families in one log window by total runtime.
 - `slow-queries diff`: compare a target log window against a baseline window.
-- `run-action`: execute a recommended next action (e.g., live database statistics checks or follow-up CLI commands) suggested by a triage report.
+- `run-sql`: run a diagnostic SQL query safely with session linkage and safety checks.
 
 Supported input is PostgreSQL stderr logs using this prefix shape:
 
@@ -59,7 +60,7 @@ pg-logstats slow-queries diff \
   --baseline tests/fixtures/cli/diff_baseline.log \
   --target tests/fixtures/cli/diff_target.log
 
-pg-logstats run-action --report findings.json --action-id 'query_family.pg_stat_statements.lookup:query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?'
+pg-logstats --session-id test_sess --parent-report-id 0001-top_query_families --selected-action-id query_family.pg_stat_statements.by_query_pattern:query_family:qf_51125b8829ab1fdf run-sql --sql "SELECT 1;"
 ```
 
 Global flags such as `--input-format`, `--output-format`, `--outfile`,
@@ -208,17 +209,19 @@ pg-logstats slow-queries diff \
   --min-p95-delta-ms 10
 ```
 
-### Run Action
+### Run SQL / Guidance Action
 
-Execute a recommended next action from a triage report:
+Execute a recommended action using safety checks and session tracking:
 
 ```bash
-pg-logstats run-action \
-  --report findings.json \
-  --action-id 'query_family.pg_stat_statements.lookup:query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?'
+pg-logstats \
+  --session-id test_sess \
+  --parent-report-id 0001-top_query_families \
+  --selected-action-id query_family.pg_stat_statements.by_query_pattern:query_family:qf_51125b8829ab1fdf \
+  run-sql --sql "SELECT 1;"
 ```
 
-For SQL-based actions, this will run the corresponding query against the database (if DSN connection is configured) and format the results. The command validates the action's safety using the policy matrix (verdict and action class restrictions) before execution.
+For SQL-based actions, the command validates the action's safety using the policy matrix (verdict and action class restrictions) and records the execution step under the session reports directory.
 
 ## JSON Output
 

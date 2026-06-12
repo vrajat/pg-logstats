@@ -152,12 +152,14 @@ pg-logstats top query-families \
   --output-format json
 ```
 
-Then execute a recommended next action from the triage report:
+Then execute a recommended next action using safety checks and session tracking:
 
 ```bash
-pg-logstats run-action \
-  --report findings.json \
-  --action-id 'query_family.pg_stat_statements.lookup:query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?'
+pg-logstats \
+  --session-id test_sess \
+  --parent-report-id 0001-top_query_families \
+  --selected-action-id query_family.pg_stat_statements.by_query_pattern:query_family:qf_51125b8829ab1fdf \
+  run-sql --sql "SELECT 1;"
 ```
 
 This keeps raw log volume out of the LLM context while preserving ranked

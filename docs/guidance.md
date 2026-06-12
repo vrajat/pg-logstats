@@ -1,8 +1,8 @@
-# `pg-logstats run-action` and Investigation Guidance
+# Investigation Guidance Framework
 
 `pg-logstats` models the database triage process as a directed acyclic investigation graph (DAG) with developer or agent judgement at branch points. 
 
-Instead of requiring callers to invent database-specific diagnostic commands, every triage report includes a list of safe, contextual `next_actions[]` that the caller can select from. The caller then executes the chosen action using the `run-action` command.
+Instead of requiring callers to invent database-specific diagnostic commands, every triage report includes a list of safe, contextual `next_actions[]` that the caller can select from. The caller then executes the chosen action by running the corresponding CLI command (like `top query-families` or `run-sql`) while supplying audit linkage flags.
 
 ---
 
@@ -12,7 +12,7 @@ Every machine-readable triage report (JSON output) includes a top-level `next_ac
 
 ```json
 {
-  "action_id": "query_family.pg_stat_statements.lookup:query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?",
+  "action_id": "query_family.pg_stat_statements.by_query_pattern:query_family:qf_51125b8829ab1fdf",
   "kind": "run_sql",
   "label": "Lookup query stats in pg_stat_statements",
   "status": "allowed",
@@ -27,9 +27,10 @@ Every machine-readable triage report (JSON output) includes a top-level `next_ac
 ```
 
 ### Action Kinds
-- `run_pg_logstats`: Runs another `pg-logstats` command/workflow.
+- `top_query_families`: Rank query families.
 - `run_sql`: Runs a safe, built-in diagnostic SQL query.
-- `install_agent_guidance`: Installs agent skill playbooks/harnesses.
+- `agent_install`: Installs agent skill playbooks/harnesses.
+- `running_queries`: Monitor active database sessions.
 - `collect_logs`: Collects additional database logs.
 - `escalate`: Directs the agent to stop and notify a human operator.
 - `stop`: Directs the agent that the investigation is successfully complete.
@@ -63,42 +64,25 @@ To prevent diagnostic activity from adding harmful overhead to an already stress
 
 ---
 
-## Executing Actions: `run-action`
+## Executing Actions with Linkage Flags
 
-The `run-action` command is an executor for actions suggested by reports. The caller chooses an allowed action from `next_actions[]` and executes it.
+Rather than running a single wrapper command, the caller executes the actual subcommand recommended by the action (using the command line provided in the `command` field of `NextAction`), and links it to the parent report using global audit flags.
 
-### Command Usage
+### Command Usage Example
 ```bash
-pg-logstats run-action --report <report-json-path> --action-id <action-id> [options]
+pg-logstats \
+  --session-id test_sess \
+  --parent-report-id 0001-top_query_families \
+  --selected-action-id query_family.pg_stat_statements.by_query_pattern:query_family:qf_51125b8829ab1fdf \
+  run-sql --sql "SELECT 1;"
 ```
 
-### Options
-- `--report <PATH>`: The source report JSON file path.
-- `--action-id <ID>`: The `action_id` from the source report's `next_actions` array.
-- `--dsn <postgres-url>`: (Optional) Database URL to use when executing `run_sql` actions.
-- `--quiet`: Suppress diagnostic messages.
+### Global Audit Linkage Options
+- `--session-id <SESSION_ID>`: Unique identifier for the current investigation session.
+- `--parent-report-id <REPORT_ID>`: The ID of the report that led to this action.
+- `--selected-action-id <ACTION_ID>`: The `action_id` from the parent report's `next_actions` array.
 
 ### Behavior & Security
-1. **Safety Re-evaluation**: `pg-logstats` reads the report, finds the requested action, and re-validates the policy matrix. If the action is blocked or unknown, execution is rejected with a structured error.
-2. **Parameter Binding**: For `run_sql` actions, the command automatically binds parameters (such as `queryid` or `normalized_sql`) from the findings in the source report into the SQL query template.
-3. **Execution**: The built-in SQL query is executed against the database using the configured DSN.
-4. **Report Output & Session Storage**: The command outputs a new triage report containing the query results. If a session workspace is configured, it persists the report in the session directory to record the progress of the investigation.
-
----
-
-## Sessions & Investigation Replay
-
-When session storage is enabled, `pg-logstats` writes all generated reports in the workspace directory under a specific session:
-
-- Reports are saved at: `<workspace>/sessions/<session_id>/reports/<sequence>-<workflow>.json`
-- Session results are saved at: `<workspace>/sessions/<session_id>/results/`
-
-Each persisted report contains session metadata to allow auditability and replay:
-
-- `report_id`: Unique identifier for the report.
-- `session_id`: Unique identifier for the current investigation session.
-- `parent_report_id`: The ID of the report that led to this action (null for the initial `inspect` report).
-- `selected_action_id`: The ID of the action that was executed to produce this report.
-- `created_at`: The RFC3339 timestamp when the report was generated.
-
-This metadata enables deterministic replay and analysis of the investigation path.
+1. **Safety Re-evaluation**: `pg-logstats` reads the parent report, finds the requested action, and re-validates the policy matrix against the current state and parameters. If the action is blocked or unknown, execution is rejected with a structured error.
+2. **Execution**: The subcommand (e.g. `run-sql`) is executed with safety checks in place.
+3. **Report Output & Session Storage**: The command outputs a new triage report containing the results. If a session workspace is configured, it persists the report in the session directory under `<workspace>/sessions/<session_id>/reports/<sequence>-<workflow>.json` to record the progress of the investigation.
