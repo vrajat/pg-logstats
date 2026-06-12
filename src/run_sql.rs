@@ -553,7 +553,6 @@ mod tests {
                 delta: None,
                 evidence: Vec::new(),
                 confidence: FindingConfidence::High,
-                next_sql: Vec::new(),
             },
         }
     }

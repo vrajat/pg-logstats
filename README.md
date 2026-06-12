@@ -259,7 +259,6 @@ Useful fields include:
 - `payload.findings[].metrics.execution_count`
 - `payload.findings[].metrics.total_duration_ms`
 - `payload.findings[].metrics.max_duration_ms`
-- `payload.findings[].next_sql`
 
 For diff findings, each finding also includes `baseline`, `target`, and `delta`
 duration summaries.

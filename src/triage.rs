@@ -409,7 +409,6 @@ mod tests {
                 record_index: 0,
             }],
             confidence: FindingConfidence::High,
-            next_sql: vec![],
         }])
     }
 
