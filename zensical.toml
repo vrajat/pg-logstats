@@ -1,0 +1,36 @@
+[project]
+site_name = "pg-logstats"
+site_url = "https://github.com/vrajat/pg-logstats"
+site_description = "PostgreSQL log investigation CLI"
+docs_dir = "docs"
+site_dir = "site"
+repo_url = "https://github.com/vrajat/pg-logstats"
+repo_name = "vrajat/pg-logstats"
+edit_uri = "edit/main/docs/"
+nav = [
+  {"Home" = "index.md"},
+  {"User Guide" = [
+    "user-guide/index.md",
+    {"Inspect" = "user-guide/inspect.md"},
+    {"Top Query Families" = "user-guide/top-query-families.md"},
+    {"Errors" = "user-guide/errors.md"},
+    {"Temporary Files" = "user-guide/temp-files.md"},
+    {"Guidance Framework" = "user-guide/guidance.md"},
+    {"RDS & CloudWatch" = "user-guide/rds-cloudwatch.md"},
+  ]},
+  {"Reference" = [
+    {"API Reference" = "reference/api.md"},
+  ]},
+  {"Development" = [
+    "development/index.md",
+    {"Architecture" = "development/architecture.md"},
+  ]},
+]
+
+[project.theme]
+features = [
+  "navigation.instant",
+  "navigation.sections",
+  "navigation.top",
+  "content.code.copy",
+]

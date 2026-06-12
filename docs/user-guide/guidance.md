@@ -100,7 +100,7 @@ Phase 5 ships two built-in query-family SQL actions with stable rule IDs:
 
 ## Attribution
 
-The workflow-level attribution lives in [engg/design/internal-ai-app-triage-v1.md](/Users/rajatvenkatesh/code/pg-logstats/engg/design/internal-ai-app-triage-v1.md), especially the "Workflow Attribution And Selection" section and its initial V1 reference map.
+The workflow-level attribution lives in [engg/design/internal-ai-app-triage-v1.md](https://github.com/vrajat/pg-logstats/blob/main/engg/design/internal-ai-app-triage-v1.md), especially the "Workflow Attribution And Selection" section and its initial V1 reference map.
 
 For the query-family SQL actions in this phase, the intended prior art is:
 
