@@ -1,4 +1,4 @@
-use crate::{config_error, triage::RiskLabel, PgLogstatsError, Result};
+use crate::{config_error, guidance::RuleId, triage::RiskLabel, PgLogstatsError, Result};
 use serde::{Deserialize, Serialize};
 use std::env;
 use std::path::{Path, PathBuf};
@@ -13,7 +13,7 @@ const INSPECT_FILE_NAME: &str = "inspect.json";
 pub struct AppConfig {
     pub database: DatabaseConfig,
     pub running_queries: RunningQueriesConfig,
-    pub suggest_sql: SuggestSqlConfig,
+    pub guidance: GuidanceConfig,
     pub agent_install: AgentInstallConfig,
 }
 
@@ -50,25 +50,36 @@ impl Default for RunningQueriesThresholds {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct SuggestSqlConfig {
+pub struct GuidanceConfig {
     pub max_risk: RiskLabel,
     pub show_omitted: bool,
-    pub disabled_rules: Vec<String>,
+    pub disabled_rules: Vec<RuleId>,
+    #[serde(default)]
+    pub rules: std::collections::HashMap<RuleId, RuleConfig>,
 }
 
-impl Default for SuggestSqlConfig {
+impl Default for GuidanceConfig {
     fn default() -> Self {
         Self {
             max_risk: RiskLabel::Bounded,
             show_omitted: true,
             disabled_rules: Vec::new(),
+            rules: std::collections::HashMap::new(),
         }
     }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct RuleConfig {
+    pub enabled: bool,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct AgentInstallConfig {
+    pub active_harness: Option<String>,
     pub codex: AgentInstallTargetConfig,
     pub claude: AgentInstallTargetConfig,
     pub gemini: AgentInstallTargetConfig,
@@ -349,19 +360,19 @@ mod tests {
     }
 
     #[test]
-    fn suggest_sql_max_risk_uses_typed_enum() {
+    fn guidance_max_risk_uses_typed_enum() {
         let _guard = env_lock().lock().unwrap();
         let temp_dir = TempDir::new().unwrap();
         let workspace = temp_dir.path().join("workspace");
         write_config(
             &temp_dir,
             "workspace/config.toml",
-            "[suggest_sql]\nmax_risk='safe'\n",
+            "[guidance]\nmax_risk='safe'\n",
         );
 
         let resolved = load_config(Some(&workspace)).unwrap();
 
-        assert_eq!(resolved.config.suggest_sql.max_risk, RiskLabel::Safe);
+        assert_eq!(resolved.config.guidance.max_risk, RiskLabel::Safe);
     }
 
     fn restore_env(

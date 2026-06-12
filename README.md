@@ -8,10 +8,10 @@ most useful findings, and prints follow-up SQL for live PostgreSQL inspection.
 
 ## Supported Workflows
 
+- `inspect`: inspect the environment to check database configuration and agent setup.
 - `top query-families`: rank query families in one log window by total runtime.
 - `slow-queries diff`: compare a target log window against a baseline window.
-- `suggest-sql`: print `pg_stat_statements` and `pg_stat_activity` follow-up SQL
-  for a finding from JSON output.
+- `run-sql`: run a diagnostic SQL query safely with session linkage and safety checks.
 
 Supported input is PostgreSQL stderr logs using this prefix shape:
 
@@ -60,7 +60,7 @@ pg-logstats slow-queries diff \
   --baseline tests/fixtures/cli/diff_baseline.log \
   --target tests/fixtures/cli/diff_target.log
 
-pg-logstats suggest-sql --findings-file findings.json --rank 1
+pg-logstats --session-id test_sess --parent-report-id 0001-top_query_families --selected-action-id query_family.pg_stat_statements.by_query_pattern:query_family:qf_51125b8829ab1fdf run-sql --sql "SELECT 1;"
 ```
 
 Global flags such as `--input-format`, `--output-format`, `--outfile`,
@@ -209,21 +209,19 @@ pg-logstats slow-queries diff \
   --min-p95-delta-ms 10
 ```
 
-### Suggested SQL
+### Run SQL / Guidance Action
 
-Generate follow-up SQL for a finding selected by rank:
-
-```bash
-pg-logstats suggest-sql --findings-file findings.json --rank 1
-```
-
-Or select by exact finding id:
+Execute a recommended action using safety checks and session tracking:
 
 ```bash
-pg-logstats suggest-sql \
-  --findings-file findings.json \
-  --finding-id 'query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?'
+pg-logstats \
+  --session-id test_sess \
+  --parent-report-id 0001-top_query_families \
+  --selected-action-id query_family.pg_stat_statements.by_query_pattern:query_family:qf_51125b8829ab1fdf \
+  run-sql --sql "SELECT 1;"
 ```
+
+For SQL-based actions, the command validates the action's safety using the policy matrix (verdict and action class restrictions) and records the execution step under the session reports directory.
 
 ## JSON Output
 

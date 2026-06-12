@@ -22,12 +22,12 @@ The scope is:
 
 - Make `pg-logstats` useful as a first-pass triage tool for internal
   application-driven Postgres issues.
-- Define a clear readiness contract between PostgreSQL, `pg-logstats`, and the
+- Define a clear inspection contract between PostgreSQL, `pg-logstats`, and the
   consuming agent.
 - Make degraded operation explicit and machine-readable.
 - Ship a narrow CLI surface that is sufficient for first-pass triage.
-- Make behavior configurable from V1, including local custom `suggest-sql`
-  rules.
+- Make behavior configurable from V1 while keeping guidance rules built into
+  `pg-logstats`.
 - Keep the output compact enough for agent turns and auditable by humans.
 - Treat every V1 triage workflow as an attributed, well-known PostgreSQL
   diagnostic pattern rather than a novel pg-logstats invention.
@@ -57,22 +57,22 @@ mailing-list discussion, it should be skipped or deferred until that rationale i
 clear.
 
 Attribution should be recorded in the implementation issue, user-facing docs,
-and the workflow documentation. Built-in reason codes and suggested SQL rules
-should also be traceable to the same rationale.
+and the workflow documentation. Built-in reason codes and built-in next-action
+rules should also be traceable to the same rationale.
 
 Initial V1 implementation reference map:
 
 | Command or Rule Family | Why It Is In V1 | Implementation References |
 | --- | --- | --- |
-| `readiness` | PostgreSQL evidence quality determines whether log-backed or live-only claims are honest. | PostgreSQL logging configuration docs; PostgreSQL `pg_stat_statements` docs; PostgreSQL predefined roles docs; pgBadger PostgreSQL configuration section for required logging and `log_line_prefix` patterns; pgBadger source header comments for supported logging prerequisites. |
+| `inspect` | PostgreSQL evidence quality determines whether log-backed or live-only claims are honest. | PostgreSQL logging configuration docs; PostgreSQL `pg_stat_statements` docs; PostgreSQL predefined roles docs; pgBadger PostgreSQL configuration section for required logging and `log_line_prefix` patterns; pgBadger source header comments for supported logging prerequisites. |
 | `running-queries` | Active sessions, waits, query text visibility, and aggregate statement stats are standard first-pass live triage inputs. | PostgreSQL `pg_stat_activity` docs for active sessions, application names, waits, backend state, query text, and `query_id`; PostgreSQL `pg_stat_statements` docs for aggregate query stats; PostgreSQL predefined roles docs for cluster-wide stats visibility. |
 | `top query-families` | Ranking slow, frequent, and time-consuming query families is a long-standing PostgreSQL log-analysis workflow. | pgBadger feature docs for slowest queries, time-consuming queries, frequent queries, and users/applications involved in top queries; pgBadger source functions `print_time_consuming`, `print_slowest_individual_queries`, and `print_slowest_queries`; PostgreSQL `pg_stat_statements` docs for query-family aggregate fields and `queryid`. |
 | `errors` | Grouped PostgreSQL errors and error classes are common incident-triage signals. | pgBadger feature docs for most frequent errors, error events, and error class distribution; pgBadger source functions `print_error_code`, `show_error_as_html`, and `show_pgb_error_as_html`; PostgreSQL error reporting and logging docs. |
 | `temp-files` | Temporary file volume is a PostgreSQL-specific pressure signal, often tied to sorts, hashes, and `work_mem`-sensitive plans. | pgBadger feature docs for queries generating the most temporary files, queries generating the largest temporary files, and temporary-file statistics; pgBadger source functions `print_tempfile_report` and `print_temporary_file`; PostgreSQL `log_temp_files` docs; PostgreSQL `pg_stat_statements` docs for `temp_blks_read` and `temp_blks_written`. |
-| `suggest-sql`: query-family rules | Follow-up SQL should bridge a query-family finding into standard PostgreSQL stats and activity views. | pgBadger top-query reports as prior art for preserving query text, user, database, application, and queryid in findings; PostgreSQL `pg_stat_statements` docs for exact `queryid` lookups; PostgreSQL `pg_stat_activity` docs for active-session lookups by database, user, application name, pid, and query id. |
-| `suggest-sql`: running-query rules | Live follow-up should inspect one backend or its blocking context without broad scans. | PostgreSQL `pg_stat_activity` docs for backend state, wait event fields, and query text; PostgreSQL docs for `pg_blocking_pids`; PostgreSQL predefined roles docs for visibility limits. |
-| `suggest-sql`: error-class rules | Error findings can safely lead to current activity checks by the same app, database, or user, but not historical SQLSTATE queries from catalogs. | pgBadger error reports as prior art for grouping error message, SQLSTATE, database, user, application, and sample details; PostgreSQL error reporting docs; PostgreSQL `pg_stat_activity` docs for bounded live activity checks. |
-| `suggest-sql`: temp-file rules | Temp-file findings can safely lead to stats-view checks for database temp counters or query-family temp block counters. | pgBadger temporary-file reports as prior art for ranking by count and size; PostgreSQL `log_temp_files` docs; PostgreSQL `pg_stat_database` docs for database temp counters; PostgreSQL `pg_stat_statements` docs for temp block counters. |
+| query-family SQL actions | Follow-up SQL can bridge a query-family finding into standard PostgreSQL stats and activity views. | pgBadger top-query reports as prior art for preserving query text, user, database, application, and queryid in findings; PostgreSQL `pg_stat_statements` docs for exact `queryid` lookups; PostgreSQL `pg_stat_activity` docs for active-session lookups by database, user, application name, pid, and query id. |
+| running-query SQL actions | Live follow-up can inspect one backend or its blocking context without broad scans. | PostgreSQL `pg_stat_activity` docs for backend state, wait event fields, and query text; PostgreSQL docs for `pg_blocking_pids`; PostgreSQL predefined roles docs for visibility limits. |
+| error-class SQL actions | Error findings can safely lead to current activity checks by the same app, database, or user, but not historical SQLSTATE queries from catalogs. | pgBadger error reports as prior art for grouping error message, SQLSTATE, database, user, application, and sample details; PostgreSQL error reporting docs; PostgreSQL `pg_stat_activity` docs for bounded live activity checks. |
+| temp-file SQL actions | Temp-file findings can safely lead to stats-view checks for database temp counters or query-family temp block counters. | pgBadger temporary-file reports as prior art for ranking by count and size; PostgreSQL `log_temp_files` docs; PostgreSQL `pg_stat_database` docs for database temp counters; PostgreSQL `pg_stat_statements` docs for temp block counters. |
 
 The references must be specific enough for an engineer to inspect the prior-art
 workflow shape before implementing a command. For example, an engineer
@@ -123,7 +123,7 @@ This mode allows:
 - `top query-families`
 - `errors`
 - `temp-files`
-- `suggest-sql`
+- report-level SQL next actions
 
 ### `live_only`
 
@@ -132,9 +132,9 @@ inspection is still possible.
 
 This mode allows:
 
-- `readiness`
+- `inspect`
 - `running-queries`
-- limited `suggest-sql` for live-state or aggregate follow-up
+- limited report-level SQL next actions for live-state or aggregate follow-up
 
 This mode may still have some non-log history through sources such as
 `pg_stat_statements`, but it does not provide a log-backed historical event
@@ -153,13 +153,185 @@ available.
 
 This mode allows:
 
-- `readiness`
+- `inspect`
 
 This mode should produce an explicit explanation of what is missing.
 
-## Readiness Contracts
+## Investigation Guidance
 
-### Database Readiness
+V1 reports should model triage as a directed acyclic investigation graph with
+agent judgement at branch points.
+
+`pg-logstats` owns:
+
+- the set of valid next actions from each report
+- safety and mode constraints for those actions
+- stable action identifiers and machine-readable reasons
+- enough context for an agent to choose the next branch
+
+The consuming agent owns:
+
+- judging which optional branch fits the incident
+- choosing one action when several are plausible
+- stopping or escalating when the evidence is insufficient
+- recording why it selected a branch when that judgement is not deterministic
+
+The framework name is **Investigation Guidance**. The report field is
+`next_actions[]`. There is no `pg-logstats next-action` command in V1. Every
+workflow can emit its own next actions as part of its `PgTriageReport`.
+
+### Next Action Shape
+
+Every `next_actions[]` item should be compact, stable, and safe to show to both
+humans and agents.
+
+Required fields:
+
+- `action_id`: stable identifier for this edge in the investigation graph
+- `kind`: one of the canonical action kinds
+- `label`: short human-readable title
+- `status`: whether the action is allowed, blocked, or omitted
+- `priority`: whether the action is required, recommended, or optional
+- `judgement_required`: true when the agent must choose based on incident
+  context that `pg-logstats` cannot infer
+- `reason`: concise explanation for why this action is available or blocked
+
+Optional fields:
+
+- `target`: selected finding, session, query family, SQLSTATE, or other report
+  object this action applies to
+- `workflow`: destination `pg-logstats` workflow when `kind =
+  "run_pg_logstats"`
+- `command`: argv for a follow-up `pg-logstats` command
+- `sql_preview`: optional SQL preview when `kind = "run_sql"`; the agent must
+  not execute this text directly
+- `parameters[]`: parameter names and sources needed by a SQL action
+- `risk`: risk label for SQL or otherwise sensitive actions
+- `action_class`: policy class used for allow/block decisions
+- `required_identifiers[]`: identifiers required by the action
+- `requires[]`: machine-readable preconditions
+- `produces[]`: expected report/workflow artifacts
+
+Canonical action kinds:
+
+- `run_pg_logstats`
+- `run_sql`
+- `install_agent_guidance`
+- `collect_logs`
+- `escalate`
+- `stop`
+
+`run_sql` is still a `pg-logstats`-owned action. The agent selects the action by
+`action_id`; `pg-logstats` validates policy again, binds parameters from the
+source report, executes the built-in SQL through its configured DSN, and emits a
+new report. The SQL preview exists for review and audit, not as an instruction
+for the agent to run SQL outside `pg-logstats`.
+
+Canonical priorities:
+
+- `required`
+- `recommended`
+- `optional`
+
+Canonical statuses:
+
+- `allowed`
+- `blocked_by_mode`
+- `blocked_by_verdict`
+- `blocked_by_policy`
+- `blocked_by_config`
+- `omitted_not_enough_context`
+- `omitted_unsupported_target`
+
+Illustrative next action:
+
+```json
+{
+  "action_id": "inspect.log_backed.top_query_families",
+  "kind": "run_pg_logstats",
+  "workflow": "top_query_families",
+  "label": "Rank query families from the available log window",
+  "status": "allowed",
+  "priority": "recommended",
+  "judgement_required": true,
+  "reason": "Log-backed mode is available. Use this when the incident appears query-latency related.",
+  "command": {
+    "argv": [
+      "pg-logstats",
+      "top",
+      "query-families",
+      "--output-format",
+      "json"
+    ]
+  },
+  "requires": ["operating_mode:log_backed"],
+  "produces": ["workflow:top_query_families"]
+}
+```
+
+### Guidance Rules
+
+Guidance rules are the rule engine that creates `next_actions[]`.
+
+They take:
+
+- current workflow
+- current report payload
+- operating mode
+- verdict and verdict reasons
+- limitations
+- allowed and blocked action classes
+- available source artifacts in the workspace or session
+
+They produce:
+
+- zero or more action candidates
+- omitted or blocked actions when useful for explaining constraints
+- omitted or blocked actions when useful for explaining constraints
+
+Guidance rules should be deterministic for the same input report. The
+non-deterministic part of the triage remains outside `pg-logstats`: the agent
+chooses between optional or recommended actions using incident context,
+application knowledge, and user instructions.
+
+Examples:
+
+- `inspect` in `log_backed` mode may offer `top query-families`, `errors`,
+  `temp-files`, and `running-queries` as possible next actions.
+- `inspect` in `live_only` mode should offer `running-queries` and omit
+  log-backed workflows with machine-readable blocked reasons.
+- `top query-families` may offer SQL actions for a selected finding, or may
+  offer `running-queries` when the current incident appears ongoing.
+- any report may offer `install_agent_guidance` when agent inspect checks fail.
+- any report may offer `escalate` or `stop` when evidence is insufficient or
+  the verdict blocks safe agent-driven progress.
+
+### Sessions And Replay
+
+V1 should treat reports as the primary artifacts and breadcrumbs as a derived
+debugging aid.
+
+When session storage is enabled, reports should be written under the workspace:
+
+- `<workspace>/sessions/<session_id>/reports/<sequence>-<workflow>.json`
+- `<workspace>/sessions/<session_id>/results/`
+
+Each stored report should include enough metadata to reconstruct the
+investigation graph:
+
+- `report_id`
+- `session_id`
+- `parent_report_id`
+- `selected_action_id`
+- `created_at`
+
+This makes it possible to replay an investigation by following the stored
+reports and selected actions. The session trail should not replace the report
+contract; it exists for debugging, audit, and introspection.
+
+## Inspection Contracts
+
+### Database Inspection
 
 The database environment is `log_backed`-ready when:
 
@@ -196,7 +368,7 @@ format is implemented:
   evidence that the parser can correlate
 
 `csvlog` and `jsonlog` remain documented targets, but must not satisfy V1
-`log_backed` readiness until the implementation explicitly supports parsing
+`log_backed` inspection until the implementation explicitly supports parsing
 them.
 
 For `temp-files`, V1 should additionally require:
@@ -241,13 +413,13 @@ The database environment is `unready` when:
 - or the exact `live_only` requirements above are not satisfied
 - or the available evidence is too weak to support safe triage claims
 
-### Agent Readiness
+### Agent Inspection
 
 The agent environment is ready when:
 
 - `pg-logstats` has installed the harness-specific guidance bundle for the
   selected agent surface
-- that installed guidance tells the agent exactly how to run `readiness` first,
+- that installed guidance tells the agent exactly how to run `inspect` first,
   interpret `operating_mode`, and respect `verdict`, `allowed_actions`, and
   `blocked_actions`
 - the agent can invoke `pg-logstats` from the local environment and read JSON
@@ -277,14 +449,15 @@ The installed artifacts should be:
 
 The installed guidance must teach the same workflow:
 
-1. run `pg-logstats readiness --output-format json`
+1. run `pg-logstats inspect --output-format json`
 2. inspect `operating_mode`
-3. choose only supported workflows
-4. respect `verdict`, `allowed_actions`, and `blocked_actions`
+3. choose from `next_actions[]` instead of inventing unsupported branches
+4. respect `verdict`, `allowed_actions`, `blocked_actions`, and next-action
+   status fields
 5. stop and escalate when the report says evidence is insufficient or the
    database is saturated
 
-## Configuration And Extension Model
+## Configuration Model
 
 V1 should have configuration from the start. Configuration is not only for user
 preferences; it is the mechanism that allows fast adaptation for a client
@@ -307,31 +480,16 @@ Precedence:
 V1 config should control:
 
 - live-state thresholds used by `running-queries`
-- enabled and disabled built-in `suggest-sql` rule IDs
-- maximum risk emitted in `next_sql[]`
-- whether `omitted_sql[]` is emitted
+- enabled and disabled built-in guidance rule IDs
+- maximum risk emitted for SQL next actions
+- whether omitted or blocked next actions are emitted
 - per-rule limits
-- local external `suggest-sql` rule commands
 - user-level install targets for Codex, Claude Code, and Gemini CLI guidance
 - query text truncation or redaction limits
 
-V1 should support **external rule commands** for `suggest-sql`. This is the
-primary extension point for short-turnaround client work.
-
-External rule commands:
-
-- are configured as an argv array whose first item is the executable path
-- can be written in any language
-- can add new `suggest-sql` rules without a pg-logstats release
-- are invoked with target context JSON on stdin
-- return suggested SQL JSON on stdout
-- use stderr for diagnostics only
-- are trusted local extensions written by someone who understands the workload
-
-V1 should not require Rust code plugins. Code plugins add API, build,
-compatibility, and loading complexity. External commands are enough for the
-first useful extension point because they allow custom code without embedding a
-runtime or inventing a rule DSL.
+Guidance rules should be built into `pg-logstats` in V1. Configuration can
+enable, disable, and limit those rules, but it should not define new rule
+behavior.
 
 Example config:
 
@@ -345,20 +503,15 @@ long_running_query_ms = 120000
 waiting_session_count_threshold = 2
 idle_in_transaction_count_threshold = 2
 
-[suggest_sql]
+[guidance]
 max_risk = "bounded"
-show_omitted = true
+show_omitted_actions = true
 disabled_rules = [
   "query_family.pg_stat_statements.by_query_pattern"
 ]
 
-[suggest_sql.rules.query_family.pg_stat_activity.by_dimensions]
+[guidance.rules.query_family.pg_stat_activity.by_dimensions]
 limit = 50
-
-[suggest_sql.external_rules.client_a]
-enabled = true
-command = ["python3", "/Users/example/client-a/pg-logstats-rules.py"]
-timeout_ms = 2000
 
 [agent_install.codex]
 agents_md_path = "/Users/example/AGENTS.md"
@@ -370,77 +523,20 @@ skill_dir = "/Users/example/.claude/skills/pg-logstats-triage"
 commands_dir = "/Users/example/.gemini/commands"
 ```
 
-External rule command input:
-
-```json
-{
-  "schema_version": 1,
-  "target_workflow": "top_query_families",
-  "target": {
-    "finding_id": "query_family:...",
-    "kind": "query_family",
-    "reason_codes": ["high_total_runtime"],
-    "application_name": "invoice-helper",
-    "database": "internal_tools",
-    "user": "app_user",
-    "metrics": {
-      "execution_count": 184,
-      "total_duration_ms": 91200
-    }
-  },
-  "operating_mode": "log_backed",
-  "verdict": "busy",
-  "allowed_actions": ["stats_view_reads", "bounded_activity_queries"],
-  "blocked_actions": ["explain_analyze", "write_or_admin_action"]
-}
-```
-
-External rule command output:
-
-```json
-{
-  "suggestions": [
-    {
-      "rule_id": "client_a.invoice_helper.active_sessions",
-      "label": "Inspect invoice helper sessions",
-      "risk": "bounded",
-      "action_class": "bounded_activity_queries",
-      "sql": "SELECT pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query FROM pg_stat_activity WHERE application_name LIKE 'invoice-%' AND state <> 'idle' ORDER BY query_start DESC NULLS LAST LIMIT 50;",
-      "reason": "Client A invoice apps share the invoice-* application_name prefix.",
-      "required_identifiers": ["application_name"]
-    }
-  ]
-}
-```
-
-External command validation:
-
-- command config must include `command`, `enabled`, and `timeout_ms`
-- command output must be valid JSON
-- every suggestion must include `rule_id`, `label`, `risk`, `action_class`,
-  `sql`, and `reason`
-- `risk` and `action_class` must use known enum values
-- non-zero exit, timeout, or invalid JSON should be reported as `rule_errors[]`
-- returned suggestions still pass through pg-logstats policy filtering
-
-V1 should trust external rule commands. It should validate the command contract,
-but it does not need a sandbox or a security model for malicious local rule
-authors.
-
-Other V1 extension points should also be config-driven:
+Other V1 behavior should also be config-driven:
 
 - verdict thresholds for live-state checks
 - agent harness install paths
 - query text truncation or redaction limits
 - built-in rule enablement and per-rule limits
 
-V1 should not make these externally extensible:
+V1 should keep these identifiers fixed by the implementation:
 
 - operating mode names
 - top-level report schema
-- readiness check names
+- inspect check names
 - finding kinds emitted by built-in workflows
-- Rust code loading or binary plugins
+- guidance rule loading
 
 ## V1 Contract Tables
 
@@ -449,12 +545,12 @@ should be read through these tables when there is any ambiguity.
 
 ### Evidence Source Support
 
-| Evidence source | V1 readiness status | Notes |
+| Evidence source | V1 inspection status | Notes |
 | --- | --- | --- |
 | Local supported stderr-style logs | Can satisfy `log_backed` | Requires a parser-recognized format, reachable files, statement text, duration evidence, and session or process identity for correlation. |
 | AWS RDS / CloudWatch PostgreSQL logs in a parser-supported text shape | Can satisfy `log_backed` | Requires the same statement, duration, and identity evidence as local stderr-style logs. |
-| `csvlog` | Documented target, not V1-ready unless parser support is implemented in the same phase | `readiness` must report `unsupported_log_format` rather than count this as `log_backed` merely because `log_destination` includes `csvlog`. |
-| `jsonlog` | Documented target, not V1-ready unless parser support is implemented in the same phase | `readiness` must report `unsupported_log_format` rather than count this as `log_backed` merely because `log_destination` includes `jsonlog`. |
+| `csvlog` | Documented target, not V1-ready unless parser support is implemented in the same phase | `inspect` must report `unsupported_log_format` rather than count this as `log_backed` merely because `log_destination` includes `csvlog`. |
+| `jsonlog` | Documented target, not V1-ready unless parser support is implemented in the same phase | `inspect` must report `unsupported_log_format` rather than count this as `log_backed` merely because `log_destination` includes `jsonlog`. |
 | `pg_stat_activity` | Required for `live_only` and `running-queries` | Must be queryable with enough visibility to inspect cluster-wide activity. |
 | `pg_stat_statements` | Required for `live_only` and `running-queries` in V1 | Must be loaded, installed in the target database, and queryable. Aggregate history from this view is non-log history, not log-backed event history. |
 
@@ -469,34 +565,38 @@ this order:
 
 If no connection target is available:
 
-- `readiness` should still perform any requested static or log-source checks
+- `inspect` should still perform any requested static or log-source checks
   and report live checks as `skipped` with reason
   `database_connection_not_configured`
-- `readiness` must not choose `live_only`
+- `inspect` must not choose `live_only`
 - `running-queries` must fail with a structured error that identifies
   `database_connection_not_configured`
-- `suggest-sql` may still operate from an existing report, because it does not
-  execute SQL
+- `run-action` must fail for `run_sql` actions with a structured error that
+  identifies `database_connection_not_configured`
 
 The exact PostgreSQL client crate is an implementation choice, but V1 must
 document accepted DSN forms, SSL behavior, timeout defaults, and how connection
-errors appear in JSON output before `readiness` is considered complete.
+errors appear in JSON output before `inspect` is considered complete.
 
 ### Command Inputs
 
 | Command | Required inputs | Optional inputs | Supported modes |
 | --- | --- | --- | --- |
 | `pg-logstats agent install --harness codex\|claude\|gemini` | harness | `--config` and configured install path overrides | local tool operation, independent of database mode |
-| `pg-logstats readiness` | none | `--dsn`, log input args, `--config` | reports `log_backed`, `live_only`, or `unready` |
+| `pg-logstats inspect` | none | `--dsn`, log input args, `--config` | reports `log_backed`, `live_only`, or `unready` |
 | `pg-logstats running-queries` | resolvable database connection | `--config`, threshold overrides if exposed as CLI flags | `live_only`, `log_backed` |
 | `pg-logstats top query-families` | supported log input and bounded window | `--config`, `--limit`, source-specific input flags | `log_backed` |
 | `pg-logstats errors` | supported log input and bounded window | `--config`, `--limit`, source-specific input flags | `log_backed` |
 | `pg-logstats temp-files` | supported log input and bounded window with temp-file evidence | `--config`, `--limit`, source-specific input flags | `log_backed` |
-| `pg-logstats suggest-sql --findings-file <path> --rank <n>\|--finding-id <id>` | findings report | `--config` | `log_backed`, `live_only` when report target is supported |
-| `pg-logstats suggest-sql --running-queries-file <path> --pid <pid>\|--query-id <id>` | running-queries report | `--config` | `live_only`, `log_backed` |
+| `pg-logstats run-action --report <path> --action-id <id>` | source report and action id | `--config`, `--dsn` when action requires SQL | mode inherited from source report and action policy |
 
-`suggest-sql` support for `running-queries` reports is part of V1. Without it,
-`live_only` would have no concrete follow-up SQL path.
+There is no separate `next-action` command in V1. Follow-up guidance is emitted
+inside each report as `next_actions[]`.
+
+`run-action` is an executor, not a recommender. The agent still chooses an
+allowed action from `next_actions[]`; `pg-logstats` executes that selected
+action, records it in the session when one is active, and emits the next
+`PgTriageReport`.
 
 ### Shared Triage Report Shape
 
@@ -512,8 +612,9 @@ All machine-readable V1 command output should use this report shape:
 | `verdict_reasons[]` | yes when `verdict` is present | Empty only when `verdict = clear`. |
 | `allowed_actions[]` | yes unless `verdict = unknown` or command has no safety policy | Must use canonical action classes. |
 | `blocked_actions[]` | yes unless `verdict = unknown` or command has no safety policy | Must use canonical action classes. |
-| `analysis_window` | required for log-window workflows | Omit for `readiness`, `agent install`, and point-in-time live snapshots. |
+| `analysis_window` | required for log-window workflows | Omit for `inspect`, `agent install`, and point-in-time live snapshots. |
 | `source_summary` | required for evidence-producing workflows | Summarizes log source or live views consulted. |
+| `next_actions[]` | yes | Investigation Guidance actions available after this report. Empty only when the report tells the agent to stop or no safe action is available. |
 | `payload` | yes | Command-specific object. |
 
 Command-specific payload keys:
@@ -521,12 +622,12 @@ Command-specific payload keys:
 | Workflow | Payload key |
 | --- | --- |
 | `agent_install` | `agent_install` |
-| `readiness` | `readiness` |
+| `inspect` | `inspect` |
 | `running_queries` | `running_queries` |
 | `top_query_families` | `findings` |
 | `errors` | `findings` |
 | `temp_files` | `findings` |
-| `suggest_sql` | `suggest_sql` |
+| `sql_action` | `sql_action` |
 
 Examples in this document may show payload fields at the top level for
 readability, but implementation tests should assert the canonical report shape or
@@ -543,12 +644,12 @@ Operating modes:
 Workflow IDs:
 
 - `agent_install`
-- `readiness`
+- `inspect`
 - `running_queries`
 - `top_query_families`
 - `errors`
 - `temp_files`
-- `suggest_sql`
+- `sql_action`
 
 Finding kinds emitted by built-in V1 workflows:
 
@@ -581,14 +682,30 @@ Action classes:
 - `explain_analyze`
 - `write_or_admin_action`
 
-Suggestion statuses:
+Next-action statuses:
 
 - `allowed`
+- `blocked_by_mode`
 - `blocked_by_verdict`
 - `blocked_by_config`
 - `blocked_by_policy`
 - `omitted_not_enough_context`
 - `omitted_unsupported_target`
+
+Next-action kinds:
+
+- `run_pg_logstats`
+- `run_sql`
+- `install_agent_guidance`
+- `collect_logs`
+- `escalate`
+- `stop`
+
+Next-action priorities:
+
+- `required`
+- `recommended`
+- `optional`
 
 ### Verdict Policy Matrix
 
@@ -602,20 +719,22 @@ Suggestion statuses:
 Config may only make this matrix more restrictive. It must not allow an action
 class that the verdict blocks.
 
-### Built-In Rule Registry Contract
+### Built-In Guidance Rule Registry Contract
 
-Built-in `suggest-sql` rules must be declared in a central registry with:
+Built-in guidance rules must be declared in a central registry with:
 
 - stable `rule_id`
+- emitted `action_id`
+- emitted action `kind`
 - supported target `workflow`
 - supported target `kind`
 - required identifiers
-- emitted `risk`
-- emitted `action_class`
-- SQL template or generator name
+- emitted `risk` and `action_class` when the action is SQL or otherwise
+  policy-sensitive
+- command, SQL template, or action generator name
 - attribution note or reference back to the workflow attribution map
 
-V1 built-in rule IDs should use these prefixes:
+V1 built-in guidance rule IDs should use these prefixes:
 
 - `query_family.pg_stat_statements.*`
 - `query_family.pg_stat_activity.*`
@@ -644,55 +763,21 @@ long_running_query_ms = 120000
 waiting_session_count_threshold = 2
 idle_in_transaction_count_threshold = 2
 
-[suggest_sql]
+[guidance]
 max_risk = "bounded"
-show_omitted = true
+show_omitted_actions = true
 disabled_rules = []
 
-[suggest_sql.rules.<rule_id>]
+[guidance.rules.<rule_id>]
 enabled = true
 limit = 20
-
-[suggest_sql.external_rules.<name>]
-enabled = true
-command = ["/absolute/path/to/program", "--flag"]
-timeout_ms = 2000
 
 [agent_install.codex]
 agents_md_path = "/Users/example/AGENTS.md"
 playbook_dir = "/Users/example/.config/pg-logstats/agents"
 ```
 
-External commands should be configured as an argv array, not a shell string, so
-that paths and arguments are unambiguous. If V1 also accepts a legacy string
-form, the docs must state how it is split and what quoting rules apply.
-
-### External Rule Command ABI
-
-The external command ABI is versioned separately from the top-level report
-schema:
-
-- input field `schema_version = 1`
-- output field `schema_version = 1`
-- unknown input fields must be ignored by rule commands
-- unknown output fields must be preserved only if they fit under a documented
-  `metadata` object; otherwise they are ignored with a warning
-- stdout must contain one JSON object and should stay under the configured
-  `max_stdout_bytes`
-- stderr is diagnostic text only and should be captured into `rule_errors[]`
-  when the command fails
-- commands run with the current process environment plus
-  `PG_LOGSTATS_EXTERNAL_RULE=1`
-- commands receive no database credentials unless the author explicitly puts
-  them in the command environment outside pg-logstats
-- pg-logstats applies redaction and query truncation before building the target
-  context sent to external commands
-
-V1 trusts local rule authors, but every returned suggestion still passes through
-schema validation, verdict policy, config risk ceiling, and blocked-action
-filtering before it can appear in `next_sql[]`.
-
-### Readiness Checks By Mode
+### Inspection Checks By Mode
 
 The implementation should make mode selection deterministic.
 
@@ -779,12 +864,12 @@ command should update the managed pg-logstats content rather than duplicate it.
 Managed files or blocks must use stable begin/end markers, and the command
 should report whether it wrote, updated, skipped, or would update each file.
 
-### `pg-logstats readiness`
+### `pg-logstats inspect`
 
 Purpose:
 
 - detect operating mode before deeper investigation
-- report readiness of database evidence and `pg-logstats` capabilities
+- report database evidence and `pg-logstats` capabilities
 
 Required inputs:
 
@@ -888,30 +973,30 @@ Implementation notes:
 Output schema:
 
 - `operating_mode`
-- `database_readiness`
-- `agent_readiness`
+- `database_inspect`
+- `agent_inspect`
 - `required_checks`
 - `failed_checks`
 - limitations
-- recommended next commands
+- top-level `next_actions[]`
 
 Example fields:
 
-- `database_readiness.mode_candidate`
-- `database_readiness.checks.log_duration`
-- `database_readiness.checks.pg_stat_statements_extension`
-- `agent_readiness.codex.installed`
-- `agent_readiness.claude.installed`
-- `agent_readiness.gemini.installed`
+- `database_inspect.mode_candidate`
+- `database_inspect.checks.log_duration`
+- `database_inspect.checks.pg_stat_statements_extension`
+- `agent_inspect.codex.installed`
+- `agent_inspect.claude.installed`
+- `agent_inspect.gemini.installed`
 
 Illustrative JSON:
 
 ```json
 {
   "schema_version": 1,
-  "workflow": "readiness",
+  "workflow": "inspect",
   "operating_mode": "live_only",
-  "database_readiness": {
+  "database_inspect": {
     "mode_candidate": "live_only",
     "checks": {
       "log_destination": {
@@ -955,7 +1040,7 @@ Illustrative JSON:
       }
     }
   },
-  "agent_readiness": {
+  "agent_inspect": {
     "codex": {
       "status": "passed",
       "installed": true,
@@ -980,8 +1065,22 @@ Illustrative JSON:
     "historical_log_triage_unavailable",
     "event_level_evidence_unavailable"
   ],
-  "recommended_next_commands": [
-    "pg-logstats running-queries --output-format json"
+  "next_actions": [
+    {
+      "action_id": "inspect.live_only.running_queries",
+      "kind": "run_pg_logstats",
+      "workflow": "running_queries",
+      "label": "Inspect current PostgreSQL activity",
+      "status": "allowed",
+      "priority": "recommended",
+      "judgement_required": false,
+      "reason": "Live-only mode is available, so current activity can be inspected safely.",
+      "command": {
+        "argv": ["pg-logstats", "running-queries", "--output-format", "json"]
+      },
+      "requires": ["operating_mode:live_only"],
+      "produces": ["workflow:running_queries"]
+    }
   ]
 }
 ```
@@ -1240,7 +1339,7 @@ Output schema:
 - ranked findings
 - app, user, and database attribution when known
 - evidence handles
-- risk-labeled next SQL
+- top-level `next_actions[]` for plausible follow-up branches
 
 Per-finding fields:
 
@@ -1258,7 +1357,6 @@ Per-finding fields:
 - `metrics.mean_duration_ms`
 - `metrics.p95_duration_ms`
 - `evidence.sample_event_refs`
-- `next_sql[]`
 
 Supported modes:
 
@@ -1287,7 +1385,7 @@ Output schema:
 
 - grouped `findings[]` by SQLSTATE or normalized error text
 - representative evidence handles
-- risk-labeled next SQL when applicable
+- top-level `next_actions[]` when follow-up is safe
 
 Supported modes:
 
@@ -1318,107 +1416,139 @@ Output schema:
 - event counts
 - app, user, and database attribution
 - evidence handles
-- risk-labeled next SQL when applicable
+- top-level `next_actions[]` when follow-up is safe
 
 Supported modes:
 
 - `log_backed`
 
-### `pg-logstats suggest-sql`
+### `pg-logstats run-action`
 
 Purpose:
 
-- emit bounded, risk-labeled follow-up SQL for a finding or live-state path
-
-Sources:
-
-- finding report from another `pg-logstats` workflow
-- live-state path description from `running-queries`
-- built-in rule registry
-- external rule commands from config
+- execute one allowed action previously emitted in a `PgTriageReport`
+- keep SQL execution, result capture, policy checks, and session breadcrumbs
+  inside `pg-logstats`
+- emit a new report that can continue the investigation DAG
 
 Inputs:
 
-- `--findings-file <path>` plus either `--rank <n>` or `--finding-id <id>`
-- `--running-queries-file <path>` plus `--pid <pid>` or `--query-id <id>`
+- `--report <path>`: source report containing the selected action
+- `--action-id <id>`: action to execute
+- `--dsn <postgres-url>` or configured database connection when the action is
+  `kind = "run_sql"`
 
-V1 rule lifecycle:
+Execution rules:
 
-`pg-logstats` should use the same conceptual lifecycle for built-in rules and
-external rule commands. Built-in rules implement the lifecycle as internal
-function calls. External rule commands implement their own matching and
-candidate generation behind a single process invocation.
+- load the source report and validate `schema_version`
+- find exactly one action with the requested `action_id`
+- require `status = "allowed"`
+- re-apply mode, verdict, action-class, and risk policy before execution
+- for `run_pg_logstats`, run the referenced command or dispatch the equivalent
+  workflow internally
+- for `run_sql`, bind parameters from the source report and execute only the
+  built-in SQL action identified by `action_id`
+- write the resulting report to the active session when a session is active
+- include `parent_report_id` and `selected_action_id` in the resulting report
+
+Output schema for SQL actions:
+
+- `workflow = "sql_action"`
+- source report identifier
+- selected `action_id`
+- SQL action metadata: `risk`, `action_class`, and `required_identifiers[]`
+- bounded result rows or typed summary fields
+- row count and truncation indicators
+- top-level `next_actions[]`
+
+`run-action` must not accept arbitrary SQL from the agent. SQL execution is
+limited to built-in SQL actions emitted by prior reports.
+
+### Report-Level Guidance Actions
+
+Purpose:
+
+- emit safe, machine-readable next actions as part of every `PgTriageReport`
+- make the triage DAG explicit without adding a separate next-action command
+- let agents choose between optional branches using incident-specific judgement
+
+Sources:
+
+- the current report payload
+- prior reports from the active session when available
+- built-in guidance rule registry
+- verdict, operating mode, limitations, and action policy
+
+V1 guidance lifecycle:
+
+`pg-logstats` should use a simple built-in rule lifecycle. Rules are registered
+in code as DAG edge producers. Each rule declares the source workflow and source
+target shape it can inspect, then emits zero or more next-action candidates.
 
 1. Discover rule sources:
-   - load the built-in rule registry
-   - load configured external rule commands
-   - apply config for disabled built-in rules and disabled external commands
-2. Build target context:
-   - selected finding or live-state target
-   - `workflow`
+   - load the built-in guidance registry
+   - apply config for disabled built-in rules
+2. Build guidance context:
+   - current report metadata
+   - current workflow
+   - current payload
    - `operating_mode`
    - `verdict`
+   - `limitations`
    - `allowed_actions`
    - `blocked_actions`
-   - target kind, dimensions, metrics, and evidence handles
+   - session report index when available
 3. Evaluate and generate candidates:
-   - built-in rules evaluate applicability and generate candidates in-process
-   - each enabled external command receives the same target context JSON on stdin
-   - each external command returns zero or more candidate suggestions on stdout
+   - built-in rules evaluate applicability and generate action candidates
 4. Normalize candidates:
    - validate required fields
    - attach `rule_source`
-   - attach external command identity when applicable
-   - convert failures into `rule_errors[]`
 5. Apply pg-logstats policy:
-   - enforce `max_risk`
+   - enforce mode support
+   - enforce `max_risk` for SQL actions
    - enforce `blocked_actions`
-   - classify candidates into `next_sql[]` or `omitted_sql[]`
-   - sort runnable suggestions by risk and specificity
+   - classify candidates by `status`
+   - sort actions by priority, status, specificity, and stable action ID
 
-This lifecycle avoids a custom rule DSL while keeping `pg-logstats` responsible
-for the final output policy.
+This lifecycle keeps `pg-logstats` responsible for graph edges and safety
+policy. It deliberately does not decide which optional branch the agent must
+take.
 
-V1 command algorithm:
+V1 guidance algorithm:
 
-1. Load the source report and validate `schema_version`.
-2. Select exactly one target finding or live-state target.
-3. Build the target context described above.
-4. Derive common identifiers for built-in SQL generation:
+1. Build a guidance context from the just-created report.
+2. Include session context when a session directory is active.
+3. Generate action candidates from built-in guidance rules.
+4. Derive common identifiers for SQL action generation when needed:
    - `query_id` or `queryid`
    - `application_name`
    - `database`
    - `user`
    - `pid`
    - SQLSTATE or normalized error text
-5. Run the rule lifecycle.
-6. Mark candidates as blocked when their `action_class` appears in
-   `blocked_actions`, or when their risk maps to a blocked action.
-7. Keep blocked candidates only as metadata when useful for escalation.
-8. Sort candidates by risk, then specificity:
-   - exact `pid`
-   - exact `query_id`
-   - exact `application_name` / database / user
-   - aggregate database-level view
+5. Mark candidates as blocked when their `action_class` appears in
+   `blocked_actions`, when their mode is unsupported, or when their risk maps to
+   a blocked action.
+6. Keep blocked candidates only when useful for explaining why a branch is
+   unavailable.
+7. Emit the surviving actions as top-level `next_actions[]`.
 
 Validation checks:
 
-- source report must be valid JSON with a supported schema version
-- target selector must resolve to exactly one target
-- target kind must be supported by `suggest-sql`
-- built-in SQL templates must use only read-only `SELECT` statements
-- template values must be SQL-literal escaped
-- any pattern match must use an explicit `LIMIT`
+- every emitted action must match the next-action schema
+- every `action_id` must be stable for the same rule and target
+- `run_pg_logstats` actions must reference a known workflow
+- `run_sql` actions must include a `run-action` command, not a command that
+  invokes a SQL client directly
+- SQL actions must use only read-only `SELECT` statements
+- SQL template values must be SQL-literal escaped
+- SQL parameters must declare their source in the source report
+- any SQL pattern match must use an explicit `LIMIT`
 - generated SQL must include enough predicates to match the declared risk label
-- templates with missing required identifiers must be omitted instead of emitted
-  with empty predicates
-- if all runnable candidates are blocked, `next_sql[]` should be empty and
-  `omitted_sql[]` should explain why
-- external commands must complete within their configured timeout
-- external command stdout must pass suggestion schema validation before any
-  returned suggestion is used
+- SQL templates with missing required identifiers must be omitted instead of
+  emitted with empty predicates
 
-`suggest-sql` must never generate:
+Built-in SQL actions must never generate:
 
 - DDL
 - DML
@@ -1428,9 +1558,7 @@ Validation checks:
 - unbounded user-table queries
 - queries that require table names inferred from arbitrary SQL parsing
 
-This "never generate" list applies to built-in rules. V1 external rule commands
-are trusted local extensions, so the implementation should warn on suspicious
-returned SQL but not treat safety validation as a security boundary.
+This "never generate" list applies to built-in SQL action rules.
 
 Risk model:
 
@@ -1449,8 +1577,8 @@ Risk model:
   - should be omitted when `large_unbounded_selects` or equivalent action class
     is blocked
 - `requires_human_approval`
-  - valid diagnostic SQL exists, but V1 should not emit it as runnable SQL for
-    agents
+  - valid diagnostic SQL exists, but V1 should not emit it as an allowed
+    agent-selectable `run_sql` action
   - examples include `EXPLAIN`, `EXPLAIN ANALYZE`, lock termination, index
     creation, or table-specific inspection
 
@@ -1459,7 +1587,7 @@ of the finding. A severe finding can still have only `safe` follow-up SQL.
 
 Config can reduce the emitted risk ceiling. For example, `max_risk = "safe"`
 means `bounded`, `expensive`, and `requires_human_approval` candidates move to
-`omitted_sql[]`.
+`next_actions[]` with an omitted or blocked status.
 
 Action classes:
 
@@ -1484,49 +1612,44 @@ Risk-to-policy mapping:
   - blocked when `large_unbounded_selects`, `text_pattern_stats_search`, or its
     exact `action_class` is blocked
 - `requires_human_approval`
-  - never emitted in `next_sql[]`; record only in `omitted_sql[]`
+  - never emitted as `status = "allowed"`; record only as omitted or blocked
+    action metadata
 
-Output schema:
+Action output schema:
 
-- `target_workflow`
-- `target_identifier`
-- `operating_mode`
-- `verdict`
-- `next_sql[]`
-- `omitted_sql[]`
-- `rule_sources`
-- `rule_errors[]`
+- top-level `next_actions[]`
+- optional top-level or payload-level `rule_sources[]`
 
 Per-item fields:
 
 - `label`
-- `rule_id`
+- `action_id`
+- `kind`
+- `priority`
+- `judgement_required`
 - `rule_source`
-- `external_command`
 - `risk`
 - `action_class`
 - `status`
-- `sql`
+- `command`
+- `sql_preview`
+- `parameters[]`
 - `reason`
 - `required_identifiers[]`
 
 `rule_source` values:
 
 - `built_in`
-- `external_command`
-
-`rule_errors[]` fields:
-
-- `rule_source`
-- `external_command`
-- `status`
-- `message`
 
 `status` values:
 
 - `allowed`
+- `blocked_by_mode`
 - `blocked_by_verdict`
+- `blocked_by_policy`
+- `blocked_by_config`
 - `omitted_not_enough_context`
+- `omitted_unsupported_target`
 
 Supported modes:
 
@@ -1779,16 +1902,21 @@ Action class:
 If the temp-file finding has `queryid`, add `WHERE queryid = :queryid` and label
 the candidate `safe`.
 
-#### Omitted suggestions
+#### Omitted SQL actions
 
-When V1 intentionally does not emit runnable SQL, it should record the omission:
+When V1 intentionally does not allow runnable SQL, it should record the omitted
+or blocked action:
 
 ```json
 {
+  "action_id": "query_family.explain.without_analyze",
+  "kind": "run_sql",
   "label": "Explain the query plan",
   "risk": "requires_human_approval",
   "action_class": "explain_without_analyze",
   "status": "blocked_by_verdict",
+  "priority": "optional",
+  "judgement_required": true,
   "reason": "The current verdict blocks plan inspection from agent-driven flow."
 }
 ```
@@ -1801,44 +1929,112 @@ Illustrative output:
 ```json
 {
   "schema_version": 1,
-  "workflow": "suggest_sql",
-  "target_workflow": "top_query_families",
-  "target_identifier": "query_family:app=invoice-helper:sql=...",
+  "workflow": "top_query_families",
   "operating_mode": "log_backed",
   "verdict": "busy",
-  "rule_sources": ["built_in"],
-  "next_sql": [
+  "payload": {
+    "findings": [
+      {
+        "finding_id": "query_family:app=invoice-helper:sql=...",
+        "kind": "query_family",
+        "rank": 1
+      }
+    ]
+  },
+  "next_actions": [
     {
+      "action_id": "query_family.pg_stat_statements.by_queryid",
+      "kind": "run_sql",
       "label": "Inspect statement statistics for the exact query family",
       "rule_id": "query_family.pg_stat_statements.by_queryid",
       "rule_source": "built_in",
       "risk": "safe",
       "action_class": "stats_view_reads",
       "status": "allowed",
-      "sql": "SELECT queryid, calls, total_exec_time, mean_exec_time, min_exec_time, max_exec_time, rows, shared_blks_hit, shared_blks_read, temp_blks_read, temp_blks_written, query FROM pg_stat_statements WHERE queryid = 918273645;",
+      "priority": "recommended",
+      "judgement_required": false,
+      "command": {
+        "argv": [
+          "pg-logstats",
+          "run-action",
+          "--report",
+          "<current-report>",
+          "--action-id",
+          "query_family.pg_stat_statements.by_queryid"
+        ]
+      },
+      "sql_preview": "SELECT queryid, calls, total_exec_time, mean_exec_time, min_exec_time, max_exec_time, rows, shared_blks_hit, shared_blks_read, temp_blks_read, temp_blks_written, query FROM pg_stat_statements WHERE queryid = $1;",
+      "parameters": [
+        {
+          "name": "queryid",
+          "source": "target.queryid"
+        }
+      ],
       "reason": "The finding includes queryid, so this is an exact stats-view lookup.",
-      "required_identifiers": ["queryid"]
+      "required_identifiers": ["queryid"],
+      "target": {
+        "finding_id": "query_family:app=invoice-helper:sql=...",
+        "queryid": "918273645"
+      },
+      "produces": ["workflow:sql_action"]
     },
     {
+      "action_id": "query_family.pg_stat_activity.by_dimensions",
+      "kind": "run_sql",
       "label": "Find current active sessions for the same app and database",
       "rule_id": "query_family.pg_stat_activity.by_dimensions",
       "rule_source": "built_in",
       "risk": "safe",
       "action_class": "bounded_activity_queries",
       "status": "allowed",
-      "sql": "SELECT pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query_id, query FROM pg_stat_activity WHERE datname = 'internal_tools' AND usename = 'app_user' AND application_name = 'invoice-helper' AND state <> 'idle' ORDER BY query_start DESC NULLS LAST LIMIT 20;",
+      "priority": "optional",
+      "judgement_required": true,
+      "command": {
+        "argv": [
+          "pg-logstats",
+          "run-action",
+          "--report",
+          "<current-report>",
+          "--action-id",
+          "query_family.pg_stat_activity.by_dimensions"
+        ]
+      },
+      "sql_preview": "SELECT pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query_id, query FROM pg_stat_activity WHERE datname = $1 AND usename = $2 AND application_name = $3 AND state <> 'idle' ORDER BY query_start DESC NULLS LAST LIMIT 20;",
+      "parameters": [
+        {
+          "name": "database",
+          "source": "target.database"
+        },
+        {
+          "name": "user",
+          "source": "target.user"
+        },
+        {
+          "name": "application_name",
+          "source": "target.application_name"
+        }
+      ],
       "reason": "The query is bounded to the app, database, and user dimensions from the finding.",
-      "required_identifiers": ["database", "user", "application_name"]
-    }
-  ],
-  "omitted_sql": [
+      "required_identifiers": ["database", "user", "application_name"],
+      "target": {
+        "finding_id": "query_family:app=invoice-helper:sql=...",
+        "database": "internal_tools",
+        "user": "app_user",
+        "application_name": "invoice-helper"
+      },
+      "produces": ["workflow:sql_action"]
+    },
     {
+      "action_id": "query_family.explain.without_analyze",
+      "kind": "run_sql",
       "label": "Explain the query plan",
       "rule_id": "query_family.explain.without_analyze",
       "rule_source": "built_in",
       "risk": "requires_human_approval",
       "action_class": "explain_without_analyze",
       "status": "blocked_by_verdict",
+      "priority": "optional",
+      "judgement_required": true,
       "reason": "Plan inspection is intentionally left to a human-approved step in V1."
     }
   ]
@@ -1874,6 +2070,28 @@ Illustrative shape:
     "bounded_activity_queries"
   ],
   "blocked_actions": ["large_unbounded_selects", "explain_analyze"],
+  "next_actions": [
+    {
+      "action_id": "query_family.pg_stat_activity.by_dimensions",
+      "kind": "run_sql",
+      "label": "Find current active sessions for the same app and database",
+      "status": "allowed",
+      "priority": "optional",
+      "judgement_required": true,
+      "command": {
+        "argv": [
+          "pg-logstats",
+          "run-action",
+          "--report",
+          "<current-report>",
+          "--action-id",
+          "query_family.pg_stat_activity.by_dimensions"
+        ]
+      },
+      "produces": ["workflow:sql_action"],
+      "reason": "Use this branch when the historical query-family finding appears related to current database pressure."
+    }
+  ],
   "payload": {
     "findings": []
   }
@@ -1882,13 +2100,13 @@ Illustrative shape:
 
 ### Degraded Output Requirements
 
-`pg-logstats readiness` is the authoritative mode and capability report.
+`pg-logstats inspect` is the authoritative mode and capability report.
 
 It should:
 
 - state the active operating mode explicitly
 - enumerate the important limitations of that mode
-- recommend the next best supported commands
+- emit `next_actions[]` for supported follow-up branches
 
 Other commands do not need to repeat the full degraded explanation every time.
 They should carry only enough mode metadata to prevent misuse when the current
@@ -1899,18 +2117,29 @@ Example:
 ```json
 {
   "schema_version": 1,
-  "workflow": "readiness",
+  "workflow": "inspect",
   "operating_mode": "live_only",
   "limitations": [
     "historical_log_triage_unavailable",
     "query_family_runtime_ranking_unavailable"
   ],
-  "payload": {
-    "readiness": {
-      "recommended_next_commands": [
-        "pg-logstats running-queries --output-format json"
-      ]
+  "next_actions": [
+    {
+      "action_id": "inspect.live_only.running_queries",
+      "kind": "run_pg_logstats",
+      "workflow": "running_queries",
+      "label": "Inspect current PostgreSQL activity",
+      "status": "allowed",
+      "priority": "recommended",
+      "judgement_required": false,
+      "reason": "Live-only mode is available, so current activity can be inspected safely.",
+      "command": {
+        "argv": ["pg-logstats", "running-queries", "--output-format", "json"]
+      }
     }
+  ],
+  "payload": {
+    "inspect": {}
   }
 }
 ```
@@ -1956,7 +2185,7 @@ log-backed triage categories:
 
 The implementation should proceed in phases, but all phases contribute to the
 same V1 design. The repo already has partial event, correlation, finding,
-`top query-families`, `slow-queries diff`, and basic `suggest-sql` support, so
+`top query-families`, `slow-queries diff`, and basic follow-up SQL support, so
 the plan below focuses on bringing existing pieces into this V1 contract rather
 than rebuilding the foundations from scratch.
 
@@ -1981,7 +2210,8 @@ Deliver:
 - `PG_LOGSTATS_CONFIG`
 - default user config path
 - canonical enums for operating modes, workflow IDs, verdicts, risk labels,
-  action classes, suggestion statuses, finding kinds, and check statuses
+  action classes, next-action kinds, next-action priorities, next-action
+  statuses, finding kinds, and check statuses
 - shared `PgTriageReport` structs
 - JSON serialization tests for the shared report shape
 - transition adapter for current `FindingSet` output where needed
@@ -2000,11 +2230,11 @@ Acceptance criteria:
 - at least one existing command can emit report-shaped JSON output behind the
   new model or through an explicit transition path
 
-### Phase 2: Readiness And Mode Detection
+### Phase 2: Inspect And Mode Detection
 
 Deliver:
 
-- `pg-logstats readiness`
+- `pg-logstats inspect`
 - database connection discovery from `--dsn`, `PG_LOGSTATS_DATABASE_URL`, or
   `[database].dsn`
 - lightweight PostgreSQL probe runner
@@ -2014,11 +2244,11 @@ Deliver:
   `compute_query_id`, and monitoring-role visibility
 - agent guidance artifact detection
 - operating mode detection: `log_backed`, `live_only`, `unready`
-- machine-readable limitations and next-command hints
+- machine-readable limitations and `next_actions[]`
 
 Docs:
 
-- readiness-first workflow
+- inspect-first workflow
 - supported and unsupported evidence sources
 - database permissions and connection assumptions
 - examples for `log_backed`, `live_only`, and `unready`
@@ -2027,7 +2257,7 @@ Acceptance criteria:
 
 - missing database connection records live checks as skipped, not passed
 - `csvlog` and `jsonlog` do not satisfy `log_backed` until parser support exists
-- readiness can report useful log-backed status without live DB access when log
+- inspect can report useful log-backed status without live DB access when log
   input is available
 - degraded mode is explicit and parseable
 
@@ -2059,60 +2289,66 @@ Acceptance criteria:
 - findings degrade honestly when attribution is missing
 - unsupported modes fail clearly
 
-### Phase 4: Suggest-SQL Framework And Policy Engine
+### Phase 4: Investigation Guidance Framework
 
 Deliver:
 
-- source report loading and schema validation
-- target selection by `--finding-id`, `--rank`, `--pid`, or `--query-id`
-- rule registry abstraction
+- report-level `next_actions[]`
+- next-action schema with `action_id`, `kind`, `label`, `status`, `priority`,
+  `judgement_required`, `reason`, `target`, `command`, `sql_preview`,
+  `parameters[]`, `requires[]`, and `produces[]`
+- `pg-logstats run-action --report <path> --action-id <id>`
+- `sql_action` report payload for SQL action execution results
+- canonical next-action kinds, priorities, and statuses
+- guidance rule registry abstraction
 - built-in rule source interface
-- external command rule source interface
-- target context JSON for rule evaluation
+- guidance context JSON for rule evaluation
 - candidate normalization
-- SQL suggestion schema with `rule_id`, `rule_source`, `risk`,
-  `action_class`, `status`, `reason`, and `required_identifiers[]`
-- verdict/action/risk policy filtering
-- `next_sql[]`
-- `omitted_sql[]`
-- `rule_errors[]`
-- config controls for rule enablement, risk ceiling, omitted suggestions,
-  per-rule limits, external command timeout, and stdout limits
+- mode, verdict, action-class, and risk policy filtering
+- config controls for rule enablement, risk ceiling for SQL actions, omitted
+  actions, and per-rule limits
+- session report metadata needed to replay an investigation DAG
 
 Docs:
 
-- `suggest-sql` command usage
-- rule lifecycle
+- Investigation Guidance overview
+- next-action schema
+- run-action executor behavior
+- SQL action result report shape
+- guidance rule lifecycle
+- session and replay behavior
 - risk labels
 - action classes
 - policy matrix
-- external rule command input and output schemas
-- external command timeout and failure behavior
-- examples for allowed, omitted, blocked, and failed external suggestions
+- examples for allowed, omitted, and blocked built-in actions
 
 Acceptance criteria:
 
-- SQL suggestions are never unlabeled
+- there is no separate `next-action` command
+- every machine-readable report includes `next_actions[]`
+- `run-action` can execute an allowed action from a source report
+- `run-action` rejects blocked or unknown actions with structured errors
+- SQL action execution is owned by `pg-logstats`, not the agent harness
+- next actions are never unlabeled
 - blocked classes are machine-readable
 - config can only make policy stricter
-- invalid source reports fail with structured errors
-- external rule command suggestions can be emitted with
-  `rule_source = "external_command"`
-- external rule command failures are reported in `rule_errors[]`
-- no real built-in SQL rule needs to ship in this phase beyond test fixtures or
-  a minimal internal fixture rule
+- no real built-in SQL action needs to ship in this phase beyond test fixtures or
+  a minimal internal fixture action
 
-### Phase 5: Initial Built-In Suggest-SQL Rules
+### Phase 5: Initial Built-In SQL Actions
 
-Deliver query-family rules:
+Deliver query-family SQL actions:
 
 - exact `pg_stat_statements` lookup by `queryid`
 - active sessions by app, database, and user dimensions
 - bounded `pg_stat_statements` text search fallback when `queryid` is missing
+- `run-action` execution for the query-family SQL actions above
+- `sql_action` reports containing bounded rows, row counts, truncation flags,
+  source report id, and selected `action_id`
 
-Do not implement running-query, error-class, or temp-file rules in this phase
-unless their source report workflows already exist. Those rule families should
-ship with the workflows that create their target reports.
+Do not implement running-query, error-class, or temp-file SQL action rules in
+this phase unless their source report workflows already exist. Those rule
+families should ship with the workflows that create their target reports.
 
 Docs:
 
@@ -2123,8 +2359,10 @@ Docs:
 
 Acceptance criteria:
 
-- every query-family built-in rule has tests for allowed output
-- every query-family built-in rule has tests for missing identifiers
+- every query-family built-in SQL action rule has tests for allowed output
+- every query-family built-in SQL action rule has tests for missing identifiers
+- every executable query-family SQL action has tests for parameter binding and
+  `sql_action` report output
 - SQL literal escaping is tested
 - risk/action labels match the rule catalog
 - blocked and omitted behavior is tested
@@ -2142,8 +2380,8 @@ Deliver:
 - `allowed_actions` and `blocked_actions`
 - `active_sessions[]`
 - `blocking_signals[]`
-- support as a `suggest-sql` input report
-- built-in running-query `suggest-sql` rules:
+- `next_actions[]` for plausible follow-up branches
+- built-in running-query SQL action rules:
   - exact backend lookup by `pid`
   - blocking context via `pg_blocking_pids`
 
@@ -2153,16 +2391,16 @@ Docs:
 - minimum permissions
 - threshold config
 - verdict interpretation
-- transition from `readiness` to `running-queries` to `suggest-sql`
+- transition from `inspect` to `running-queries` through `next_actions[]`
 - built-in running-query rule catalog and attribution
 
 Acceptance criteria:
 
 - `running-queries` works in `live_only` and `log_backed`
 - `clear`, `busy`, `saturated`, and `unknown` verdicts are tested
-- `suggest-sql --running-queries-file` can target a pid or query id
-- running-query rules are tested for allowed, missing-identifier, and blocked
-  output
+- running-query SQL actions can target a pid or query id
+- running-query SQL action rules are tested for allowed, missing-identifier, and
+  blocked output
 - output follows the shared report contract
 
 ### Phase 7: Errors And Temp Files
@@ -2175,7 +2413,7 @@ Deliver errors:
 - representative evidence handles
 - app, user, and database attribution when known
 - report-shaped findings
-- built-in error-class `suggest-sql` rule for active sessions by matching app,
+- built-in error-class SQL action rule for active sessions by matching app,
   database, or user
 
 Deliver temp files:
@@ -2188,7 +2426,7 @@ Deliver temp files:
 - representative evidence handles
 - app, user, and database attribution when known
 - report-shaped findings
-- built-in temp-file `suggest-sql` rules:
+- built-in temp-file SQL action rules:
   - `pg_stat_database` temp counters by database
   - `pg_stat_statements` temp block activity
 
@@ -2198,7 +2436,7 @@ Docs:
 - temp-file triage workflow with pgBadger source/report references
 - required logging settings for each workflow
 - unsupported-mode behavior
-- built-in error-class and temp-file rule catalog and attribution
+- built-in error-class and temp-file SQL action rule catalog and attribution
 
 Acceptance criteria:
 
@@ -2206,7 +2444,7 @@ Acceptance criteria:
 - temp-file workflow requires `log_temp_files` evidence
 - rankings are deterministic
 - missing statement correlation is represented as a limitation, not hidden
-- error-class and temp-file `suggest-sql` rules are tested for allowed,
+- error-class and temp-file SQL action rules are tested for allowed,
   missing-identifier, and blocked output
 
 ### Phase 8: Agent Guidance Install
@@ -2235,7 +2473,7 @@ Acceptance criteria:
 - repeated install does not duplicate content
 - status detects installed and missing guidance
 - dry-run reports intended writes
-- installed guidance teaches readiness-first mode handling, verdict policy,
+- installed guidance teaches inspect-first mode handling, verdict policy,
   blocked actions, and escalation behavior
 
 ## V1 Exit Criteria
@@ -2244,16 +2482,16 @@ V1 is complete when:
 
 - config loading and precedence are implemented
 - the shared report contract and canonical enums are implemented
-- `readiness` reports mode and limitations honestly
+- `inspect` reports mode and limitations honestly
 - `top query-families` works in `log_backed` mode
 - `running-queries` works in `live_only` and `log_backed`
-- `suggest-sql` has a framework/policy layer and risk-labeled output
-- `suggest-sql` supports external rule commands
+- Investigation Guidance has a framework/policy layer and report-level
+  `next_actions[]`
 - query-family, running-query, error-class, and temp-file built-in
-  `suggest-sql` rules ship with their owning workflows
+  SQL action rules ship with their owning workflows
 - `errors` and `temp-files` use the same report contract
 - README and installed harness guidance reflect the shipped behavior
-- every shipped built-in workflow and built-in `suggest-sql` rule has recorded
+- every shipped built-in workflow and built-in SQL action rule has recorded
   attribution to PostgreSQL docs, pgBadger prior art, or another credible
   PostgreSQL operational source
 
@@ -2263,11 +2501,9 @@ V1 is complete when:
   stderr-style correlation beyond the current parser-supported defaults?
 - What is the minimum useful shared playbook content for Codex, Claude Code, and
   Gemini CLI without creating three divergent variants?
-- What warning level should `pg-logstats` apply to suspicious SQL returned by
-  trusted external rule commands?
 - Should `slow-queries diff` be hidden, documented as experimental, or adapted
   into the V1 report contract later?
 - Should live database tests use a real Postgres service, captured row fixtures,
   or a trait-backed probe abstraction with mocked responses?
-- Should `agent install` stay last, or move earlier once `readiness` and
-  `suggest-sql` are stable enough for guidance?
+- Should `agent install` stay last, or move earlier once `inspect` and
+  Investigation Guidance are stable enough for agent playbooks?

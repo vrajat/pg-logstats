@@ -35,6 +35,15 @@ User-facing guide for `pg-logstats inspect`, including:
 - JSON output shape and reason codes
 - next-command guidance
 
+### guidance.md
+
+User-facing guide for the Investigation Guidance Framework, including:
+
+- next action payload structure and kinds
+- safety policy matrix and verdict enforcement
+- execution using global audit linkage flags
+- session replay metadata fields
+
 ### top-query-families.md
 
 User-facing guide for `pg-logstats top query-families`, including:

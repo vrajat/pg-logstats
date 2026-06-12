@@ -5,8 +5,8 @@
 use assert_cmd::Command;
 use pg_logstats::{
     inspect::{AgentInspect, AgentTargetInspect, DatabaseInspect},
-    CheckStatus, InspectDetails, InspectReportPayload, OperatingMode, PgTriageReport, WorkflowId,
-    PG_TRIAGE_SCHEMA_VERSION,
+    ActionKind, AppConfig, CheckStatus, FindingsPayload, InspectReportPayload, OperatingMode,
+    PgTriageReport, PG_TRIAGE_SCHEMA_VERSION,
 };
 use predicates::prelude::*;
 use std::collections::BTreeMap;
@@ -82,7 +82,7 @@ fn target_slow_query_diff_content() -> &'static str {
 }
 
 fn finding_id_for_users_select() -> &'static str {
-    "query_family:queryid=|db=testdb|user=testuser|app=psql|sql=SELECT * FROM users WHERE id = ?"
+    "query_family:qf_c05e64f15dea15ce"
 }
 
 fn repo_fixture(path: &str) -> std::path::PathBuf {
@@ -99,7 +99,7 @@ fn write_inspect_report(dir: &Path, operating_mode: OperatingMode) -> std::path:
     let report_path = dir.join("inspect.json");
     let report = PgTriageReport {
         schema_version: PG_TRIAGE_SCHEMA_VERSION,
-        workflow: WorkflowId::Inspect,
+        workflow: ActionKind::Inspect,
         operating_mode,
         limitations: Vec::new(),
         verdict: None,
@@ -108,21 +108,25 @@ fn write_inspect_report(dir: &Path, operating_mode: OperatingMode) -> std::path:
         blocked_actions: None,
         analysis_window: None,
         source_summary: None,
+        next_actions: Vec::new(),
+        report_id: None,
+        session_id: None,
+        parent_report_id: None,
+        selected_action_id: None,
+        created_at: None,
         payload: InspectReportPayload {
-            inspect: InspectDetails {
-                database_inspect: DatabaseInspect {
-                    mode_candidate: operating_mode,
-                    checks: BTreeMap::new(),
-                },
-                agent_inspect: AgentInspect {
-                    codex: passing_agent_target(),
-                    claude: passing_agent_target(),
-                    gemini: passing_agent_target(),
-                },
-                required_checks: Vec::new(),
-                failed_checks: Vec::new(),
-                recommended_next_commands: Vec::new(),
+            database_inspect: DatabaseInspect {
+                mode_candidate: operating_mode,
+                checks: BTreeMap::new(),
             },
+            agent_inspect: AgentInspect {
+                active_harness: None,
+                codex: passing_agent_target(),
+                claude: passing_agent_target(),
+                gemini: passing_agent_target(),
+            },
+            required_checks: Vec::new(),
+            failed_checks: Vec::new(),
         },
     };
     fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
@@ -138,12 +142,26 @@ fn passing_agent_target() -> AgentTargetInspect {
 }
 
 fn with_log_backed_inspect<'a>(cmd: &'a mut Command, dir: &Path) -> &'a mut Command {
-    let report_path = write_inspect_report(dir, OperatingMode::LogBacked);
+    let report_path = write_inspect_report(dir, OperatingMode::LogBackedOnly);
     let workspace = report_path.parent().unwrap().to_path_buf();
     cmd.env("PG_LOGSTATS_WORKSPACE", workspace)
 }
 
-fn normalize_findings_json(value: serde_json::Value) -> serde_json::Value {
+fn with_log_backed_and_live_inspect<'a>(cmd: &'a mut Command, dir: &Path) -> &'a mut Command {
+    let report_path = write_inspect_report(dir, OperatingMode::LogBackedAndLive);
+    let workspace = report_path.parent().unwrap().to_path_buf();
+    cmd.env("PG_LOGSTATS_WORKSPACE", workspace)
+}
+
+fn normalize_findings_json(mut value: serde_json::Value) -> serde_json::Value {
+    if let Some(obj) = value.as_object_mut() {
+        obj.remove("next_actions");
+        obj.remove("report_id");
+        obj.remove("session_id");
+        obj.remove("parent_report_id");
+        obj.remove("selected_action_id");
+        obj.remove("created_at");
+    }
     value
 }
 
@@ -161,7 +179,6 @@ fn test_cli_help() {
         .stdout(predicate::str::contains("top"))
         .stdout(predicate::str::contains("inspect"))
         .stdout(predicate::str::contains("slow-queries"))
-        .stdout(predicate::str::contains("suggest-sql"))
         .stdout(predicate::str::contains("Perl module JSON::XS").not())
         .stdout(predicate::str::contains("out.html").not());
 }
@@ -250,19 +267,14 @@ fn test_inspect_uses_log_input_without_database_access() {
     let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
 
     assert_eq!(json["workflow"], "inspect");
-    assert_eq!(json["operating_mode"], "log_backed");
+    assert_eq!(json["operating_mode"], "log_backed_only");
     assert_eq!(
-        json["payload"]["inspect"]["database_inspect"]["checks"]["pg_stat_activity_probe"]
-            ["status"],
+        json["payload"]["database_inspect"]["checks"]["pg_stat_activity_probe"]["status"],
         "skipped"
     );
     assert_eq!(
-        json["payload"]["inspect"]["database_inspect"]["checks"]["statement_evidence"]["status"],
+        json["payload"]["database_inspect"]["checks"]["statement_evidence"]["status"],
         "passed"
-    );
-    assert_eq!(
-        json["payload"]["inspect"]["recommended_next_commands"][0],
-        "pg-logstats top query-families --output-format json"
     );
     assert!(inspect_report.exists());
 }
@@ -283,7 +295,7 @@ fn test_inspect_without_logs_or_database_is_unready() {
 
     assert_eq!(json["operating_mode"], "unready");
     assert_eq!(
-        json["payload"]["inspect"]["database_inspect"]["checks"]["log_source_reachable"]["status"],
+        json["payload"]["database_inspect"]["checks"]["log_source_reachable"]["status"],
         "skipped"
     );
     assert!(json["limitations"]
@@ -531,19 +543,21 @@ fn test_slow_queries_diff_thresholds_filter_results() {
 }
 
 #[test]
-fn test_suggest_sql_by_rank_from_findings_file() {
+fn test_run_action_sql_missing_db() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
     let findings_file = temp_dir.path().join("findings.json");
 
     let mut top_cmd = Command::cargo_bin("pg-logstats").unwrap();
-    with_log_backed_inspect(&mut top_cmd, temp_dir.path());
+    with_log_backed_and_live_inspect(&mut top_cmd, temp_dir.path());
     top_cmd
         .arg("--output-format")
         .arg("json")
         .arg("--outfile")
         .arg(findings_file.to_str().unwrap())
         .arg("--quiet")
+        .arg("--session-id")
+        .arg("test_sess")
         .arg("top")
         .arg("query-families")
         .arg("--limit")
@@ -552,61 +566,76 @@ fn test_suggest_sql_by_rank_from_findings_file() {
         .assert()
         .success();
 
-    let mut suggest_cmd = Command::cargo_bin("pg-logstats").unwrap();
-    with_log_backed_inspect(&mut suggest_cmd, temp_dir.path());
-    suggest_cmd
-        .arg("--output-format")
-        .arg("json")
-        .arg("--quiet")
-        .arg("suggest-sql")
-        .arg("--findings-file")
-        .arg(findings_file.to_str().unwrap())
-        .arg("--rank")
-        .arg("1")
+    let workspace_path = temp_dir.path();
+    let report_path =
+        workspace_path.join("sessions/test_sess/reports/0001-top_query_families.json");
+    let content = std::fs::read_to_string(&report_path).unwrap();
+    let mut report: PgTriageReport<FindingsPayload> = serde_json::from_str(&content).unwrap();
+    report.verdict = Some(pg_logstats::Verdict::Clear);
+    pg_logstats::populate_next_actions(&mut report, &pg_logstats::AppConfig::default());
+    std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
+
+    let mut run_act_cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_and_live_inspect(&mut run_act_cmd, temp_dir.path());
+    run_act_cmd
+        .arg("--session-id")
+        .arg("test_sess")
+        .arg("--parent-report-id")
+        .arg("0001-top_query_families")
+        .arg("--selected-action-id")
+        .arg(format!(
+            "query_family.pg_stat_statements.by_query_pattern:{}",
+            finding_id_for_users_select()
+        ))
+        .arg("run-sql")
+        .arg("--sql")
+        .arg("SELECT 1;")
         .assert()
-        .success()
-        .stdout(predicate::str::contains("\"rank\": 1"))
-        .stdout(predicate::str::contains("\"next_sql\""))
-        .stdout(predicate::str::contains("pg_stat_statements"))
-        .stdout(predicate::str::contains("pg_stat_activity"));
+        .failure()
+        .stderr(predicate::str::contains(
+            "database_connection_not_configured",
+        ));
 }
 
 #[test]
-fn test_suggest_sql_by_finding_id() {
+fn test_run_action_unknown_or_blocked() {
     let temp_dir = TempDir::new().unwrap();
     let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
     let findings_file = temp_dir.path().join("findings.json");
 
     let mut top_cmd = Command::cargo_bin("pg-logstats").unwrap();
-    with_log_backed_inspect(&mut top_cmd, temp_dir.path());
+    with_log_backed_and_live_inspect(&mut top_cmd, temp_dir.path());
     top_cmd
         .arg("--output-format")
         .arg("json")
         .arg("--outfile")
         .arg(findings_file.to_str().unwrap())
         .arg("--quiet")
+        .arg("--session-id")
+        .arg("test_sess")
         .arg("top")
         .arg("query-families")
-        .arg("--limit")
-        .arg("3")
         .arg(log_file.to_str().unwrap())
         .assert()
         .success();
 
-    let mut suggest_cmd = Command::cargo_bin("pg-logstats").unwrap();
-    with_log_backed_inspect(&mut suggest_cmd, temp_dir.path());
-    suggest_cmd
-        .arg("--quiet")
-        .arg("suggest-sql")
-        .arg("--findings-file")
-        .arg(findings_file.to_str().unwrap())
-        .arg("--finding-id")
-        .arg(finding_id_for_users_select())
+    let mut run_act_cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_and_live_inspect(&mut run_act_cmd, temp_dir.path());
+    run_act_cmd
+        .arg("--session-id")
+        .arg("test_sess")
+        .arg("--parent-report-id")
+        .arg("0001-top_query_families")
+        .arg("--selected-action-id")
+        .arg("nonexistent_action_id")
+        .arg("run-sql")
+        .arg("--sql")
+        .arg("SELECT 1;")
         .assert()
-        .success()
-        .stdout(predicate::str::contains(finding_id_for_users_select()))
-        .stdout(predicate::str::contains("pg_stat_statements"))
-        .stdout(predicate::str::contains("pg_stat_activity"));
+        .failure()
+        .stderr(predicate::str::contains(
+            "not found in parent report next_actions",
+        ));
 }
 
 #[test]
@@ -912,13 +941,13 @@ fn test_checked_in_slow_query_diff_fixture_smoke() {
 }
 
 #[test]
-fn test_checked_in_suggest_sql_happy_path() {
+fn test_checked_in_run_action_happy_path() {
     let fixture = repo_fixture("tests/fixtures/cli/sample_stderr.log");
     let temp_dir = TempDir::new().unwrap();
     let findings_file = temp_dir.path().join("findings.json");
 
     let mut top_cmd = Command::cargo_bin("pg-logstats").unwrap();
-    with_log_backed_inspect(&mut top_cmd, temp_dir.path());
+    with_log_backed_and_live_inspect(&mut top_cmd, temp_dir.path());
     top_cmd
         .arg("top")
         .arg("query-families")
@@ -927,23 +956,41 @@ fn test_checked_in_suggest_sql_happy_path() {
         .arg("json")
         .arg("--outfile")
         .arg(findings_file.to_str().unwrap())
+        .arg("--session-id")
+        .arg("test_sess")
         .arg(fixture.to_str().unwrap())
         .assert()
         .success();
 
-    let mut suggest_cmd = Command::cargo_bin("pg-logstats").unwrap();
-    with_log_backed_inspect(&mut suggest_cmd, temp_dir.path());
-    suggest_cmd
-        .arg("suggest-sql")
-        .arg("--quiet")
-        .arg("--findings-file")
-        .arg(findings_file.to_str().unwrap())
-        .arg("--rank")
-        .arg("1")
+    let report_path = temp_dir
+        .path()
+        .join("sessions/test_sess/reports/0001-top_query_families.json");
+    let content = std::fs::read_to_string(&report_path).unwrap();
+    let mut report: PgTriageReport<FindingsPayload> = serde_json::from_str(&content).unwrap();
+    report.verdict = Some(pg_logstats::Verdict::Clear);
+    pg_logstats::populate_next_actions(&mut report, &pg_logstats::AppConfig::default());
+    std::fs::write(&report_path, serde_json::to_string_pretty(&report).unwrap()).unwrap();
+
+    let mut run_act_cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_and_live_inspect(&mut run_act_cmd, temp_dir.path());
+    run_act_cmd
+        .arg("--session-id")
+        .arg("test_sess")
+        .arg("--parent-report-id")
+        .arg("0001-top_query_families")
+        .arg("--selected-action-id")
+        .arg(format!(
+            "query_family.pg_stat_statements.by_query_pattern:query_family:{}",
+            "qf_51125b8829ab1fdf"
+        ))
+        .arg("run-sql")
+        .arg("--sql")
+        .arg("SELECT 1;")
         .assert()
-        .success()
-        .stdout(predicate::str::contains("pg_stat_statements"))
-        .stdout(predicate::str::contains("SELECT * FROM users WHERE id = ?"));
+        .failure()
+        .stderr(predicate::str::contains(
+            "database_connection_not_configured",
+        ));
 }
 
 #[test]
@@ -992,23 +1039,46 @@ fn test_top_query_families_json_golden() {
 }
 
 #[test]
-fn test_suggest_sql_from_checked_in_findings_json() {
+fn test_run_action_from_checked_in_findings_json() {
     let findings = golden_fixture("top_query_families_sample.json");
     let temp_dir = TempDir::new().unwrap();
 
+    let content = fs::read_to_string(&findings).unwrap();
+    let mut report: PgTriageReport<FindingsPayload> = serde_json::from_str(&content).unwrap();
+    report.operating_mode = OperatingMode::LogBackedAndLive;
+    report.verdict = Some(pg_logstats::Verdict::Clear);
+    let config = AppConfig::default();
+    pg_logstats::populate_next_actions(&mut report, &config);
+
+    // Save it to the expected session path
+    let session_reports_dir = temp_dir.path().join("sessions/test_sess/reports");
+    fs::create_dir_all(&session_reports_dir).unwrap();
+    let test_report_path = session_reports_dir.join("0001-top_query_families.json");
+    fs::write(
+        &test_report_path,
+        serde_json::to_string_pretty(&report).unwrap(),
+    )
+    .unwrap();
+
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
-    with_log_backed_inspect(&mut cmd, temp_dir.path())
-        .arg("suggest-sql")
-        .arg("--quiet")
-        .arg("--findings-file")
-        .arg(findings.to_str().unwrap())
-        .arg("--rank")
-        .arg("1")
+    with_log_backed_and_live_inspect(&mut cmd, temp_dir.path())
+        .arg("--session-id")
+        .arg("test_sess")
+        .arg("--parent-report-id")
+        .arg("0001-top_query_families")
+        .arg("--selected-action-id")
+        .arg(format!(
+            "query_family.pg_stat_statements.by_query_pattern:query_family:{}",
+            "qf_51125b8829ab1fdf"
+        ))
+        .arg("run-sql")
+        .arg("--sql")
+        .arg("SELECT 1;")
         .assert()
-        .success()
-        .stdout(predicate::str::contains("pg_stat_statements"))
-        .stdout(predicate::str::contains("pg_stat_activity"))
-        .stdout(predicate::str::contains("SELECT * FROM users WHERE id = ?"));
+        .failure()
+        .stderr(predicate::str::contains(
+            "database_connection_not_configured",
+        ));
 }
 
 #[test]
@@ -1115,7 +1185,7 @@ fn test_json_output_structure() {
 
     assert_eq!(json["schema_version"], 1);
     assert_eq!(json["workflow"], "top_query_families");
-    assert_eq!(json["operating_mode"], "log_backed");
+    assert_eq!(json["operating_mode"], "log_backed_only");
     assert!(json["analysis_window"].is_object());
     assert!(json["source_summary"].is_object());
     assert!(json["payload"]["findings"].is_array());

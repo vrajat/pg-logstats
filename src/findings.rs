@@ -53,6 +53,7 @@ pub enum FindingKind {
     QueryFamily,
     SlowQueryRegression,
     ErrorClass,
+    TempFile,
 }
 
 /// Compact reason codes intended for downstream tooling.

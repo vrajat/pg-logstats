@@ -152,12 +152,14 @@ pg-logstats top query-families \
   --output-format json
 ```
 
-Then ask for follow-up SQL from a selected finding:
+Then execute a recommended next action using safety checks and session tracking:
 
 ```bash
-pg-logstats suggest-sql \
-  --findings-file findings.json \
-  --rank 1
+pg-logstats \
+  --session-id test_sess \
+  --parent-report-id 0001-top_query_families \
+  --selected-action-id query_family.pg_stat_statements.by_query_pattern:query_family:qf_51125b8829ab1fdf \
+  run-sql --sql "SELECT 1;"
 ```
 
 This keeps raw log volume out of the LLM context while preserving ranked
