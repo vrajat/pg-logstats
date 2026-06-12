@@ -10,8 +10,7 @@ most useful findings, and prints follow-up SQL for live PostgreSQL inspection.
 
 - `top query-families`: rank query families in one log window by total runtime.
 - `slow-queries diff`: compare a target log window against a baseline window.
-- `suggest-sql`: print `pg_stat_statements` and `pg_stat_activity` follow-up SQL
-  for a finding from JSON output.
+- `run-action`: execute a recommended next action (e.g., live database statistics checks or follow-up CLI commands) suggested by a triage report.
 
 Supported input is PostgreSQL stderr logs using this prefix shape:
 
@@ -60,7 +59,7 @@ pg-logstats slow-queries diff \
   --baseline tests/fixtures/cli/diff_baseline.log \
   --target tests/fixtures/cli/diff_target.log
 
-pg-logstats suggest-sql --findings-file findings.json --rank 1
+pg-logstats run-action --report findings.json --action-id 'query_family.pg_stat_statements.lookup:query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?'
 ```
 
 Global flags such as `--input-format`, `--output-format`, `--outfile`,
@@ -209,21 +208,17 @@ pg-logstats slow-queries diff \
   --min-p95-delta-ms 10
 ```
 
-### Suggested SQL
+### Run Action
 
-Generate follow-up SQL for a finding selected by rank:
-
-```bash
-pg-logstats suggest-sql --findings-file findings.json --rank 1
-```
-
-Or select by exact finding id:
+Execute a recommended next action from a triage report:
 
 ```bash
-pg-logstats suggest-sql \
-  --findings-file findings.json \
-  --finding-id 'query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?'
+pg-logstats run-action \
+  --report findings.json \
+  --action-id 'query_family.pg_stat_statements.lookup:query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?'
 ```
+
+For SQL-based actions, this will run the corresponding query against the database (if DSN connection is configured) and format the results. The command validates the action's safety using the policy matrix (verdict and action class restrictions) before execution.
 
 ## JSON Output
 

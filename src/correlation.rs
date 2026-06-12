@@ -21,9 +21,18 @@ pub struct QueryFamilyIdentity {
     pub queryid: Option<String>,
 }
 
+fn fnv1a_hash(s: &str) -> u64 {
+    let mut hash = 0xcbf29ce484222325;
+    for byte in s.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
 impl QueryFamilyIdentity {
     pub fn new(normalized_sql: String, session: &SessionIdentity, queryid: Option<String>) -> Self {
-        let family_id = format!(
+        let full_identity = format!(
             "queryid={}|db={}|user={}|app={}|sql={}",
             queryid.as_deref().unwrap_or(""),
             session.database.as_deref().unwrap_or(""),
@@ -31,6 +40,7 @@ impl QueryFamilyIdentity {
             session.application_name.as_deref().unwrap_or(""),
             normalized_sql
         );
+        let family_id = format!("qf_{:016x}", fnv1a_hash(&full_identity));
 
         Self {
             family_id,
@@ -371,9 +381,6 @@ mod tests {
         assert_eq!(family.database.as_deref(), Some("analytics"));
         assert_eq!(family.user.as_deref(), Some("reporter"));
         assert_eq!(family.application_name.as_deref(), Some("dashboard"));
-        assert_eq!(
-            family.family_id,
-            "queryid=|db=analytics|user=reporter|app=dashboard|sql=SELECT * FROM users WHERE id = ?"
-        );
+        assert_eq!(family.family_id, "qf_70b19d9d5ccef7b0");
     }
 }

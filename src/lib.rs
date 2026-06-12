@@ -15,6 +15,7 @@ pub mod correlation;
 pub mod database;
 pub mod events;
 pub mod findings;
+pub mod guidance;
 pub mod input;
 pub mod inspect;
 pub mod output;
@@ -43,18 +44,23 @@ pub use findings::{
     DeltaMetrics, Finding, FindingConfidence, FindingKind, FindingMetrics, FindingSet,
     QueryFamilyFinding, ReasonCode, SlowQueryDiffOptions, FINDING_SCHEMA_VERSION,
 };
-pub use inspect::{
-    build_inspect_report, collect_log_inspect_evidence, format_inspect_text, InspectCheckId,
-    InspectDetails, InspectLimitation, InspectReason, InspectReportPayload, LogEvidence,
-    LogInspectEvidence,
+pub use guidance::{
+    populate_next_actions, GuidancePayload, RuleDefinition, RuleId, DEFAULT_RULE_LIMIT,
 };
-pub use output::{JsonFormatter, TextFormatter};
+pub use inspect::{
+    format_inspect_text, inspect, InspectCheckId, InspectLimitation, InspectReason,
+    InspectReportPayload, LogEvidence, LogInspectEvidence,
+};
+pub use output::{
+    output_report, write_or_print_output, JsonFormatter, OutputFormat, TextFormatter,
+};
 pub use parsers::{TextLogFormat, TextLogParser};
 pub use sql::{Query, QueryType};
 pub use triage::{
-    top_query_families_report, ActionClass, AnalysisWindow, CheckStatus, FindingsPayload,
-    OperatingMode, PgTriageReport, RiskLabel, SourceSummary, SourceSummaryKind, SuggestionStatus,
-    Verdict, WorkflowId, PG_TRIAGE_SCHEMA_VERSION,
+    sql_action_report, top_query_families_report, ActionClass, ActionKind, AnalysisWindow,
+    CheckStatus, FindingsPayload, NextAction, NextActionCommand, NextActionPriority,
+    NextActionStatus, OperatingMode, PgTriageReport, RiskLabel, SourceSummary, SourceSummaryKind,
+    SqlActionPayload, Verdict, PG_TRIAGE_SCHEMA_VERSION,
 };
 
 /// Main error type for pg-logstats operations

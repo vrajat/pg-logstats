@@ -2,19 +2,18 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use indicatif::{ProgressBar, ProgressStyle};
 use log::{debug, error, info, warn};
 use pg_logstats::{
-    build_inspect_report, collect_log_inspect_evidence, format_inspect_text,
+    connect_postgres_client,
     input::{
         discover_log_files, process_cloudwatch_input, process_log_file, process_log_paths,
         validate_file_input_args, CloudWatchInput, CloudWatchSince, CloudWatchUntil, LocalLogInput,
     },
-    load_config, normalize_log_entries, query_family_findings, resolve_database_dsn,
-    resolve_workspace_path, slow_query_diff_findings, top_query_families_report,
-    workspace_inspect_report_path, Correlator, EventSourceKind, Finding, FindingSet,
-    FindingsPayload, InspectReportPayload, JsonFormatter, OperatingMode, PgLogstatsError,
-    PgTriageReport, ProcessOrderCorrelator, Result, SlowQueryDiffOptions, TextFormatter,
-    TextLogFormat, TextLogParser, WorkflowId,
+    inspect, load_config, normalize_log_entries, query_family_findings, resolve_database_dsn,
+    resolve_workspace_path, slow_query_diff_findings, sql_action_report, top_query_families_report,
+    workspace_inspect_report_path, ActionKind, Correlator, EventSourceKind, InspectReportPayload,
+    JsonFormatter, NextActionStatus, OperatingMode, OutputFormat, PgLogstatsError, PgTriageReport,
+    ProcessOrderCorrelator, Result, SlowQueryDiffOptions, SqlActionPayload, TextFormatter,
+    TextLogFormat, TextLogParser,
 };
-use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
@@ -53,6 +52,18 @@ struct Arguments {
     /// Suppress progress output and the completion footer
     #[clap(short = 'q', long, global = true)]
     quiet: bool,
+
+    /// Session ID to group reports and reconstruct the investigation graph
+    #[clap(long, global = true, value_name = "SESSION_ID")]
+    session_id: Option<String>,
+
+    /// The ID (filename prefix) of the parent report in the session
+    #[clap(long, global = true, value_name = "REPORT_ID")]
+    parent_report_id: Option<String>,
+
+    /// The ID of the action selected from the parent report
+    #[clap(long, global = true, value_name = "ACTION_ID")]
+    selected_action_id: Option<String>,
 
     /// PostgreSQL connection string. Falls back to PG_LOGSTATS_DATABASE_URL
     /// and then [database].dsn from config.
@@ -161,19 +172,11 @@ enum Command {
         #[clap(subcommand)]
         command: SlowQueriesCommand,
     },
-    /// Print follow-up SQL for a finding from a findings JSON file
-    SuggestSql {
-        /// Findings JSON file produced by pg-logstats
-        #[clap(long, value_name = "PATH")]
-        findings_file: PathBuf,
-
-        /// Select a finding by its exact finding id
-        #[clap(long, value_name = "FINDING_ID", conflicts_with = "rank")]
-        finding_id: Option<String>,
-
-        /// Select a finding by rank within the findings output
-        #[clap(long, value_name = "N", conflicts_with = "finding_id")]
-        rank: Option<usize>,
+    /// Run a diagnostic SQL query against the database
+    RunSql {
+        /// SQL query to run
+        #[clap(long)]
+        sql: String,
     },
 }
 
@@ -225,12 +228,6 @@ enum SlowQueriesCommand {
 }
 
 #[derive(Debug, ValueEnum, Clone, Copy)]
-enum OutputFormat {
-    Text,
-    Json,
-}
-
-#[derive(Debug, ValueEnum, Clone, Copy)]
 enum InputFormat {
     /// Auto-detect among supported text formats.
     Auto,
@@ -261,7 +258,11 @@ fn main() -> Result<()> {
     // Initialize logging
     env_logger::init();
 
-    let args = Arguments::parse();
+    let mut args = Arguments::parse();
+    if args.session_id.is_none() {
+        let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+        args.session_id = Some(timestamp);
+    }
     let start_time = Instant::now();
 
     // Validate CLI arguments
@@ -289,48 +290,97 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+fn validate_session_action(args: &Arguments, workspace_path: &Path) -> Result<()> {
+    if (args.parent_report_id.is_some() || args.selected_action_id.is_some())
+        && (args.parent_report_id.is_none() || args.selected_action_id.is_none())
+    {
+        return Err(PgLogstatsError::Configuration {
+            message: "Both --parent-report-id and --selected-action-id must be specified together"
+                .to_string(),
+            field: Some("selected_action_id".to_string()),
+        });
+    }
+
+    if let (Some(sess_id), Some(parent_id), Some(act_id)) = (
+        &args.session_id,
+        &args.parent_report_id,
+        &args.selected_action_id,
+    ) {
+        let parent_path = workspace_path
+            .join("sessions")
+            .join(sess_id)
+            .join("reports")
+            .join(format!("{}.json", parent_id));
+
+        if parent_path.exists() {
+            let parent_content = fs::read_to_string(&parent_path)?;
+            let parent_rep: PgTriageReport<serde_json::Value> =
+                serde_json::from_str(&parent_content).map_err(PgLogstatsError::Serialization)?;
+
+            let action = parent_rep
+                .next_actions
+                .iter()
+                .find(|a| a.action_id == *act_id)
+                .ok_or_else(|| PgLogstatsError::Configuration {
+                    message: format!(
+                        "Action ID '{}' not found in parent report next_actions",
+                        act_id
+                    ),
+                    field: Some("selected_action_id".to_string()),
+                })?;
+
+            if action.status != NextActionStatus::Allowed {
+                return Err(PgLogstatsError::Configuration {
+                    message: format!(
+                        "Action '{}' is not allowed in parent report. Status: {:?}, Reason: {}",
+                        act_id, action.status, action.reason
+                    ),
+                    field: Some("selected_action_id".to_string()),
+                });
+            }
+        } else {
+            return Err(PgLogstatsError::Configuration {
+                message: format!("Parent report '{}' not found in session", parent_id),
+                field: Some("parent_report_id".to_string()),
+            });
+        }
+    }
+    Ok(())
+}
+
 fn run_command(
     args: &Arguments,
     parser: &TextLogParser,
     config: &pg_logstats::AppConfig,
     inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
+    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
+    validate_session_action(args, &workspace)?;
+
     match &args.command {
-        Command::Top {
-            command: TopCommand::QueryFamilies { limit, input },
-        } => run_top_query_families_command(args, parser, input, *limit, inspect_report),
+        Command::Top { .. } => run_top_query_families_command(args, parser, config, inspect_report),
         Command::Inspect { input } => {
-            run_inspect_command(args, parser, config, args.dsn.as_deref(), input)
+            let cloudwatch_input = input.uses_cloudwatch().then(|| input.cloudwatch_input());
+            let mut report = inspect(
+                config,
+                args.dsn.as_deref(),
+                &input.local_log_input(),
+                cloudwatch_input.as_ref(),
+                parser,
+                source_kind_for_input(args, input),
+                args.session_id.clone(),
+                args.workspace.as_deref(),
+            )?;
+
+            let workspace = resolve_workspace_path(args.workspace.as_deref())?;
+            record_session_report(&workspace, &mut report, args)?;
+            output_report(&report, args)?;
+            Ok(())
         }
-        Command::SlowQueries {
-            command:
-                SlowQueriesCommand::Diff {
-                    baseline,
-                    target,
-                    sample_size,
-                    limit,
-                    min_target_count,
-                    min_target_total_ms,
-                    min_p95_delta_ms,
-                },
-        } => run_slow_queries_diff_command(
-            args,
-            parser,
-            baseline,
-            target,
-            *sample_size,
-            SlowQueryDiffOptions {
-                limit: *limit,
-                min_target_count: *min_target_count,
-                min_target_total_ms: *min_target_total_ms,
-                min_p95_delta_ms: *min_p95_delta_ms,
-            },
-        ),
-        Command::SuggestSql {
-            findings_file,
-            finding_id,
-            rank,
-        } => run_suggest_sql_command(args, findings_file, finding_id.as_deref(), *rank),
+        Command::SlowQueries { .. } => {
+            run_slow_queries_diff_command(args, parser, config, inspect_report)
+        }
+        Command::RunSql { .. } => run_sql_command(args, parser, config, inspect_report),
     }
 }
 
@@ -409,73 +459,72 @@ fn load_default_log_entries(
 fn run_top_query_families_command(
     args: &Arguments,
     parser: &TextLogParser,
-    input: &LogInputArgs,
-    limit: usize,
+    config: &pg_logstats::AppConfig,
     inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
+    let Command::Top {
+        command: TopCommand::QueryFamilies { limit, input },
+    } = &args.command
+    else {
+        unreachable!();
+    };
+
     require_log_backed_mode(inspect_report)?;
+
     let all_entries = load_default_log_entries(args, input, parser)?;
-    let findings = run_top_query_families(&all_entries, limit, source_kind_for_input(args, input))?;
 
-    match args.output_format {
-        OutputFormat::Json => {
-            let report = top_query_families_report(
-                findings,
-                &all_entries,
-                source_kind_for_input(args, input),
-            );
-            let formatter = JsonFormatter::new().with_pretty(true);
-            let output = formatter.format_triage_report(&report)?;
-            write_or_print_output(output, args)
-        }
-        OutputFormat::Text => output_findings(&findings, args, &all_entries),
+    let findings =
+        run_top_query_families(&all_entries, *limit, source_kind_for_input(args, input))?;
+    let mut report =
+        top_query_families_report(findings, &all_entries, source_kind_for_input(args, input));
+    if let Some(ir) = inspect_report {
+        report.operating_mode = ir.operating_mode;
     }
-}
+    report.session_id = args.session_id.clone();
+    pg_logstats::populate_next_actions(&mut report, config);
 
-fn run_inspect_command(
-    args: &Arguments,
-    parser: &TextLogParser,
-    config: &pg_logstats::AppConfig,
-    dsn: Option<&str>,
-    input: &LogInputArgs,
-) -> Result<()> {
-    let cloudwatch_input = input.uses_cloudwatch().then(|| input.cloudwatch_input());
-    let log_evidence = collect_log_inspect_evidence(
-        &input.local_log_input(),
-        cloudwatch_input.as_ref(),
-        parser,
-        source_kind_for_input(args, input),
-    );
-    let report = build_inspect_report(
-        config,
-        resolve_database_dsn(dsn, config).as_deref(),
-        log_evidence,
-    );
-    persist_inspect_report(&report, args.workspace.as_deref())?;
+    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
+    record_session_report(&workspace, &mut report, args)?;
 
-    match args.output_format {
-        OutputFormat::Json => {
-            let formatter = JsonFormatter::new().with_pretty(true);
-            let output = formatter.format_triage_report(&report)?;
-            write_or_print_output(output, args)
-        }
-        OutputFormat::Text => write_or_print_output(format_inspect_text(&report), args),
-    }
+    output_report(&report, args)
 }
 
 fn run_slow_queries_diff_command(
     args: &Arguments,
     parser: &TextLogParser,
-    baseline: &Path,
-    target: &Path,
-    sample_size: Option<usize>,
-    options: SlowQueryDiffOptions,
+    _config: &pg_logstats::AppConfig,
+    inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
+    let Command::SlowQueries {
+        command:
+            SlowQueriesCommand::Diff {
+                baseline,
+                target,
+                sample_size,
+                limit,
+                min_target_count,
+                min_target_total_ms,
+                min_p95_delta_ms,
+            },
+    } = &args.command
+    else {
+        unreachable!();
+    };
+
+    require_log_backed_mode(inspect_report)?;
+
+    let options = SlowQueryDiffOptions {
+        limit: *limit,
+        min_target_count: *min_target_count,
+        min_target_total_ms: *min_target_total_ms,
+        min_p95_delta_ms: *min_p95_delta_ms,
+    };
+
     let (findings, total_entries) = run_slow_queries_diff(
         baseline,
         target,
         parser,
-        sample_size,
+        *sample_size,
         options,
         args.input_format.event_source_kind(),
     )?;
@@ -491,11 +540,14 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
         Command::SlowQueries {
             command: SlowQueriesCommand::Diff { sample_size, .. },
         } => validate_sample_size(*sample_size)?,
-        Command::SuggestSql {
-            findings_file,
-            finding_id,
-            rank,
-        } => validate_suggest_sql_args(findings_file, finding_id.as_deref(), *rank)?,
+        Command::RunSql { sql } => {
+            if sql.trim().is_empty() {
+                return Err(PgLogstatsError::Configuration {
+                    message: "SQL query cannot be empty".to_string(),
+                    field: Some("sql".to_string()),
+                });
+            }
+        }
     }
 
     // Validate output directory if specified
@@ -544,42 +596,6 @@ fn validate_sample_size(sample_size: Option<usize>) -> Result<()> {
                 field: Some("sample_size".to_string()),
             });
         }
-    }
-
-    Ok(())
-}
-
-fn validate_suggest_sql_args(
-    findings_file: &Path,
-    finding_id: Option<&str>,
-    rank: Option<usize>,
-) -> Result<()> {
-    if !findings_file.exists() {
-        return Err(PgLogstatsError::Configuration {
-            message: format!("Findings file does not exist: {}", findings_file.display()),
-            field: Some("findings_file".to_string()),
-        });
-    }
-
-    if !findings_file.is_file() {
-        return Err(PgLogstatsError::Configuration {
-            message: format!("Findings path is not a file: {}", findings_file.display()),
-            field: Some("findings_file".to_string()),
-        });
-    }
-
-    if finding_id.is_none() && rank.is_none() {
-        return Err(PgLogstatsError::Configuration {
-            message: "Specify either --finding-id or --rank".to_string(),
-            field: Some("finding_selector".to_string()),
-        });
-    }
-
-    if matches!(rank, Some(0)) {
-        return Err(PgLogstatsError::Configuration {
-            message: "Rank must be greater than 0".to_string(),
-            field: Some("rank".to_string()),
-        });
     }
 
     Ok(())
@@ -643,30 +659,101 @@ fn run_slow_queries_diff(
     Ok((findings, total_entries))
 }
 
-fn run_suggest_sql_command(
+fn record_session_report<T: serde::Serialize>(
+    workspace_path: &Path,
+    report: &mut PgTriageReport<T>,
     args: &Arguments,
-    findings_file: &Path,
-    finding_id: Option<&str>,
-    rank: Option<usize>,
 ) -> Result<()> {
-    let findings = load_findings_file(findings_file)?;
-    let finding = select_finding(&findings, finding_id, rank)?;
+    let sess_id = report
+        .session_id
+        .clone()
+        .or_else(|| args.session_id.clone());
 
-    if finding.next_sql.is_empty() {
-        return Err(PgLogstatsError::Configuration {
-            message: format!("No suggested SQL is available for {}", finding.finding_id),
-            field: Some("finding_id".to_string()),
-        });
+    let Some(sess_id_str) = sess_id else {
+        return Ok(());
+    };
+
+    report.session_id = Some(sess_id_str.clone());
+
+    let session_dir = workspace_path.join("sessions").join(&sess_id_str);
+    let reports_dir = session_dir.join("reports");
+    fs::create_dir_all(&reports_dir)?;
+
+    if let (Some(parent_id), Some(act_id)) = (&args.parent_report_id, &args.selected_action_id) {
+        let parent_path = reports_dir.join(format!("{}.json", parent_id));
+        if parent_path.exists() {
+            let parent_content = fs::read_to_string(&parent_path)?;
+            let parent_rep: PgTriageReport<serde_json::Value> =
+                serde_json::from_str(&parent_content).map_err(PgLogstatsError::Serialization)?;
+
+            let action = parent_rep
+                .next_actions
+                .iter()
+                .find(|a| a.action_id == *act_id)
+                .ok_or_else(|| PgLogstatsError::Configuration {
+                    message: format!(
+                        "Action ID '{}' not found in parent report next_actions",
+                        act_id
+                    ),
+                    field: Some("selected_action_id".to_string()),
+                })?;
+
+            if action.status != NextActionStatus::Allowed {
+                return Err(PgLogstatsError::Configuration {
+                    message: format!(
+                        "Action '{}' is not allowed in parent report. Status: {:?}, Reason: {}",
+                        act_id, action.status, action.reason
+                    ),
+                    field: Some("selected_action_id".to_string()),
+                });
+            }
+        } else {
+            return Err(PgLogstatsError::Configuration {
+                message: format!("Parent report '{}' not found in session", parent_id),
+                field: Some("parent_report_id".to_string()),
+            });
+        }
     }
 
-    output_suggested_sql(args, finding)
-}
+    if let Some(parent_id) = &args.parent_report_id {
+        report.parent_report_id = Some(parent_id.clone());
+    }
+    if let Some(act_id) = &args.selected_action_id {
+        report.selected_action_id = Some(act_id.clone());
+    }
 
-fn load_findings_file(path: &Path) -> Result<FindingSet> {
-    let content = fs::read_to_string(path)?;
-    let report: PgTriageReport<FindingsPayload> =
-        serde_json::from_str(&content).map_err(PgLogstatsError::Serialization)?;
-    Ok(FindingSet::new(report.payload.findings))
+    if report.created_at.is_none() {
+        report.created_at = Some(chrono::Utc::now().to_rfc3339());
+    }
+
+    let sequence = fs::read_dir(&reports_dir)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
+        .count()
+        + 1;
+
+    let workflow_name = match report.workflow {
+        ActionKind::AgentInstall => "agent_install",
+        ActionKind::Inspect => "inspect",
+        ActionKind::RunningQueries => "running_queries",
+        ActionKind::TopQueryFamilies => "top_query_families",
+        ActionKind::SlowQueriesDiff => "slow_queries_diff",
+        ActionKind::RunSql => "run_sql",
+        ActionKind::CollectLogs => "collect_logs",
+        ActionKind::Escalate => "escalate",
+        ActionKind::Stop => "stop",
+        ActionKind::Errors => "errors",
+        ActionKind::TempFiles => "temp_files",
+    };
+
+    let report_id_str = format!("{:04}-{}", sequence, workflow_name);
+    report.report_id = Some(report_id_str.clone());
+
+    let report_file = reports_dir.join(format!("{}.json", report_id_str));
+    let content = serde_json::to_string_pretty(report).map_err(PgLogstatsError::Serialization)?;
+    fs::write(report_file, content)?;
+
+    Ok(())
 }
 
 fn load_startup_inspect_report(
@@ -692,7 +779,7 @@ fn load_startup_inspect_report(
     let report: PgTriageReport<InspectReportPayload> =
         serde_json::from_str(&content).map_err(PgLogstatsError::Serialization)?;
 
-    if report.workflow != WorkflowId::Inspect {
+    if report.workflow != ActionKind::Inspect {
         return Err(PgLogstatsError::Configuration {
             message: format!(
                 "Inspect output at {} is not an inspect report.",
@@ -715,12 +802,15 @@ fn require_log_backed_mode(
         });
     };
 
-    if report.operating_mode != OperatingMode::LogBacked {
+    if report.operating_mode != OperatingMode::LogBackedAndLive
+        && report.operating_mode != OperatingMode::LogBackedOnly
+    {
         return Err(PgLogstatsError::Configuration {
             message: format!(
-                "This command requires log_backed mode, but inspect reported {}.",
+                "This command requires log-backed capability, but inspect reported {}.",
                 match report.operating_mode {
-                    OperatingMode::LogBacked => "log_backed",
+                    OperatingMode::LogBackedAndLive => "log_backed_and_live",
+                    OperatingMode::LogBackedOnly => "log_backed_only",
                     OperatingMode::LiveOnly => "live_only",
                     OperatingMode::Unready => "unready",
                 }
@@ -732,88 +822,132 @@ fn require_log_backed_mode(
     Ok(())
 }
 
-fn persist_inspect_report(
-    report: &PgTriageReport<InspectReportPayload>,
-    workspace: Option<&Path>,
-) -> Result<()> {
-    let workspace = resolve_workspace_path(workspace)?;
-    let path = workspace_inspect_report_path(&workspace);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let output = serde_json::to_string_pretty(report).map_err(PgLogstatsError::Serialization)?;
-    fs::write(path, output)?;
-    Ok(())
-}
-
-fn select_finding<'a>(
-    findings: &'a FindingSet,
-    finding_id: Option<&str>,
-    rank: Option<usize>,
-) -> Result<&'a Finding> {
-    if let Some(finding_id) = finding_id {
-        return findings
-            .findings
-            .iter()
-            .find(|finding| finding.finding_id == finding_id)
-            .ok_or_else(|| PgLogstatsError::Configuration {
-                message: format!("Finding id not found: {}", finding_id),
-                field: Some("finding_id".to_string()),
-            });
-    }
-
-    if let Some(rank) = rank {
-        return findings
-            .findings
-            .iter()
-            .find(|finding| finding.rank == rank)
-            .ok_or_else(|| PgLogstatsError::Configuration {
-                message: format!("Finding rank not found: {}", rank),
-                field: Some("rank".to_string()),
-            });
-    }
-
-    Err(PgLogstatsError::Configuration {
-        message: "Specify either --finding-id or --rank".to_string(),
-        field: Some("finding_selector".to_string()),
-    })
-}
-
-fn output_suggested_sql(args: &Arguments, finding: &Finding) -> Result<()> {
-    match args.output_format {
-        OutputFormat::Json => {
-            let output = serde_json::to_string_pretty(&json!({
-                "finding_id": finding.finding_id,
-                "rank": finding.rank,
-                "kind": finding.kind,
-                "title": finding.title,
-                "next_sql": finding.next_sql,
-            }))
-            .map_err(PgLogstatsError::Serialization)?;
-            write_or_print_output(output, args)
-        }
-        OutputFormat::Text => {
-            let mut output = String::new();
-            output.push_str(&format!(
-                "#{} [{}] {}\n",
-                finding.rank, finding.finding_id, finding.title
-            ));
-            for statement in &finding.next_sql {
-                output.push_str(statement);
-                output.push('\n');
-            }
-            write_or_print_output(output, args)
-        }
-    }
-}
-
-fn output_findings(
-    findings: &pg_logstats::FindingSet,
+fn run_sql_command(
     args: &Arguments,
-    entries: &[pg_logstats::LogEntry],
+    _parser: &TextLogParser,
+    config: &pg_logstats::AppConfig,
+    _inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
-    output_findings_with_entry_count(findings, args, entries.len())
+    let Command::RunSql { sql } = &args.command else {
+        unreachable!();
+    };
+
+    let resolved_dsn = resolve_database_dsn(args.dsn.as_deref(), config)
+        .ok_or_else(|| PgLogstatsError::Configuration {
+            message: "Database connection not configured. Specify --dsn, PG_LOGSTATS_DATABASE_URL, or [database].dsn in config.".to_string(),
+            field: Some("database_connection_not_configured".to_string()),
+        })?;
+
+    let mut client = connect_postgres_client(&resolved_dsn, config.database.connect_timeout_ms)
+        .map_err(|e| PgLogstatsError::Configuration {
+            message: e,
+            field: Some("dsn".to_string()),
+        })?;
+
+    let rows = client
+        .query(sql, &[])
+        .map_err(|e| PgLogstatsError::Unexpected {
+            message: format!("Failed to execute SQL: {}", e),
+            context: None,
+        })?;
+
+    let mut columns = Vec::new();
+    if !rows.is_empty() {
+        for col in rows[0].columns() {
+            columns.push(col.name().to_string());
+        }
+    }
+
+    use postgres::types::Type;
+    let mut json_rows = Vec::new();
+    for row in rows {
+        let mut json_row = Vec::new();
+        for (i, col) in row.columns().iter().enumerate() {
+            let val: serde_json::Value = match col.type_() {
+                &Type::INT4 => {
+                    let v: Option<i32> = row.get(i);
+                    v.map(Into::into).unwrap_or(serde_json::Value::Null)
+                }
+                &Type::INT8 => {
+                    let v: Option<i64> = row.get(i);
+                    v.map(Into::into).unwrap_or(serde_json::Value::Null)
+                }
+                &Type::FLOAT4 => {
+                    let v: Option<f32> = row.get(i);
+                    v.map(Into::into).unwrap_or(serde_json::Value::Null)
+                }
+                &Type::FLOAT8 => {
+                    let v: Option<f64> = row.get(i);
+                    v.map(Into::into).unwrap_or(serde_json::Value::Null)
+                }
+                &Type::VARCHAR | &Type::TEXT | &Type::NAME => {
+                    let v: Option<String> = row.get(i);
+                    v.map(Into::into).unwrap_or(serde_json::Value::Null)
+                }
+                &Type::BOOL => {
+                    let v: Option<bool> = row.get(i);
+                    v.map(Into::into).unwrap_or(serde_json::Value::Null)
+                }
+                _ => {
+                    let v: std::result::Result<String, _> = row.try_get(i);
+                    v.map(Into::into).unwrap_or(serde_json::Value::Null)
+                }
+            };
+            json_row.push(val);
+        }
+        json_rows.push(json_row);
+    }
+
+    let row_count = json_rows.len();
+    let truncated = row_count > 20;
+    if truncated {
+        json_rows.truncate(20);
+    }
+
+    let payload = SqlActionPayload {
+        action_id: args.selected_action_id.clone().unwrap_or_default(),
+        source_report_id: args.parent_report_id.clone(),
+        sql: sql.to_string(),
+        row_count,
+        truncated,
+        columns,
+        rows: json_rows,
+    };
+
+    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
+    let inspect_path = workspace_inspect_report_path(&workspace);
+    let mode = if inspect_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&inspect_path) {
+            if let Ok(report) = serde_json::from_str::<PgTriageReport<serde_json::Value>>(&content)
+            {
+                report.operating_mode
+            } else {
+                OperatingMode::LiveOnly
+            }
+        } else {
+            OperatingMode::LiveOnly
+        }
+    } else {
+        OperatingMode::LiveOnly
+    };
+
+    let mut sql_report = sql_action_report(payload, mode);
+    sql_report.session_id = args.session_id.clone();
+
+    pg_logstats::populate_next_actions(&mut sql_report, config);
+
+    record_session_report(&workspace, &mut sql_report, args)?;
+
+    output_report(&sql_report, args)
+}
+
+fn output_report<T: serde::Serialize>(report: &PgTriageReport<T>, args: &Arguments) -> Result<()> {
+    pg_logstats::output_report(
+        report,
+        args.output_format,
+        args.outfile.as_deref(),
+        args.outdir.as_deref(),
+    )
 }
 
 fn output_findings_with_entry_count(

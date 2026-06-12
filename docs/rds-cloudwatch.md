@@ -152,12 +152,12 @@ pg-logstats top query-families \
   --output-format json
 ```
 
-Then ask for follow-up SQL from a selected finding:
+Then execute a recommended next action from the triage report:
 
 ```bash
-pg-logstats suggest-sql \
-  --findings-file findings.json \
-  --rank 1
+pg-logstats run-action \
+  --report findings.json \
+  --action-id 'query_family.pg_stat_statements.lookup:query_family:queryid=|db=appdb|user=app|app=api|sql=SELECT * FROM users WHERE id = ?'
 ```
 
 This keeps raw log volume out of the LLM context while preserving ranked

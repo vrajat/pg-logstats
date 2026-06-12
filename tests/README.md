@@ -25,7 +25,7 @@ The test suite is organized into several categories:
 ### 4. Golden Output (`tests/golden/`)
 - Stable CLI output snapshots for checked-in fixtures
 - Text and JSON findings output regression coverage
-- Checked-in findings JSON for `suggest-sql` smoke tests
+- Checked-in findings JSON for `run-action` smoke tests
 
 ## Running Tests
 
