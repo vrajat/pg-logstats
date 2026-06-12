@@ -1,4 +1,7 @@
-.PHONY: fmt fmt-check test clippy package-smoke install-smoke check release-dry-run release
+.PHONY: fmt fmt-check test clippy package-smoke install-smoke check release-dry-run release docs-build docs-serve docs
+
+UV ?= uv
+ZENSICAL ?= zensical
 
 fmt:
 	cargo fmt --all
@@ -35,3 +38,11 @@ release:
 	@echo "Creating release with version bump: $${LEVEL:-patch}"
 	@echo "The pushed tag will trigger .github/workflows/release.yml"
 	cargo release $${LEVEL:-patch} --execute --no-publish
+
+docs-build:
+	$(UV) run --with zensical $(ZENSICAL) build
+
+docs-serve:
+	$(UV) run --with zensical $(ZENSICAL) serve
+
+docs: docs-serve
