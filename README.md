@@ -2,7 +2,8 @@
 
 `pg-logstats` is a PostgreSQL log investigation CLI. It reads supported
 PostgreSQL stderr logs, groups related statements into query families, ranks the
-most useful findings, and prints follow-up SQL for live PostgreSQL inspection.
+most useful findings, and emits bounded follow-up actions for live PostgreSQL
+inspection.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -11,7 +12,7 @@ most useful findings, and prints follow-up SQL for live PostgreSQL inspection.
 - `inspect`: inspect the environment to check database configuration and agent setup.
 - `top query-families`: rank query families in one log window by total runtime.
 - `slow-queries diff`: compare a target log window against a baseline window.
-- `run-sql`: run a diagnostic SQL query safely with session linkage and safety checks.
+- `run-sql`: execute a built-in diagnostic SQL action safely with session linkage and safety checks.
 
 Supported input is PostgreSQL stderr logs using this prefix shape:
 
@@ -60,7 +61,7 @@ pg-logstats slow-queries diff \
   --baseline tests/fixtures/cli/diff_baseline.log \
   --target tests/fixtures/cli/diff_target.log
 
-pg-logstats --session-id test_sess --parent-report-id 0001-top_query_families --selected-action-id query_family.pg_stat_statements.by_query_pattern:query_family:qf_51125b8829ab1fdf run-sql --sql "SELECT 1;"
+pg-logstats --session-id test_sess --parent-report-id 0001-top_query_families --selected-action-id query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf run-sql
 ```
 
 Global flags such as `--input-format`, `--output-format`, `--outfile`,
@@ -217,8 +218,8 @@ Execute a recommended action using safety checks and session tracking:
 pg-logstats \
   --session-id test_sess \
   --parent-report-id 0001-top_query_families \
-  --selected-action-id query_family.pg_stat_statements.by_query_pattern:query_family:qf_51125b8829ab1fdf \
-  run-sql --sql "SELECT 1;"
+  --selected-action-id query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf \
+  run-sql
 ```
 
 For SQL-based actions, the command validates the action's safety using the policy matrix (verdict and action class restrictions) and records the execution step under the session reports directory.
@@ -258,7 +259,6 @@ Useful fields include:
 - `payload.findings[].metrics.execution_count`
 - `payload.findings[].metrics.total_duration_ms`
 - `payload.findings[].metrics.max_duration_ms`
-- `payload.findings[].next_sql`
 
 For diff findings, each finding also includes `baseline`, `target`, and `delta`
 duration summaries.

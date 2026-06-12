@@ -20,6 +20,7 @@ pub mod input;
 pub mod inspect;
 pub mod output;
 pub mod parsers;
+pub mod run_sql;
 pub mod sql;
 pub mod triage;
 
@@ -40,9 +41,10 @@ pub use events::{
     SessionIdentity, SourceReference, StatementEvent,
 };
 pub use findings::{
-    query_family_findings, slow_query_diff_findings, AttributionField, ComparisonMetrics,
-    DeltaMetrics, Finding, FindingConfidence, FindingKind, FindingMetrics, FindingSet,
-    QueryFamilyFinding, ReasonCode, SlowQueryDiffOptions, FINDING_SCHEMA_VERSION,
+    query_family_findings, slow_query_diff_findings, top_query_families_report, AttributionField,
+    ComparisonMetrics, DeltaMetrics, Finding, FindingConfidence, FindingKind, FindingMetrics,
+    FindingSet, FindingsPayload, QueryFamilyFinding, ReasonCode, SlowQueryDiffOptions,
+    FINDING_SCHEMA_VERSION,
 };
 pub use guidance::{
     populate_next_actions, GuidancePayload, RuleDefinition, RuleId, DEFAULT_RULE_LIMIT,
@@ -55,12 +57,13 @@ pub use output::{
     output_report, write_or_print_output, JsonFormatter, OutputFormat, TextFormatter,
 };
 pub use parsers::{TextLogFormat, TextLogParser};
+pub use run_sql::{execute_run_sql, parse_action_parameters, ActionParameterInput, RunSqlRequest};
 pub use sql::{Query, QueryType};
 pub use triage::{
-    sql_action_report, top_query_families_report, ActionClass, ActionKind, AnalysisWindow,
-    CheckStatus, FindingsPayload, NextAction, NextActionCommand, NextActionPriority,
-    NextActionStatus, OperatingMode, PgTriageReport, RiskLabel, SourceSummary, SourceSummaryKind,
-    SqlActionPayload, Verdict, PG_TRIAGE_SCHEMA_VERSION,
+    sql_action_report, workflow_slug, ActionClass, ActionKind, AnalysisWindow, CheckStatus,
+    NextAction, NextActionCommand, NextActionPriority, NextActionStatus, OperatingMode,
+    PgTriageReport, RiskLabel, SourceSummary, SourceSummaryKind, SqlActionPayload, Verdict,
+    PG_TRIAGE_SCHEMA_VERSION,
 };
 
 /// Main error type for pg-logstats operations

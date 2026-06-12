@@ -158,8 +158,8 @@ Then execute a recommended next action using safety checks and session tracking:
 pg-logstats \
   --session-id test_sess \
   --parent-report-id 0001-top_query_families \
-  --selected-action-id query_family.pg_stat_statements.by_query_pattern:query_family:qf_51125b8829ab1fdf \
-  run-sql --sql "SELECT 1;"
+  --selected-action-id query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf \
+  run-sql
 ```
 
 This keeps raw log volume out of the LLM context while preserving ranked
