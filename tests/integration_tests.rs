@@ -1323,4 +1323,17 @@ mod benchmark_tests {
             .success()
             .stdout(predicate::str::contains("\"execution_count\": 1000"));
     }
+
+    #[test]
+    fn test_running_queries_without_db() {
+        let temp_dir = TempDir::new().unwrap();
+        let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+        with_log_backed_inspect(&mut cmd, temp_dir.path());
+        cmd.arg("running-queries")
+            .assert()
+            .failure()
+            .stderr(predicate::str::contains(
+                "database_connection_not_configured",
+            ));
+    }
 }

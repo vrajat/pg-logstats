@@ -8,11 +8,12 @@ use pg_logstats::{
         validate_file_input_args, CloudWatchInput, CloudWatchSince, CloudWatchUntil, LocalLogInput,
     },
     inspect, load_config, normalize_log_entries, parse_action_parameters, query_family_findings,
-    resolve_workspace_path, slow_query_diff_findings, top_query_families_report, workflow_slug,
-    workspace_inspect_report_path, ActionKind, ActionParameterInput, Correlator, EventSourceKind,
-    InspectReportPayload, JsonFormatter, NextAction, NextActionStatus, OperatingMode, OutputFormat,
-    PgLogstatsError, PgTriageReport, ProcessOrderCorrelator, Result, RunSqlRequest,
-    SlowQueryDiffOptions, TextFormatter, TextLogFormat, TextLogParser,
+    resolve_workspace_path, run_running_queries, slow_query_diff_findings,
+    top_query_families_report, workflow_slug, workspace_inspect_report_path, ActionKind,
+    ActionParameterInput, Correlator, EventSourceKind, InspectReportPayload, JsonFormatter,
+    NextAction, NextActionStatus, OperatingMode, OutputFormat, PgLogstatsError, PgTriageReport,
+    ProcessOrderCorrelator, Result, RunSqlRequest, SlowQueryDiffOptions, TextFormatter,
+    TextLogFormat, TextLogParser,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -183,6 +184,9 @@ enum Command {
         #[clap(long = "parameter", value_name = "NAME=VALUE")]
         parameters: Vec<String>,
     },
+    /// Monitor active database sessions
+    #[clap(name = "running-queries")]
+    RunningQueries,
 }
 
 #[derive(Debug, Subcommand)]
@@ -386,6 +390,9 @@ fn run_command(
             run_slow_queries_diff_command(args, parser, config, inspect_report)
         }
         Command::RunSql { .. } => run_sql_command(args, parser, config, inspect_report),
+        Command::RunningQueries => {
+            run_running_queries_command(args, parser, config, inspect_report)
+        }
     }
 }
 
@@ -548,6 +555,7 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
         Command::RunSql { parameters } => {
             parse_action_parameters(parameters)?;
         }
+        Command::RunningQueries => {}
     }
 
     // Validate output directory if specified
@@ -840,6 +848,24 @@ fn run_sql_command(
     record_session_report(&workspace, &mut sql_report, args)?;
 
     output_report(&sql_report, args)
+}
+
+fn run_running_queries_command(
+    args: &Arguments,
+    _parser: &TextLogParser,
+    config: &pg_logstats::AppConfig,
+    inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
+) -> Result<()> {
+    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
+    let mut report = run_running_queries(
+        args.dsn.as_deref(),
+        config,
+        inspect_report,
+        args.session_id.clone(),
+    )?;
+
+    record_session_report(&workspace, &mut report, args)?;
+    output_report(&report, args)
 }
 
 fn output_report<T: serde::Serialize>(report: &PgTriageReport<T>, args: &Arguments) -> Result<()> {

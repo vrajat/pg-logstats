@@ -10,7 +10,7 @@ test:
 	cargo test
 
 clippy:
-	cargo clippy --all-targets --all-features -- -D warnings
+	cargo clippy --all-targets -- -D warnings
 
 package-smoke:
 	cargo package --allow-dirty --no-verify

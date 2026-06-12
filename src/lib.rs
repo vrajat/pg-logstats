@@ -21,6 +21,7 @@ pub mod inspect;
 pub mod output;
 pub mod parsers;
 pub mod run_sql;
+pub mod running_queries;
 pub mod sql;
 pub mod triage;
 
@@ -47,7 +48,8 @@ pub use findings::{
     FINDING_SCHEMA_VERSION,
 };
 pub use guidance::{
-    populate_next_actions, GuidancePayload, RuleDefinition, RuleId, DEFAULT_RULE_LIMIT,
+    populate_next_actions, running_query_rules, GuidancePayload, RuleDefinition, RuleId,
+    DEFAULT_RULE_LIMIT,
 };
 pub use inspect::{
     format_inspect_text, inspect, InspectCheckId, InspectLimitation, InspectReason,
@@ -58,6 +60,10 @@ pub use output::{
 };
 pub use parsers::{TextLogFormat, TextLogParser};
 pub use run_sql::{execute_run_sql, parse_action_parameters, ActionParameterInput, RunSqlRequest};
+pub use running_queries::{
+    run_running_queries, ActiveQuerySummary, ActiveSession, BlockingSignal, RunningQueriesPayload,
+    StatementHistory,
+};
 pub use sql::{Query, QueryType};
 pub use triage::{
     sql_action_report, workflow_slug, ActionClass, ActionKind, AnalysisWindow, CheckStatus,

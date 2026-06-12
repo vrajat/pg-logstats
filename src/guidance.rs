@@ -29,6 +29,12 @@ pub enum RuleId {
     /// Query-family-level rule to inspect active sessions by finding dimensions.
     #[serde(rename = "query_family.pg_stat_activity.by_dimensions")]
     QueryFamilyPgStatActivityByDimensions,
+    /// Running-query-level rule to inspect details for a specific backend PID.
+    #[serde(rename = "running_query.pg_stat_activity.by_pid")]
+    RunningQueryPgStatActivityByPid,
+    /// Running-query-level rule to inspect blocking context for a specific backend PID.
+    #[serde(rename = "running_query.blocking.by_pid")]
+    RunningQueryBlockingByPid,
 }
 
 impl std::fmt::Display for RuleId {
@@ -43,6 +49,8 @@ impl std::fmt::Display for RuleId {
             RuleId::QueryFamilyPgStatActivityByDimensions => {
                 "query_family.pg_stat_activity.by_dimensions"
             }
+            RuleId::RunningQueryPgStatActivityByPid => "running_query.pg_stat_activity.by_pid",
+            RuleId::RunningQueryBlockingByPid => "running_query.blocking.by_pid",
         };
         write!(f, "{}", s)
     }
@@ -272,6 +280,49 @@ pub fn populate_next_actions<T: GuidancePayload>(
         report
             .payload
             .evaluate_rules(report.operating_mode, report.verdict, config);
+}
+
+pub fn running_query_rules() -> Vec<RuleDefinition> {
+    vec![
+        RuleDefinition {
+            rule_id: RuleId::RunningQueryPgStatActivityByPid,
+            emitted_action_id: RuleId::RunningQueryPgStatActivityByPid,
+            kind: ActionKind::RunSql,
+            target_workflow: ActionKind::RunningQueries,
+            target_finding_kind: None,
+            destination_workflow: Some(ActionKind::RunSql),
+            required_identifiers: vec!["pid".to_string()],
+            label: "Inspect backend details for target PID".to_string(),
+            reason: "The session is active or waiting. Run this to check transaction/query timing and state details for the backend.".to_string(),
+            priority: NextActionPriority::Recommended,
+            risk: Some(RiskLabel::Safe),
+            action_class: Some(ActionClass::BoundedActivityQueries),
+            command_template: None,
+            sql_template: Some("SELECT pid, usename, datname, application_name, client_addr, backend_start, xact_start, query_start, state_change, wait_event_type, wait_event, state, query_id, query FROM pg_stat_activity WHERE pid = $1;".to_string()),
+            required_operating_mode: Some(OperatingMode::LiveOnly),
+            produces: vec!["workflow:sql_action".to_string()],
+            attribution: "PostgreSQL pg_stat_activity single backend query".to_string(),
+        },
+        RuleDefinition {
+            rule_id: RuleId::RunningQueryBlockingByPid,
+            emitted_action_id: RuleId::RunningQueryBlockingByPid,
+            kind: ActionKind::RunSql,
+            target_workflow: ActionKind::RunningQueries,
+            target_finding_kind: None,
+            destination_workflow: Some(ActionKind::RunSql),
+            required_identifiers: vec!["pid".to_string()],
+            label: "Inspect blocking sessions for target PID".to_string(),
+            reason: "The session is waiting/blocked. Run this to check the blockers using pg_blocking_pids.".to_string(),
+            priority: NextActionPriority::Recommended,
+            risk: Some(RiskLabel::Safe),
+            action_class: Some(ActionClass::BoundedActivityQueries),
+            command_template: None,
+            sql_template: Some("SELECT pid, usename, datname, application_name, state, wait_event_type, wait_event, query FROM pg_stat_activity WHERE pid = ANY(pg_blocking_pids($1));".to_string()),
+            required_operating_mode: Some(OperatingMode::LiveOnly),
+            produces: vec!["workflow:sql_action".to_string()],
+            attribution: "PostgreSQL pg_blocking_pids dependency check".to_string(),
+        },
+    ]
 }
 
 /// Escapes single quotes in database text literals to prevent SQL injection.
