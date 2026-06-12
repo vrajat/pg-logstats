@@ -24,10 +24,20 @@ pub struct DatabaseConfig {
     pub connect_timeout_ms: Option<u64>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RunningQueriesConfig {
     pub thresholds: RunningQueriesThresholds,
+    pub query_truncate_len: Option<usize>,
+}
+
+impl Default for RunningQueriesConfig {
+    fn default() -> Self {
+        Self {
+            thresholds: RunningQueriesThresholds::default(),
+            query_truncate_len: Some(1024),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

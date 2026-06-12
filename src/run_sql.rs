@@ -42,12 +42,8 @@ pub struct RunSqlRequest<'a> {
     pub parameters: &'a [ActionParameterInput],
 }
 
-#[derive(Debug, Deserialize)]
-struct StoredReportHeader {
-    workflow: ActionKind,
-}
-
 #[derive(Debug)]
+#[allow(dead_code)]
 struct SelectedQueryFamilyAction {
     report: PgTriageReport<FindingsPayload>,
     action: crate::NextAction,
@@ -102,14 +98,172 @@ pub fn parse_action_parameters(raw: &[String]) -> Result<Vec<ActionParameterInpu
     Ok(params)
 }
 
+#[derive(Debug, Deserialize)]
+struct ParentReportBase {
+    workflow: ActionKind,
+    report_id: Option<String>,
+    next_actions: Vec<crate::NextAction>,
+}
+
+fn prepare_running_query_sql(
+    rule_id: &str,
+    action: &crate::NextAction,
+    raw_parameters: &[ActionParameterInput],
+) -> Result<PreparedQuery> {
+    let parameters = parameter_map(raw_parameters)?;
+    match rule_id {
+        "running_query.pg_stat_activity.by_pid" => {
+            let pid = resolve_i64_parameter("pid", action.target.as_deref(), &parameters)?
+                .ok_or_else(|| PgLogstatsError::Configuration {
+                    message: format!("Action '{}' requires pid", action.action_id),
+                    field: Some("selected_action_id".to_string()),
+                })?;
+
+            Ok(PreparedQuery {
+                sql: "SELECT pid, usename, datname, application_name, client_addr, backend_start, xact_start, query_start, state_change, wait_event_type, wait_event, state, query_id, query FROM pg_stat_activity WHERE pid = $1;".to_string(),
+                parameters: vec![BoundParameter::Int8(pid)],
+            })
+        }
+        "running_query.blocking.by_pid" => {
+            let pid = resolve_i64_parameter("pid", action.target.as_deref(), &parameters)?
+                .ok_or_else(|| PgLogstatsError::Configuration {
+                    message: format!("Action '{}' requires pid", action.action_id),
+                    field: Some("selected_action_id".to_string()),
+                })?;
+
+            Ok(PreparedQuery {
+                sql: "SELECT pid, usename, datname, application_name, state, wait_event_type, wait_event, query FROM pg_stat_activity WHERE pid = ANY(pg_blocking_pids($1));".to_string(),
+                parameters: vec![BoundParameter::Int8(pid)],
+            })
+        }
+        "query_family.pg_stat_statements.by_queryid" => {
+            let queryid = resolve_i64_parameter("queryid", action.target.as_deref(), &parameters)?
+                .ok_or_else(|| PgLogstatsError::Configuration {
+                    message: format!("Action '{}' requires queryid", action.action_id),
+                    field: Some("selected_action_id".to_string()),
+                })?;
+
+            Ok(PreparedQuery {
+                sql: "SELECT queryid, calls, total_exec_time, mean_exec_time, min_exec_time, max_exec_time, rows, shared_blks_hit, shared_blks_read, temp_blks_read, temp_blks_written, query FROM pg_stat_statements WHERE queryid = $1;".to_string(),
+                parameters: vec![BoundParameter::Int8(queryid)],
+            })
+        }
+        _ => Err(PgLogstatsError::Configuration {
+            message: format!(
+                "run-sql does not support selected action '{}'",
+                action.action_id
+            ),
+            field: Some("selected_action_id".to_string()),
+        }),
+    }
+}
+
 /// Resolve a selected built-in SQL action from the parent report, bind caller
 /// parameters, execute it against PostgreSQL, and return a `run_sql` report.
 pub fn execute_run_sql(
     request: &RunSqlRequest<'_>,
     config: &AppConfig,
 ) -> Result<PgTriageReport<SqlActionPayload>> {
-    let selected = load_selected_query_family_action(request.workspace_path, request)?;
-    let prepared = prepare_query_family_sql(&selected, request.parameters)?;
+    let (Some(session_id), Some(parent_report_id), Some(selected_action_id)) = (
+        request.session_id,
+        request.parent_report_id,
+        request.selected_action_id,
+    ) else {
+        return Err(PgLogstatsError::Configuration {
+            message: "run-sql requires --session-id, --parent-report-id, and --selected-action-id"
+                .to_string(),
+            field: Some("selected_action_id".to_string()),
+        });
+    };
+
+    let parent_path = request
+        .workspace_path
+        .join("sessions")
+        .join(session_id)
+        .join("reports")
+        .join(format!("{}.json", parent_report_id));
+
+    let parent_content = fs::read_to_string(&parent_path)?;
+    let base_report: ParentReportBase =
+        serde_json::from_str(&parent_content).map_err(PgLogstatsError::Serialization)?;
+
+    let action = base_report
+        .next_actions
+        .iter()
+        .find(|a| a.action_id == selected_action_id)
+        .cloned()
+        .ok_or_else(|| PgLogstatsError::Configuration {
+            message: format!(
+                "Action ID '{}' not found in parent report next_actions",
+                selected_action_id
+            ),
+            field: Some("selected_action_id".to_string()),
+        })?;
+
+    if action.status != NextActionStatus::Allowed {
+        return Err(PgLogstatsError::Configuration {
+            message: format!(
+                "Action '{}' is not allowed in parent report. Status: {:?}, Reason: {}",
+                selected_action_id, action.status, action.reason
+            ),
+            field: Some("selected_action_id".to_string()),
+        });
+    }
+
+    let prepared = match base_report.workflow {
+        ActionKind::TopQueryFamilies => {
+            let report: PgTriageReport<FindingsPayload> =
+                serde_json::from_str(&parent_content).map_err(PgLogstatsError::Serialization)?;
+            let finding_id =
+                action
+                    .target
+                    .as_deref()
+                    .ok_or_else(|| PgLogstatsError::Configuration {
+                        message: format!(
+                            "Action '{}' does not include a finding target",
+                            selected_action_id
+                        ),
+                        field: Some("selected_action_id".to_string()),
+                    })?;
+            let finding = report
+                .payload
+                .findings
+                .iter()
+                .find(|f| f.finding_id == finding_id)
+                .cloned()
+                .ok_or_else(|| PgLogstatsError::Configuration {
+                    message: format!(
+                        "Action '{}' refers to missing finding '{}'",
+                        selected_action_id, finding_id
+                    ),
+                    field: Some("selected_action_id".to_string()),
+                })?;
+            let selected = SelectedQueryFamilyAction {
+                report,
+                action: action.clone(),
+                finding,
+            };
+            prepare_query_family_sql(&selected, request.parameters)?
+        }
+        ActionKind::RunningQueries => {
+            let rule_id = selected_action_id.split(':').next().ok_or_else(|| {
+                PgLogstatsError::Configuration {
+                    message: format!("Invalid action id '{}'", selected_action_id),
+                    field: Some("selected_action_id".to_string()),
+                }
+            })?;
+            prepare_running_query_sql(rule_id, &action, request.parameters)?
+        }
+        workflow => {
+            return Err(PgLogstatsError::Configuration {
+                message: format!(
+                    "run-sql does not support parent workflow '{}' yet",
+                    workflow_slug(workflow)
+                ),
+                field: Some("selected_action_id".to_string()),
+            })
+        }
+    };
 
     let resolved_dsn =
         resolve_database_dsn(request.dsn, config).ok_or_else(|| PgLogstatsError::Configuration {
@@ -195,8 +349,8 @@ pub fn execute_run_sql(
     }
 
     let payload = SqlActionPayload {
-        action_id: selected.action.action_id.clone(),
-        source_report_id: selected.report.report_id.clone(),
+        action_id: action.action_id.clone(),
+        source_report_id: base_report.report_id.clone(),
         sql: prepared.sql,
         row_count,
         truncated,
@@ -207,101 +361,6 @@ pub fn execute_run_sql(
     let mut sql_report = sql_action_report(payload, request.operating_mode);
     sql_report.session_id = request.session_id.map(str::to_string);
     Ok(sql_report)
-}
-
-fn load_selected_query_family_action(
-    workspace_path: &Path,
-    request: &RunSqlRequest<'_>,
-) -> Result<SelectedQueryFamilyAction> {
-    let (Some(session_id), Some(parent_report_id), Some(selected_action_id)) = (
-        request.session_id,
-        request.parent_report_id,
-        request.selected_action_id,
-    ) else {
-        return Err(PgLogstatsError::Configuration {
-            message: "run-sql requires --session-id, --parent-report-id, and --selected-action-id"
-                .to_string(),
-            field: Some("selected_action_id".to_string()),
-        });
-    };
-
-    let parent_path = workspace_path
-        .join("sessions")
-        .join(session_id)
-        .join("reports")
-        .join(format!("{}.json", parent_report_id));
-
-    let parent_content = fs::read_to_string(&parent_path)?;
-    let header: StoredReportHeader =
-        serde_json::from_str(&parent_content).map_err(PgLogstatsError::Serialization)?;
-
-    match header.workflow {
-        ActionKind::TopQueryFamilies => {
-            let report: PgTriageReport<FindingsPayload> =
-                serde_json::from_str(&parent_content).map_err(PgLogstatsError::Serialization)?;
-            let action = report
-                .next_actions
-                .iter()
-                .find(|a| a.action_id == selected_action_id)
-                .cloned()
-                .ok_or_else(|| PgLogstatsError::Configuration {
-                    message: format!(
-                        "Action ID '{}' not found in parent report next_actions",
-                        selected_action_id
-                    ),
-                    field: Some("selected_action_id".to_string()),
-                })?;
-
-            if action.status != NextActionStatus::Allowed {
-                return Err(PgLogstatsError::Configuration {
-                    message: format!(
-                        "Action '{}' is not allowed in parent report. Status: {:?}, Reason: {}",
-                        selected_action_id, action.status, action.reason
-                    ),
-                    field: Some("selected_action_id".to_string()),
-                });
-            }
-
-            let finding_id =
-                action
-                    .target
-                    .as_deref()
-                    .ok_or_else(|| PgLogstatsError::Configuration {
-                        message: format!(
-                            "Action '{}' does not include a finding target",
-                            selected_action_id
-                        ),
-                        field: Some("selected_action_id".to_string()),
-                    })?;
-
-            let finding = report
-                .payload
-                .findings
-                .iter()
-                .find(|finding| finding.finding_id == finding_id)
-                .cloned()
-                .ok_or_else(|| PgLogstatsError::Configuration {
-                    message: format!(
-                        "Action '{}' refers to missing finding '{}'",
-                        selected_action_id, finding_id
-                    ),
-                    field: Some("selected_action_id".to_string()),
-                })?;
-
-            Ok(SelectedQueryFamilyAction {
-                report,
-                action,
-                finding,
-            })
-        }
-        workflow => Err(PgLogstatsError::Configuration {
-            message: format!(
-                "run-sql does not support parent workflow '{}' yet",
-                workflow_slug(workflow)
-            ),
-            field: Some("selected_action_id".to_string()),
-        }),
-    }
 }
 
 fn prepare_query_family_sql(
