@@ -301,6 +301,103 @@ impl TextFormatter {
                     }
                 })?;
             }
+
+            if let Some(error_class) = &finding.error_class {
+                writeln!(output, "SQLSTATE: {:?}", error_class.sqlstate).map_err(|e| {
+                    PgLogstatsError::Unexpected {
+                        message: e.to_string(),
+                        context: Some("text formatting".to_string()),
+                    }
+                })?;
+                writeln!(output, "Error Message: {}", error_class.normalized_error).map_err(
+                    |e| PgLogstatsError::Unexpected {
+                        message: e.to_string(),
+                        context: Some("text formatting".to_string()),
+                    },
+                )?;
+                if let Some(db) = &error_class.database {
+                    writeln!(output, "Database: {}", db).map_err(|e| {
+                        PgLogstatsError::Unexpected {
+                            message: e.to_string(),
+                            context: Some("text formatting".to_string()),
+                        }
+                    })?;
+                }
+                if let Some(user) = &error_class.user {
+                    writeln!(output, "User: {}", user).map_err(|e| {
+                        PgLogstatsError::Unexpected {
+                            message: e.to_string(),
+                            context: Some("text formatting".to_string()),
+                        }
+                    })?;
+                }
+                if let Some(app) = &error_class.application_name {
+                    writeln!(output, "Application: {}", app).map_err(|e| {
+                        PgLogstatsError::Unexpected {
+                            message: e.to_string(),
+                            context: Some("text formatting".to_string()),
+                        }
+                    })?;
+                }
+            }
+
+            if let Some(temp_file) = &finding.temp_file {
+                if let Some(qfid) = &temp_file.query_family_id {
+                    writeln!(output, "Correlated Query Family: {}", qfid).map_err(|e| {
+                        PgLogstatsError::Unexpected {
+                            message: e.to_string(),
+                            context: Some("text formatting".to_string()),
+                        }
+                    })?;
+                }
+                if let Some(sql) = &temp_file.normalized_sql {
+                    writeln!(output, "Correlated SQL: {}", sql).map_err(|e| {
+                        PgLogstatsError::Unexpected {
+                            message: e.to_string(),
+                            context: Some("text formatting".to_string()),
+                        }
+                    })?;
+                }
+                writeln!(output, "Total Temp Bytes: {}", temp_file.total_bytes).map_err(|e| {
+                    PgLogstatsError::Unexpected {
+                        message: e.to_string(),
+                        context: Some("text formatting".to_string()),
+                    }
+                })?;
+                writeln!(
+                    output,
+                    "Largest Temp File: {} bytes",
+                    temp_file.largest_observed_bytes
+                )
+                .map_err(|e| PgLogstatsError::Unexpected {
+                    message: e.to_string(),
+                    context: Some("text formatting".to_string()),
+                })?;
+                if let Some(db) = &temp_file.database {
+                    writeln!(output, "Database: {}", db).map_err(|e| {
+                        PgLogstatsError::Unexpected {
+                            message: e.to_string(),
+                            context: Some("text formatting".to_string()),
+                        }
+                    })?;
+                }
+                if let Some(user) = &temp_file.user {
+                    writeln!(output, "User: {}", user).map_err(|e| {
+                        PgLogstatsError::Unexpected {
+                            message: e.to_string(),
+                            context: Some("text formatting".to_string()),
+                        }
+                    })?;
+                }
+                if let Some(app) = &temp_file.application_name {
+                    writeln!(output, "Application: {}", app).map_err(|e| {
+                        PgLogstatsError::Unexpected {
+                            message: e.to_string(),
+                            context: Some("text formatting".to_string()),
+                        }
+                    })?;
+                }
+            }
         }
 
         Ok(output)

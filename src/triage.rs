@@ -409,6 +409,8 @@ mod tests {
                 record_index: 0,
             }],
             confidence: FindingConfidence::High,
+            error_class: None,
+            temp_file: None,
         }])
     }
 

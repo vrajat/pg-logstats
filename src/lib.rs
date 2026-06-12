@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use thiserror::Error;
 
+pub mod agent_install;
 pub mod analytics;
 pub mod config;
 pub mod correlation;
@@ -26,6 +27,7 @@ pub mod sql;
 pub mod triage;
 
 // Re-export commonly used items
+pub use agent_install::{check_agent_status, execute_agent_install, AgentInstallPayload};
 pub use analytics::{QueryAnalyzer, TimingAnalysis, TimingAnalyzer};
 pub use config::{
     default_workspace_path, load_config, resolve_workspace_path, workspace_config_path,
@@ -42,10 +44,11 @@ pub use events::{
     SessionIdentity, SourceReference, StatementEvent,
 };
 pub use findings::{
-    query_family_findings, slow_query_diff_findings, top_query_families_report, AttributionField,
-    ComparisonMetrics, DeltaMetrics, Finding, FindingConfidence, FindingKind, FindingMetrics,
-    FindingSet, FindingsPayload, QueryFamilyFinding, ReasonCode, SlowQueryDiffOptions,
-    FINDING_SCHEMA_VERSION,
+    error_class_findings, errors_report, query_family_findings, slow_query_diff_findings,
+    temp_file_findings, temp_files_report, top_query_families_report, AttributionField,
+    ComparisonMetrics, DeltaMetrics, ErrorClassFinding, Finding, FindingConfidence, FindingKind,
+    FindingMetrics, FindingSet, FindingsPayload, QueryFamilyFinding, ReasonCode,
+    SlowQueryDiffOptions, TempFileFinding, FINDING_SCHEMA_VERSION,
 };
 pub use guidance::{
     populate_next_actions, running_query_rules, GuidancePayload, RuleDefinition, RuleId,

@@ -35,6 +35,15 @@ pub enum RuleId {
     /// Running-query-level rule to inspect blocking context for a specific backend PID.
     #[serde(rename = "running_query.blocking.by_pid")]
     RunningQueryBlockingByPid,
+    /// Error-class-level rule to inspect active sessions by finding dimensions.
+    #[serde(rename = "error_class.pg_stat_activity.by_dimensions")]
+    ErrorClassPgStatActivityByDimensions,
+    /// Temp-file-level rule to check database temp counters.
+    #[serde(rename = "temp_file.pg_stat_database.temp_counters")]
+    TempFilePgStatDatabaseTempCounters,
+    /// Temp-file-level rule to check pg_stat_statements temp block activity.
+    #[serde(rename = "temp_file.pg_stat_statements.temp_blocks")]
+    TempFilePgStatStatementsTempBlocks,
 }
 
 impl std::fmt::Display for RuleId {
@@ -51,6 +60,15 @@ impl std::fmt::Display for RuleId {
             }
             RuleId::RunningQueryPgStatActivityByPid => "running_query.pg_stat_activity.by_pid",
             RuleId::RunningQueryBlockingByPid => "running_query.blocking.by_pid",
+            RuleId::ErrorClassPgStatActivityByDimensions => {
+                "error_class.pg_stat_activity.by_dimensions"
+            }
+            RuleId::TempFilePgStatDatabaseTempCounters => {
+                "temp_file.pg_stat_database.temp_counters"
+            }
+            RuleId::TempFilePgStatStatementsTempBlocks => {
+                "temp_file.pg_stat_statements.temp_blocks"
+            }
         };
         write!(f, "{}", s)
     }

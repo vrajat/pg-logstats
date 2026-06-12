@@ -54,6 +54,24 @@ User-facing guide for `pg-logstats top query-families`, including:
 - explicit missing-attribution behavior
 - prior-art references used during design
 
+### errors.md
+
+User-facing guide for `pg-logstats errors`, including:
+
+- error, fatal, and panic classification rules
+- SQLSTATE extraction from alphanumeric prefix
+- IPv4, digit, and quotes normalization rules
+- JSON output structure and diagnostic activity follow-ups
+
+### temp-files.md
+
+User-facing guide for `pg-logstats temp-files`, including:
+
+- temporary file log event structure
+- nearby statement correlation strategy using PID search
+- total and largest observed bytes tracking
+- diagnostic database counters and pg_stat_statements block follow-ups
+
 ## Building Documentation
 
 To build the documentation locally:

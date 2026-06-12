@@ -52,6 +52,32 @@ pub struct Finding {
     pub delta: Option<DeltaMetrics>,
     pub evidence: Vec<SourceReference>,
     pub confidence: FindingConfidence,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_class: Option<ErrorClassFinding>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub temp_file: Option<TempFileFinding>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ErrorClassFinding {
+    pub sqlstate: Option<String>,
+    pub normalized_error: String,
+    pub database: Option<String>,
+    pub user: Option<String>,
+    pub application_name: Option<String>,
+    pub error_count: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TempFileFinding {
+    pub query_family_id: Option<String>,
+    pub normalized_sql: Option<String>,
+    pub database: Option<String>,
+    pub user: Option<String>,
+    pub application_name: Option<String>,
+    pub largest_observed_bytes: u64,
+    pub temp_file_count: u64,
+    pub total_bytes: u64,
 }
 
 /// Finding family.
@@ -271,6 +297,72 @@ pub fn findings_rules() -> Vec<RuleDefinition> {
             attribution: "PostgreSQL pg_stat_activity lookup by app, database, and user"
                 .to_string(),
         },
+        RuleDefinition {
+            rule_id: RuleId::ErrorClassPgStatActivityByDimensions,
+            emitted_action_id: RuleId::ErrorClassPgStatActivityByDimensions,
+            kind: ActionKind::RunSql,
+            target_workflow: ActionKind::Errors,
+            target_finding_kind: Some(FindingKind::ErrorClass),
+            destination_workflow: Some(ActionKind::RunSql),
+            required_identifiers: vec!["database|user|application_name".to_string()],
+            label: "Find current active sessions for the same error-class dimensions"
+                .to_string(),
+            reason: "The finding includes database, user, or application attribution that can bound pg_stat_activity."
+                .to_string(),
+            priority: NextActionPriority::Recommended,
+            risk: Some(RiskLabel::Bounded),
+            action_class: Some(ActionClass::BoundedActivityQueries),
+            command_template: None,
+            sql_template: None,
+            required_operating_mode: Some(OperatingMode::LiveOnly),
+            produces: vec!["workflow:sql_action".to_string()],
+            attribution: "PostgreSQL pg_stat_activity lookup by app, database, and user for error class"
+                .to_string(),
+        },
+        RuleDefinition {
+            rule_id: RuleId::TempFilePgStatDatabaseTempCounters,
+            emitted_action_id: RuleId::TempFilePgStatDatabaseTempCounters,
+            kind: ActionKind::RunSql,
+            target_workflow: ActionKind::TempFiles,
+            target_finding_kind: Some(FindingKind::TempFile),
+            destination_workflow: Some(ActionKind::RunSql),
+            required_identifiers: vec!["database".to_string()],
+            label: "Check database temp counters in pg_stat_database"
+                .to_string(),
+            reason: "The finding includes database attribution, so we can check total temp files/bytes for this database."
+                .to_string(),
+            priority: NextActionPriority::Recommended,
+            risk: Some(RiskLabel::Safe),
+            action_class: Some(ActionClass::StatsViewReads),
+            command_template: None,
+            sql_template: None,
+            required_operating_mode: Some(OperatingMode::LiveOnly),
+            produces: vec!["workflow:sql_action".to_string()],
+            attribution: "PostgreSQL pg_stat_database temp counters check"
+                .to_string(),
+        },
+        RuleDefinition {
+            rule_id: RuleId::TempFilePgStatStatementsTempBlocks,
+            emitted_action_id: RuleId::TempFilePgStatStatementsTempBlocks,
+            kind: ActionKind::RunSql,
+            target_workflow: ActionKind::TempFiles,
+            target_finding_kind: Some(FindingKind::TempFile),
+            destination_workflow: Some(ActionKind::RunSql),
+            required_identifiers: vec![],
+            label: "Check pg_stat_statements temp block activity"
+                .to_string(),
+            reason: "Check overall temp block read/write activity in pg_stat_statements."
+                .to_string(),
+            priority: NextActionPriority::Recommended,
+            risk: Some(RiskLabel::Safe),
+            action_class: Some(ActionClass::StatsViewReads),
+            command_template: None,
+            sql_template: None,
+            required_operating_mode: Some(OperatingMode::LiveOnly),
+            produces: vec!["workflow:sql_action".to_string()],
+            attribution: "PostgreSQL pg_stat_statements temp block reads/writes check"
+                .to_string(),
+        },
     ]
 }
 
@@ -385,6 +477,53 @@ impl GuidancePayload for FindingsPayload {
                         } else {
                             missing_ids.push("query_family".to_string());
                         }
+                    }
+                    RuleId::ErrorClassPgStatActivityByDimensions => {
+                        if let Some(ec) = &finding.error_class {
+                            let sql = query_family_activity_sql(
+                                ec.database.as_deref(),
+                                ec.user.as_deref(),
+                                ec.application_name.as_deref(),
+                            );
+                            if let Some(sql) = sql {
+                                resolved_rule.risk = Some(if ec.application_name.is_some() {
+                                    RiskLabel::Safe
+                                } else {
+                                    RiskLabel::Bounded
+                                });
+                                sql_preview = Some(sql);
+                                command = Some(NextActionCommand {
+                                    argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
+                                });
+                            } else {
+                                missing_ids.push("database|user|application_name".to_string());
+                            }
+                        } else {
+                            missing_ids.push("error_class".to_string());
+                        }
+                    }
+                    RuleId::TempFilePgStatDatabaseTempCounters => {
+                        if let Some(tf) = &finding.temp_file {
+                            if let Some(db) = &tf.database {
+                                sql_preview = Some(format!(
+                                    "SELECT datname, temp_files, temp_bytes FROM pg_stat_database WHERE datname = '{}';",
+                                    crate::guidance::escape_sql_literal(db)
+                                ));
+                                command = Some(NextActionCommand {
+                                    argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
+                                });
+                            } else {
+                                missing_ids.push("database".to_string());
+                            }
+                        } else {
+                            missing_ids.push("temp_file".to_string());
+                        }
+                    }
+                    RuleId::TempFilePgStatStatementsTempBlocks => {
+                        sql_preview = Some("SELECT queryid, calls, total_exec_time, temp_blks_read, temp_blks_written, query FROM pg_stat_statements WHERE temp_blks_read > 0 OR temp_blks_written > 0 ORDER BY temp_blks_read + temp_blks_written DESC LIMIT 20;".to_string());
+                        command = Some(NextActionCommand {
+                            argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
+                        });
                     }
                     _ => {}
                 }
@@ -513,6 +652,8 @@ impl QueryFamilyAccumulator {
             delta: None,
             evidence: self.evidence,
             confidence,
+            error_class: None,
+            temp_file: None,
         }
     }
 }
@@ -790,6 +931,8 @@ fn diff_finding(rank: usize, candidate: DiffCandidate) -> Finding {
         delta: Some(delta),
         evidence: accumulator.evidence,
         confidence,
+        error_class: None,
+        temp_file: None,
     }
 }
 
@@ -801,6 +944,466 @@ fn analysis_window(entries: &[LogEntry]) -> Option<AnalysisWindow> {
         since: since.to_rfc3339(),
         until: until.to_rfc3339(),
     })
+}
+
+// =========================================================================
+// Error & Temp File Findings
+// =========================================================================
+
+use regex::Regex;
+use std::sync::OnceLock;
+
+/// Parse a temp file log message, returning the size in bytes and optional statement.
+pub fn parse_temp_file_message(msg: &str) -> Option<(u64, Option<String>)> {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(r#"temporary file:\s+path\s+"[^"]+",\s+size\s+(\d+)\s+bytes(?:,\s+(?:statement|query):\s+(.+))?"#).unwrap()
+    });
+
+    if let Some(caps) = re.captures(msg) {
+        let size = caps.get(1)?.as_str().parse::<u64>().ok()?;
+        let statement = caps.get(2).map(|m| m.as_str().to_string());
+        Some((size, statement))
+    } else {
+        None
+    }
+}
+
+/// Helper to search the events array for a nearby statement logged by the same PID.
+pub fn find_nearby_statement(
+    events: &[crate::NormalizedEvent],
+    temp_event_idx: usize,
+    pid: &str,
+) -> Option<(String, Option<String>)> {
+    // 1. Search backward
+    for ev in events[..temp_event_idx].iter().rev() {
+        if ev.session.process_id == pid {
+            if let crate::EventKind::Statement(stmt) = &ev.kind {
+                return Some((stmt.statement.clone(), ev.queryid.clone()));
+            }
+        }
+    }
+    // 2. Search forward
+    for ev in events[(temp_event_idx + 1)..].iter() {
+        if ev.session.process_id == pid {
+            if let crate::EventKind::Statement(stmt) = &ev.kind {
+                return Some((stmt.statement.clone(), ev.queryid.clone()));
+            }
+        }
+    }
+    None
+}
+
+/// Build ranked error-class findings from log events.
+pub fn error_class_findings(events: &[crate::NormalizedEvent], limit: usize) -> FindingSet {
+    let mut by_class: HashMap<String, ErrorClassAccumulator> = HashMap::new();
+
+    for event in events {
+        if let crate::EventKind::Error(error) = &event.kind {
+            let key = error
+                .sqlstate
+                .clone()
+                .unwrap_or_else(|| crate::events::normalize_error_message(&error.message));
+
+            by_class
+                .entry(key.clone())
+                .or_insert_with(|| {
+                    ErrorClassAccumulator::new(
+                        error.sqlstate.clone(),
+                        crate::events::normalize_error_message(&error.message),
+                    )
+                })
+                .add_event(event);
+        }
+    }
+
+    let mut accumulators: Vec<_> = by_class.into_values().collect();
+    accumulators.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| a.sqlstate.cmp(&b.sqlstate))
+            .then_with(|| a.normalized_message.cmp(&b.normalized_message))
+    });
+
+    let findings = accumulators
+        .into_iter()
+        .take(limit)
+        .enumerate()
+        .map(|(index, accumulator)| accumulator.into_finding(index + 1))
+        .collect();
+
+    FindingSet::new(findings)
+}
+
+struct ErrorClassAccumulator {
+    sqlstate: Option<String>,
+    normalized_message: String,
+    count: u64,
+    databases: HashMap<String, u64>,
+    users: HashMap<String, u64>,
+    app_names: HashMap<String, u64>,
+    evidence: Vec<SourceReference>,
+}
+
+impl ErrorClassAccumulator {
+    fn new(sqlstate: Option<String>, normalized_message: String) -> Self {
+        Self {
+            sqlstate,
+            normalized_message,
+            count: 0,
+            databases: HashMap::new(),
+            users: HashMap::new(),
+            app_names: HashMap::new(),
+            evidence: Vec::new(),
+        }
+    }
+
+    fn add_event(&mut self, event: &crate::NormalizedEvent) {
+        self.count += 1;
+        if let Some(db) = &event.session.database {
+            *self.databases.entry(db.clone()).or_insert(0) += 1;
+        }
+        if let Some(user) = &event.session.user {
+            *self.users.entry(user.clone()).or_insert(0) += 1;
+        }
+        if let Some(app) = &event.session.application_name {
+            *self.app_names.entry(app.clone()).or_insert(0) += 1;
+        }
+        if self.evidence.len() < 5 {
+            self.evidence.push(event.source.clone());
+        }
+    }
+
+    fn most_frequent(map: &HashMap<String, u64>) -> Option<String> {
+        let mut entries: Vec<_> = map.iter().collect();
+        entries.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+        entries.first().map(|e| e.0.clone())
+    }
+
+    fn into_finding(self, rank: usize) -> Finding {
+        let database = Self::most_frequent(&self.databases);
+        let user = Self::most_frequent(&self.users);
+        let application_name = Self::most_frequent(&self.app_names);
+
+        let title = if let Some(code) = &self.sqlstate {
+            format!("Error Class {}: {}", code, self.normalized_message)
+        } else {
+            format!("Error Class: {}", self.normalized_message)
+        };
+
+        let reason = format!("Observed {} error events of this class.", self.count);
+
+        let mut missing_attribution = Vec::new();
+        if database.is_none() {
+            missing_attribution.push(AttributionField::Database);
+        }
+        if user.is_none() {
+            missing_attribution.push(AttributionField::User);
+        }
+        if application_name.is_none() {
+            missing_attribution.push(AttributionField::ApplicationName);
+        }
+
+        Finding {
+            schema_version: FINDING_SCHEMA_VERSION,
+            finding_id: format!(
+                "error_class:{}",
+                self.sqlstate.as_deref().unwrap_or(&self.normalized_message)
+            ),
+            kind: FindingKind::ErrorClass,
+            rank,
+            title,
+            reason,
+            reason_codes: vec![ReasonCode::MeetsEligibilityThresholds],
+            score: self.count as f64,
+            query_family: None,
+            metrics: FindingMetrics {
+                execution_count: self.count,
+                total_duration_ms: 0.0,
+                avg_duration_ms: 0.0,
+                max_duration_ms: 0.0,
+                correlated_execution_count: self.count,
+                uncorrelated_execution_count: 0,
+            },
+            baseline: None,
+            target: None,
+            delta: None,
+            evidence: self.evidence,
+            confidence: FindingConfidence::High,
+            error_class: Some(ErrorClassFinding {
+                sqlstate: self.sqlstate,
+                normalized_error: self.normalized_message,
+                database,
+                user,
+                application_name,
+                error_count: self.count,
+            }),
+            temp_file: None,
+        }
+    }
+}
+
+/// Build ranked temp-file findings from log events.
+pub fn temp_file_findings(events: &[crate::NormalizedEvent], limit: usize) -> FindingSet {
+    let mut by_family: HashMap<String, TempFileAccumulator> = HashMap::new();
+
+    for (index, event) in events.iter().enumerate() {
+        if let Some((bytes, stmt_opt)) = parse_temp_file_message(event.message()) {
+            let mut correlated_stmt = stmt_opt;
+            let mut correlated_queryid = None;
+
+            if correlated_stmt.is_none() {
+                if let Some((nearby_sql, queryid_opt)) =
+                    find_nearby_statement(events, index, &event.session.process_id)
+                {
+                    correlated_stmt = Some(nearby_sql);
+                    correlated_queryid = queryid_opt;
+                }
+            }
+
+            let (family_id, normalized_sql) = if let Some(stmt) = &correlated_stmt {
+                let normalized = if let Ok(queries) = crate::Query::from_sql(stmt) {
+                    queries
+                        .iter()
+                        .map(|q| q.normalized_query.clone())
+                        .collect::<Vec<_>>()
+                        .join(";")
+                } else {
+                    stmt.clone()
+                };
+                let identity = QueryFamilyIdentity::new(
+                    normalized.clone(),
+                    &event.session,
+                    correlated_queryid,
+                );
+                (Some(identity.family_id), Some(normalized))
+            } else {
+                (None, None)
+            };
+
+            let key = family_id
+                .clone()
+                .unwrap_or_else(|| "unknown_statement".to_string());
+
+            by_family
+                .entry(key.clone())
+                .or_insert_with(|| TempFileAccumulator::new(family_id, normalized_sql))
+                .add_event(event, bytes);
+        }
+    }
+
+    let mut accumulators: Vec<_> = by_family.into_values().collect();
+    accumulators.sort_by(|a, b| {
+        b.total_bytes
+            .cmp(&a.total_bytes)
+            .then_with(|| b.count.cmp(&a.count))
+            .then_with(|| a.query_family_id.cmp(&b.query_family_id))
+    });
+
+    let findings = accumulators
+        .into_iter()
+        .take(limit)
+        .enumerate()
+        .map(|(index, accumulator)| accumulator.into_finding(index + 1))
+        .collect();
+
+    FindingSet::new(findings)
+}
+
+struct TempFileAccumulator {
+    query_family_id: Option<String>,
+    normalized_sql: Option<String>,
+    count: u64,
+    total_bytes: u64,
+    largest_observed_bytes: u64,
+    databases: HashMap<String, u64>,
+    users: HashMap<String, u64>,
+    app_names: HashMap<String, u64>,
+    evidence: Vec<SourceReference>,
+}
+
+impl TempFileAccumulator {
+    fn new(query_family_id: Option<String>, normalized_sql: Option<String>) -> Self {
+        Self {
+            query_family_id,
+            normalized_sql,
+            count: 0,
+            total_bytes: 0,
+            largest_observed_bytes: 0,
+            databases: HashMap::new(),
+            users: HashMap::new(),
+            app_names: HashMap::new(),
+            evidence: Vec::new(),
+        }
+    }
+
+    fn add_event(&mut self, event: &crate::NormalizedEvent, bytes: u64) {
+        self.count += 1;
+        self.total_bytes += bytes;
+        self.largest_observed_bytes = self.largest_observed_bytes.max(bytes);
+
+        if let Some(db) = &event.session.database {
+            *self.databases.entry(db.clone()).or_insert(0) += 1;
+        }
+        if let Some(user) = &event.session.user {
+            *self.users.entry(user.clone()).or_insert(0) += 1;
+        }
+        if let Some(app) = &event.session.application_name {
+            *self.app_names.entry(app.clone()).or_insert(0) += 1;
+        }
+        if self.evidence.len() < 5 {
+            self.evidence.push(event.source.clone());
+        }
+    }
+
+    fn most_frequent(map: &HashMap<String, u64>) -> Option<String> {
+        let mut entries: Vec<_> = map.iter().collect();
+        entries.sort_by(|a, b| b.1.cmp(a.1).then_with(|| a.0.cmp(b.0)));
+        entries.first().map(|e| e.0.clone())
+    }
+
+    fn into_finding(self, rank: usize) -> Finding {
+        let database = Self::most_frequent(&self.databases);
+        let user = Self::most_frequent(&self.users);
+        let application_name = Self::most_frequent(&self.app_names);
+
+        let title = if let Some(qfid) = &self.query_family_id {
+            format!("Temporary Files: {}", qfid)
+        } else {
+            "Temporary Files: Unknown Statement".to_string()
+        };
+
+        let reason = format!(
+            "Observed {} temporary file events writing {} bytes in total. Largest file was {} bytes.",
+            self.count, self.total_bytes, self.largest_observed_bytes
+        );
+
+        let mut missing_attribution = Vec::new();
+        if database.is_none() {
+            missing_attribution.push(AttributionField::Database);
+        }
+        if user.is_none() {
+            missing_attribution.push(AttributionField::User);
+        }
+        if application_name.is_none() {
+            missing_attribution.push(AttributionField::ApplicationName);
+        }
+
+        Finding {
+            schema_version: FINDING_SCHEMA_VERSION,
+            finding_id: format!(
+                "temp_file:{}",
+                self.query_family_id
+                    .as_deref()
+                    .unwrap_or("unknown_statement")
+            ),
+            kind: FindingKind::TempFile,
+            rank,
+            title,
+            reason,
+            reason_codes: vec![ReasonCode::HighTotalDuration],
+            score: self.total_bytes as f64,
+            query_family: None,
+            metrics: FindingMetrics {
+                execution_count: self.count,
+                total_duration_ms: self.total_bytes as f64,
+                avg_duration_ms: (self.total_bytes as f64) / (self.count as f64),
+                max_duration_ms: self.largest_observed_bytes as f64,
+                correlated_execution_count: self.count,
+                uncorrelated_execution_count: 0,
+            },
+            baseline: None,
+            target: None,
+            delta: None,
+            evidence: self.evidence,
+            confidence: if self.query_family_id.is_some() {
+                FindingConfidence::High
+            } else {
+                FindingConfidence::Low
+            },
+            error_class: None,
+            temp_file: Some(TempFileFinding {
+                query_family_id: self.query_family_id,
+                normalized_sql: self.normalized_sql,
+                database,
+                user,
+                application_name,
+                largest_observed_bytes: self.largest_observed_bytes,
+                temp_file_count: self.count,
+                total_bytes: self.total_bytes,
+            }),
+        }
+    }
+}
+
+pub fn errors_report(
+    findings: FindingSet,
+    entries: &[LogEntry],
+    source_kind: EventSourceKind,
+) -> PgTriageReport<FindingsPayload> {
+    PgTriageReport {
+        schema_version: PG_TRIAGE_SCHEMA_VERSION,
+        workflow: ActionKind::Errors,
+        operating_mode: OperatingMode::LogBackedOnly,
+        limitations: Vec::new(),
+        verdict: Some(Verdict::Unknown),
+        verdict_reasons: vec!["live_state_verdict_not_evaluated".to_string()],
+        allowed_actions: None,
+        blocked_actions: None,
+        analysis_window: analysis_window(entries),
+        source_summary: Some(SourceSummary {
+            kind: SourceSummaryKind::from(source_kind),
+            entries_scanned: entries.len(),
+        }),
+        next_actions: Vec::new(),
+        report_id: None,
+        session_id: None,
+        parent_report_id: None,
+        selected_action_id: None,
+        created_at: None,
+        payload: FindingsPayload {
+            findings: findings.findings,
+        },
+    }
+}
+
+pub fn temp_files_report(
+    findings: FindingSet,
+    entries: &[LogEntry],
+    source_kind: EventSourceKind,
+    has_uncorrelated: bool,
+) -> PgTriageReport<FindingsPayload> {
+    let mut limitations = Vec::new();
+    if has_uncorrelated {
+        limitations.push(
+            "Some temporary file events could not be correlated with a SQL statement.".to_string(),
+        );
+    }
+
+    PgTriageReport {
+        schema_version: PG_TRIAGE_SCHEMA_VERSION,
+        workflow: ActionKind::TempFiles,
+        operating_mode: OperatingMode::LogBackedOnly,
+        limitations,
+        verdict: Some(Verdict::Unknown),
+        verdict_reasons: vec!["live_state_verdict_not_evaluated".to_string()],
+        allowed_actions: None,
+        blocked_actions: None,
+        analysis_window: analysis_window(entries),
+        source_summary: Some(SourceSummary {
+            kind: SourceSummaryKind::from(source_kind),
+            entries_scanned: entries.len(),
+        }),
+        next_actions: Vec::new(),
+        report_id: None,
+        session_id: None,
+        parent_report_id: None,
+        selected_action_id: None,
+        created_at: None,
+        payload: FindingsPayload {
+            findings: findings.findings,
+        },
+    }
 }
 
 #[cfg(test)]
