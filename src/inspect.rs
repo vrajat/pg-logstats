@@ -281,19 +281,15 @@ pub fn inspect(
     cloudwatch_input: Option<&CloudWatchInput>,
     parser: &TextLogParser,
     source_kind: EventSourceKind,
-    session_id: Option<String>,
     workspace: Option<&Path>,
 ) -> Result<PgTriageReport<InspectReportPayload>, crate::PgLogstatsError> {
     let log_evidence =
         collect_log_inspect_evidence(local_log_input, cloudwatch_input, parser, source_kind);
-    let mut report = build_inspect_report(
+    let report = build_inspect_report(
         config,
         crate::database::resolve_database_dsn(dsn, config).as_deref(),
         log_evidence,
     );
-    if let Some(sess_id) = session_id {
-        report.session_id = Some(sess_id);
-    }
 
     persist_inspect_report(&report, workspace)?;
 
@@ -527,7 +523,6 @@ fn build_inspect_report(
         source_summary: None,
         next_actions: Vec::new(),
         report_id: None,
-        session_id: None,
         parent_report_id: None,
         selected_action_id: None,
         created_at: None,

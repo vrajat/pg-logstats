@@ -159,7 +159,6 @@ pub fn run_running_queries(
     cli_dsn: Option<&str>,
     config: &AppConfig,
     inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
-    session_id: Option<String>,
 ) -> Result<PgTriageReport<RunningQueriesPayload>, PgLogstatsError> {
     let resolved_dsn = resolve_database_dsn(cli_dsn, config).ok_or_else(|| {
         PgLogstatsError::Configuration {
@@ -481,7 +480,6 @@ pub fn run_running_queries(
         source_summary: None,
         next_actions: Vec::new(),
         report_id: None,
-        session_id,
         parent_report_id: None,
         selected_action_id: None,
         created_at: None,

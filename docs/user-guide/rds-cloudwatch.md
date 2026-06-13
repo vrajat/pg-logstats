@@ -152,13 +152,12 @@ pg-logstats top query-families \
   --output-format json
 ```
 
-Then execute a recommended next action using safety checks and session tracking:
+Then execute a recommended next action using safety checks and explicit report linkage:
 
 ```bash
 pg-logstats \
-  --session-id test_sess \
-  --parent-report-id 0001-top_query_families \
-  --selected-action-id query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf \
+  --triage-report 20260613T181530123456Z-top_query_families \
+  --action-id query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf \
   run-sql
 ```
 

@@ -276,9 +276,6 @@ pub struct PgTriageReport<T> {
     /// Unique report identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub report_id: Option<String>,
-    /// Active investigation session identifier.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
     /// Reference report identifier.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parent_report_id: Option<String>,
@@ -356,7 +353,6 @@ pub fn sql_action_report(
         source_summary: None,
         next_actions: Vec::new(),
         report_id: None,
-        session_id: None,
         parent_report_id: None,
         selected_action_id: None,
         created_at: None,

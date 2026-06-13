@@ -2,14 +2,13 @@
 
 use crate::database::{connect_postgres_client, resolve_database_dsn};
 use crate::findings::FindingsPayload;
+use crate::report_store::ReportStore;
 use crate::triage::{ActionKind, NextActionStatus, OperatingMode, PgTriageReport};
 use crate::{
     sql_action_report, workflow_slug, AppConfig, PgLogstatsError, Result, SqlActionPayload,
 };
 use postgres::types::ToSql;
-use serde::Deserialize;
 use std::collections::BTreeMap;
-use std::fs;
 use std::path::Path;
 
 const MAX_SQL_ROWS: usize = 20;
@@ -24,14 +23,12 @@ pub struct ActionParameterInput {
 
 #[derive(Debug, Clone)]
 pub struct RunSqlRequest<'a> {
-    /// Workspace used to load session reports.
+    /// Workspace used to load persisted triage reports.
     pub workspace_path: &'a Path,
-    /// Investigation session identifier.
-    pub session_id: Option<&'a str>,
-    /// Parent report that exposed the selected action.
-    pub parent_report_id: Option<&'a str>,
+    /// Parent triage report that exposed the selected action.
+    pub triage_report: &'a str,
     /// Selected built-in action identifier.
-    pub selected_action_id: Option<&'a str>,
+    pub action_id: &'a str,
     /// Optional DSN override for database access.
     pub dsn: Option<&'a str>,
     /// Operating mode already established by startup inspect loading.
@@ -96,13 +93,6 @@ pub fn parse_action_parameters(raw: &[String]) -> Result<Vec<ActionParameterInpu
     Ok(params)
 }
 
-#[derive(Debug, Deserialize)]
-struct ParentReportBase {
-    workflow: ActionKind,
-    report_id: Option<String>,
-    next_actions: Vec<crate::NextAction>,
-}
-
 fn prepare_running_query_sql(
     rule_id: &str,
     action: &crate::NextAction,
@@ -162,28 +152,10 @@ pub fn execute_run_sql(
     request: &RunSqlRequest<'_>,
     config: &AppConfig,
 ) -> Result<PgTriageReport<SqlActionPayload>> {
-    let (Some(session_id), Some(parent_report_id), Some(selected_action_id)) = (
-        request.session_id,
-        request.parent_report_id,
-        request.selected_action_id,
-    ) else {
-        return Err(PgLogstatsError::Configuration {
-            message: "run-sql requires --session-id, --parent-report-id, and --selected-action-id"
-                .to_string(),
-            field: Some("selected_action_id".to_string()),
-        });
-    };
-
-    let parent_path = request
-        .workspace_path
-        .join("sessions")
-        .join(session_id)
-        .join("reports")
-        .join(format!("{}.json", parent_report_id));
-
-    let parent_content = fs::read_to_string(&parent_path)?;
-    let base_report: ParentReportBase =
-        serde_json::from_str(&parent_content).map_err(PgLogstatsError::Serialization)?;
+    let selected_action_id = request.action_id;
+    let store = ReportStore::new(request.workspace_path);
+    let base_report = store.load_report_base(request.triage_report)?;
+    let parent_content = base_report.raw_content.clone();
 
     let action = base_report
         .next_actions
@@ -195,7 +167,7 @@ pub fn execute_run_sql(
                 "Action ID '{}' not found in parent report next_actions",
                 selected_action_id
             ),
-            field: Some("selected_action_id".to_string()),
+            field: Some("action_id".to_string()),
         })?;
 
     if action.status != NextActionStatus::Allowed {
@@ -204,7 +176,7 @@ pub fn execute_run_sql(
                 "Action '{}' is not allowed in parent report. Status: {:?}, Reason: {}",
                 selected_action_id, action.status, action.reason
             ),
-            field: Some("selected_action_id".to_string()),
+            field: Some("action_id".to_string()),
         });
     }
 
@@ -221,7 +193,7 @@ pub fn execute_run_sql(
                             "Action '{}' does not include a finding target",
                             selected_action_id
                         ),
-                        field: Some("selected_action_id".to_string()),
+                        field: Some("action_id".to_string()),
                     })?;
             let finding = report
                 .payload
@@ -234,7 +206,7 @@ pub fn execute_run_sql(
                         "Action '{}' refers to missing finding '{}'",
                         selected_action_id, finding_id
                     ),
-                    field: Some("selected_action_id".to_string()),
+                    field: Some("action_id".to_string()),
                 })?;
             prepare_findings_workflow_sql(&action, &finding, request.parameters)?
         }
@@ -242,7 +214,7 @@ pub fn execute_run_sql(
             let rule_id = selected_action_id.split(':').next().ok_or_else(|| {
                 PgLogstatsError::Configuration {
                     message: format!("Invalid action id '{}'", selected_action_id),
-                    field: Some("selected_action_id".to_string()),
+                    field: Some("action_id".to_string()),
                 }
             })?;
             prepare_running_query_sql(rule_id, &action, request.parameters)?
@@ -253,7 +225,7 @@ pub fn execute_run_sql(
                     "run-sql does not support parent workflow '{}' yet",
                     workflow_slug(workflow)
                 ),
-                field: Some("selected_action_id".to_string()),
+                field: Some("action_id".to_string()),
             })
         }
     };
@@ -351,9 +323,7 @@ pub fn execute_run_sql(
         rows: json_rows,
     };
 
-    let mut sql_report = sql_action_report(payload, request.operating_mode);
-    sql_report.session_id = request.session_id.map(str::to_string);
-    Ok(sql_report)
+    Ok(sql_action_report(payload, request.operating_mode))
 }
 
 fn prepare_findings_workflow_sql(
@@ -595,7 +565,6 @@ mod tests {
                 source_summary: None,
                 next_actions: Vec::new(),
                 report_id: Some("0001-top_query_families".to_string()),
-                session_id: Some("sess".to_string()),
                 parent_report_id: None,
                 selected_action_id: None,
                 created_at: None,

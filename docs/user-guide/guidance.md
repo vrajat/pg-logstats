@@ -71,21 +71,19 @@ Rather than running a single wrapper command, the caller executes the actual sub
 ### Command Usage Example
 ```bash
 pg-logstats \
-  --session-id test_sess \
-  --parent-report-id 0001-top_query_families \
-  --selected-action-id query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf \
+  --triage-report 20260613T181530123456Z-top_query_families \
+  --action-id query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf \
   run-sql
 ```
 
 ### Global Audit Linkage Options
-- `--session-id <SESSION_ID>`: Unique identifier for the current investigation session.
-- `--parent-report-id <REPORT_ID>`: The ID of the report that led to this action.
-- `--selected-action-id <ACTION_ID>`: The `action_id` from the parent report's `next_actions` array.
+- `--triage-report <REPORT>`: The persisted report that led to this follow-up action. Accepts a report ID or a report path.
+- `--action-id <ACTION_ID>`: The `action_id` from the parent report's `next_actions` array.
 
 ### Behavior & Security
 1. **Safety Re-evaluation**: `pg-logstats` reads the parent report, finds the requested action, and re-validates the policy matrix against the current state and parameters. If the action is blocked or unknown, execution is rejected with a structured error.
 2. **Execution**: The subcommand (e.g. `run-sql`) is executed with safety checks in place.
-3. **Report Output & Session Storage**: The command outputs a new triage report containing the results. If a session workspace is configured, it persists the report in the session directory under `<workspace>/sessions/<session_id>/reports/<sequence>-<workflow>.json` to record the progress of the investigation.
+3. **Report Output & Persistence**: The command outputs a new triage report containing the results. Follow-up actions persist immutable reports under `<workspace>/reports/<timestamp>-<workflow>.json` so the investigation history remains auditable without overwriting prior steps.
 
 ## Built-In Query-Family SQL Actions
 
