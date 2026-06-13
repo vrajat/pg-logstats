@@ -1,21 +1,23 @@
-# User Guide
+# Workflow References
 
-This guide describes how to use `pg-logstats` to analyze PostgreSQL database logs, triage performance issues, and inspect live database state.
+These pages document the PostgreSQL triage runbooks that `pg-logstats`
+automates for agents.
 
-## Core Workflows
+They are best read as audit and workflow references:
 
-To investigate a database incident or optimize performance, use the following workflows:
+- what signal the workflow is using
+- what evidence it requires
+- how findings are ranked
+- what follow-up actions the product may allow
+- where the workflow should stop and escalate
 
-1. **[Inspect](inspect.md)**: Probes your PostgreSQL environment to verify if the server is ready for log-backed or live-only investigation.
-2. **[Top Query Families](top-query-families.md)**: Parses logs to identify, normalize, and group query statements into "query families," ranking them by total execution time.
-3. **[Errors](errors.md)**: Classifies, normalizes, and attributes PostgreSQL log events (errors, fatals, panics) with SQLSTATE codes to pinpoint issues.
-4. **[Temporary Files](temp-files.md)**: Highlights query families causing disk pressure by writing large temporary files.
-5. **[Guidance Framework](guidance.md)**: Uses the rules engine to generate safe next-action SQL tasks to execute on the live database.
-6. **[RDS & CloudWatch Logs](rds-cloudwatch.md)**: Explains how to integrate with AWS to pull and analyze logs directly from CloudWatch Logs.
+If you are looking for installation and readiness, start with [Setup](../setup/index.md).
+If you are looking for the control-path model, start with
+[Workflow Model](../workflow-model/index.md).
 
-## Recommended Reading Order
+## Current Workflow Set
 
-- Start with **[Inspect](inspect.md)** to ensure your database connection and log files are ready.
-- Run **[Top Query Families](top-query-families.md)** to find the most expensive queries.
-- Look into **[Errors](errors.md)** or **[Temporary Files](temp-files.md)** depending on whether you are debugging application exceptions or disk capacity/IO issues.
-- Read the **[Guidance Framework](guidance.md)** to understand how the CLI suggests safe diagnostic commands to run on live instances.
+- [Slow Query Triage](top-query-families.md)
+- [Error Triage](errors.md)
+- [Temp File Triage](temp-files.md)
+- [Investigation Guidance](guidance.md)

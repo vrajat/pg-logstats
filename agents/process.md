@@ -17,6 +17,15 @@ Shared development process and conventions for `pg-logstats`.
 - When changing parser behavior, add or update fixtures in `tests/fixtures/cli/` or parser tests.
 - When changing JSON output, update tests and any docs that describe the schema.
 
+## Documentation Style
+
+- Lead with the product, the job it does, and the boundary that makes it worth using.
+- Do not open docs by describing the audience in a literal or administrative way.
+- Prefer product-led framing over internal framing such as "important boundaries" or process narration.
+- Treat public docs as operator-facing product documentation, not as internal notes cleaned up for publication.
+- For `pg-logstats`, docs should explain why an expert would install it for agents, how the control path works, and where runbook ends and agent judgement begins.
+- Workflow pages should read as audit and runbook references, not as command-by-command CLI tutorials for manual users.
+
 ## Related Files
 
 - `engg/PHILOSOPHY.md`

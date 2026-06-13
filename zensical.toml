@@ -8,22 +8,28 @@ repo_url = "https://github.com/vrajat/pg-logstats"
 repo_name = "vrajat/pg-logstats"
 edit_uri = "edit/main/docs/"
 nav = [
-  {"Home" = "index.md"},
-  {"User Guide" = [
-    "user-guide/index.md",
-    {"Inspect" = "user-guide/inspect.md"},
-    {"Top Query Families" = "user-guide/top-query-families.md"},
-    {"Errors" = "user-guide/errors.md"},
-    {"Temporary Files" = "user-guide/temp-files.md"},
-    {"Guidance Framework" = "user-guide/guidance.md"},
+  {"Overview" = [
+    {"What is pg-logstats?" = "index.md"},
+  ]},
+  {"Setup" = [
+    {"Getting Started" = "setup/index.md"},
+    {"Inspect and Readiness" = "user-guide/inspect.md"},
     {"RDS & CloudWatch" = "user-guide/rds-cloudwatch.md"},
   ]},
-  {"Reference" = [
-    {"API Reference" = "reference/api.md"},
+  {"Workflow Model" = [
+    {"Overview" = "workflow-model/index.md"},
+    {"Investigation Guidance" = "user-guide/guidance.md"},
+  ]},
+  {"Workflow References" = [
+    {"Overview" = "user-guide/index.md"},
+    {"Slow Query Triage" = "user-guide/top-query-families.md"},
+    {"Error Triage" = "user-guide/errors.md"},
+    {"Temp File Triage" = "user-guide/temp-files.md"},
   ]},
   {"Development" = [
-    "development/index.md",
+    {"Overview" = "development/index.md"},
     {"Architecture" = "development/architecture.md"},
+    {"API Reference" = "reference/api.md"},
   ]},
 ]
 
