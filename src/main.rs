@@ -176,7 +176,7 @@ enum Command {
     /// Slow-query investigation workflows
     SlowQueries {
         #[clap(subcommand)]
-        command: SlowQueriesCommand,
+        command: Option<SlowQueriesCommand>,
     },
     /// Run a diagnostic SQL query against the database
     RunSql {
@@ -305,7 +305,14 @@ impl InputFormat {
     }
 }
 
-fn main() -> Result<()> {
+fn main() {
+    if let Err(err) = try_main() {
+        eprintln!("{err}");
+        process::exit(1);
+    }
+}
+
+fn try_main() -> Result<()> {
     // Initialize logging
     env_logger::init();
 
@@ -412,7 +419,7 @@ fn run_command(
         Command::Top { .. } => run_top_query_families_command(args, parser, config, inspect_report),
         Command::Inspect { input } => {
             let cloudwatch_input = input.uses_cloudwatch().then(|| input.cloudwatch_input());
-            let mut report = inspect(
+            let report = inspect(
                 config,
                 args.dsn.as_deref(),
                 &input.local_log_input(),
@@ -423,8 +430,6 @@ fn run_command(
                 args.workspace.as_deref(),
             )?;
 
-            let workspace = resolve_workspace_path(args.workspace.as_deref())?;
-            record_session_report(&workspace, &mut report, args)?;
             output_report(&report, args)?;
             Ok(())
         }
@@ -557,19 +562,34 @@ fn run_slow_queries_diff_command(
     inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
     let Command::SlowQueries {
-        command:
-            SlowQueriesCommand::Diff {
-                baseline,
-                target,
-                sample_size,
-                limit,
-                min_target_count,
-                min_target_total_ms,
-                min_p95_delta_ms,
-            },
+        command,
     } = &args.command
     else {
         unreachable!();
+    };
+
+    let Some(SlowQueriesCommand::Diff {
+        baseline,
+        target,
+        sample_size,
+        limit,
+        min_target_count,
+        min_target_total_ms,
+        min_p95_delta_ms,
+    }) = command
+    else {
+        require_log_backed_mode(inspect_report)?;
+
+        return Err(PgLogstatsError::Configuration {
+            message: concat!(
+                "`pg-logstats slow-queries` is not the first slow-query triage step.\n",
+                "Run `pg-logstats inspect --output-format json /path/to/postgresql.log` first.\n",
+                "Then run `pg-logstats top query-families --output-format json /path/to/postgresql.log` for single-window slow-query triage.\n",
+                "Use `pg-logstats slow-queries diff --baseline ... --target ...` only when you already have explicit baseline and target log windows."
+            )
+            .to_string(),
+            field: Some("slow_queries".to_string()),
+        });
     };
 
     require_log_backed_mode(inspect_report)?;
@@ -599,8 +619,9 @@ fn validate_arguments(args: &Arguments) -> Result<()> {
         } => validate_log_input_args(input)?,
         Command::Inspect { input, .. } => validate_log_input_args(input)?,
         Command::SlowQueries {
-            command: SlowQueriesCommand::Diff { sample_size, .. },
+            command: Some(SlowQueriesCommand::Diff { sample_size, .. }),
         } => validate_sample_size(*sample_size)?,
+        Command::SlowQueries { command: None } => {}
         Command::RunSql { parameters } => {
             parse_action_parameters(parameters)?;
         }
@@ -805,7 +826,7 @@ fn record_session_report<T: serde::Serialize>(
 fn load_startup_inspect_report(
     args: &Arguments,
 ) -> Result<Option<PgTriageReport<InspectReportPayload>>> {
-    if matches!(args.command, Command::Inspect { .. }) {
+    if matches!(args.command, Command::Inspect { .. } | Command::Agent { .. }) {
         return Ok(None);
     }
 
@@ -868,6 +889,26 @@ fn require_log_backed_mode(
     Ok(())
 }
 
+fn require_ready_mode(
+    inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
+) -> Result<()> {
+    let Some(report) = inspect_report else {
+        return Err(PgLogstatsError::Configuration {
+            message: "Inspect output is required before running this command.".to_string(),
+            field: Some("inspect_report".to_string()),
+        });
+    };
+
+    if report.operating_mode == OperatingMode::Unready {
+        return Err(PgLogstatsError::Configuration {
+            message: "This command cannot run when inspect reported unready.".to_string(),
+            field: Some("operating_mode".to_string()),
+        });
+    }
+
+    Ok(())
+}
+
 fn run_sql_command(
     args: &Arguments,
     _parser: &TextLogParser,
@@ -877,6 +918,8 @@ fn run_sql_command(
     let Command::RunSql { parameters } = &args.command else {
         unreachable!();
     };
+
+    require_ready_mode(inspect_report)?;
 
     let workspace = resolve_workspace_path(args.workspace.as_deref())?;
     let parsed_parameters: Vec<ActionParameterInput> = parse_action_parameters(parameters)?;
@@ -908,6 +951,8 @@ fn run_running_queries_command(
     config: &pg_logstats::AppConfig,
     inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
+    require_ready_mode(inspect_report)?;
+
     let workspace = resolve_workspace_path(args.workspace.as_deref())?;
     let mut report = run_running_queries(
         args.dsn.as_deref(),

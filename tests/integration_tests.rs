@@ -251,6 +251,7 @@ fn test_inspect_uses_log_input_without_database_access() {
     let workspace = temp_dir.path().join("workspace");
     fs::create_dir_all(&workspace).unwrap();
     let inspect_report = workspace.join("inspect.json");
+    let sessions_dir = workspace.join("sessions");
 
     let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
     let output = cmd
@@ -277,6 +278,7 @@ fn test_inspect_uses_log_input_without_database_access() {
         "passed"
     );
     assert!(inspect_report.exists());
+    assert!(!sessions_dir.exists());
 }
 
 #[test]
@@ -511,6 +513,61 @@ fn test_slow_queries_diff_json_output() {
 }
 
 #[test]
+fn test_slow_queries_without_subcommand_requires_inspect_first() {
+    let temp_dir = TempDir::new().unwrap();
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_WORKSPACE", temp_dir.path())
+        .arg("slow-queries")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "Run `pg-logstats inspect` first",
+        ));
+}
+
+#[test]
+fn test_slow_queries_without_subcommand_requires_log_backed_readiness() {
+    let temp_dir = TempDir::new().unwrap();
+    write_inspect_report(temp_dir.path(), OperatingMode::Unready);
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_WORKSPACE", temp_dir.path())
+        .arg("slow-queries")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "This command requires log-backed capability, but inspect reported unready.",
+        ));
+}
+
+#[test]
+fn test_slow_queries_without_subcommand_points_to_canonical_first_steps_after_inspect() {
+    let temp_dir = TempDir::new().unwrap();
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_inspect(&mut cmd, temp_dir.path());
+    cmd.arg("slow-queries")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "`pg-logstats slow-queries` is not the first slow-query triage step.",
+        ))
+        .stderr(predicate::str::contains(
+            "pg-logstats inspect --output-format json /path/to/postgresql.log",
+        ))
+        .stderr(predicate::str::contains(
+            "pg-logstats top query-families --output-format json /path/to/postgresql.log",
+        ))
+        .stderr(predicate::str::contains(
+            "pg-logstats slow-queries diff --baseline ... --target ...",
+        ))
+        .stderr(predicate::str::contains(
+            "Usage: pg-logstats slow-queries [OPTIONS] <COMMAND>",
+        ).not());
+}
+
+#[test]
 fn test_slow_queries_diff_thresholds_filter_results() {
     let temp_dir = TempDir::new().unwrap();
     let baseline = create_test_log_file(
@@ -591,7 +648,7 @@ fn test_run_action_sql_missing_db() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "database_connection_not_configured",
+            "Database connection not configured",
         ));
 }
 
@@ -850,6 +907,192 @@ fn test_startup_fails_without_inspect_output() {
 }
 
 #[test]
+fn test_errors_require_inspect_output() {
+    let temp_dir = TempDir::new().unwrap();
+    let log_file = create_test_log_file(temp_dir.path(), "errors.log", sample_log_content());
+    let workspace = temp_dir.path().join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_WORKSPACE", workspace)
+        .arg("--quiet")
+        .arg("errors")
+        .arg(log_file.to_str().unwrap())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Run `pg-logstats inspect` first"));
+}
+
+#[test]
+fn test_temp_files_require_inspect_output() {
+    let temp_dir = TempDir::new().unwrap();
+    let log_file = create_test_log_file(temp_dir.path(), "temp.log", sample_log_content());
+    let workspace = temp_dir.path().join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_WORKSPACE", workspace)
+        .arg("--quiet")
+        .arg("temp-files")
+        .arg(log_file.to_str().unwrap())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Run `pg-logstats inspect` first"));
+}
+
+#[test]
+fn test_running_queries_require_inspect_output() {
+    let temp_dir = TempDir::new().unwrap();
+    let workspace = temp_dir.path().join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_WORKSPACE", workspace)
+        .arg("running-queries")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Run `pg-logstats inspect` first"));
+}
+
+#[test]
+fn test_run_sql_require_inspect_output() {
+    let temp_dir = TempDir::new().unwrap();
+    let workspace = temp_dir.path().join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_WORKSPACE", workspace)
+        .arg("run-sql")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Run `pg-logstats inspect` first"));
+}
+
+#[test]
+fn test_top_query_families_require_log_backed_readiness() {
+    let temp_dir = TempDir::new().unwrap();
+    let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
+    write_inspect_report(temp_dir.path(), OperatingMode::Unready);
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_WORKSPACE", temp_dir.path())
+        .arg("--quiet")
+        .arg("top")
+        .arg("query-families")
+        .arg(log_file.to_str().unwrap())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "This command requires log-backed capability, but inspect reported unready.",
+        ));
+}
+
+#[test]
+fn test_running_queries_require_ready_mode() {
+    let temp_dir = TempDir::new().unwrap();
+    write_inspect_report(temp_dir.path(), OperatingMode::Unready);
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_WORKSPACE", temp_dir.path())
+        .arg("running-queries")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "This command cannot run when inspect reported unready.",
+        ));
+}
+
+#[test]
+fn test_run_sql_require_ready_mode() {
+    let temp_dir = TempDir::new().unwrap();
+    write_inspect_report(temp_dir.path(), OperatingMode::Unready);
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_WORKSPACE", temp_dir.path())
+        .arg("run-sql")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "This command cannot run when inspect reported unready.",
+        ));
+}
+
+#[test]
+fn test_errors_require_log_backed_readiness() {
+    let temp_dir = TempDir::new().unwrap();
+    let log_file = create_test_log_file(temp_dir.path(), "errors.log", sample_log_content());
+    write_inspect_report(temp_dir.path(), OperatingMode::Unready);
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_WORKSPACE", temp_dir.path())
+        .arg("--quiet")
+        .arg("errors")
+        .arg(log_file.to_str().unwrap())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "This command requires log-backed capability, but inspect reported unready.",
+        ));
+}
+
+#[test]
+fn test_temp_files_require_log_backed_readiness() {
+    let temp_dir = TempDir::new().unwrap();
+    let log_file = create_test_log_file(temp_dir.path(), "temp.log", sample_log_content());
+    write_inspect_report(temp_dir.path(), OperatingMode::Unready);
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_WORKSPACE", temp_dir.path())
+        .arg("--quiet")
+        .arg("temp-files")
+        .arg(log_file.to_str().unwrap())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "This command requires log-backed capability, but inspect reported unready.",
+        ));
+}
+
+#[test]
+fn test_agent_install_does_not_require_inspect_output() {
+    let temp_dir = TempDir::new().unwrap();
+    let workspace = temp_dir.path().join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_WORKSPACE", workspace)
+        .env("HOME", temp_dir.path())
+        .arg("--output-format")
+        .arg("json")
+        .arg("agent")
+        .arg("install")
+        .arg("--harness")
+        .arg("codex")
+        .arg("--status")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"workflow\": \"agent_install\""));
+}
+
+#[test]
+fn test_agent_install_unsupported_harness_has_clean_error() {
+    let temp_dir = TempDir::new().unwrap();
+    let workspace = temp_dir.path().join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    cmd.env("PG_LOGSTATS_WORKSPACE", workspace)
+        .env("HOME", temp_dir.path())
+        .arg("agent")
+        .arg("install")
+        .arg("--harness")
+        .arg("bogus")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Unsupported harness: bogus"));
+}
+
+#[test]
 fn test_cloudwatch_rds_input_uses_fixture_events() {
     let temp_dir = TempDir::new().unwrap();
     let cloudwatch_fixture = create_test_log_file(
@@ -983,7 +1226,7 @@ fn test_checked_in_run_action_happy_path() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "database_connection_not_configured",
+            "Database connection not configured",
         ));
 }
 
@@ -1069,7 +1312,7 @@ fn test_run_action_from_checked_in_findings_json() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "database_connection_not_configured",
+            "Database connection not configured",
         ));
 }
 
@@ -1333,7 +1576,7 @@ mod benchmark_tests {
             .assert()
             .failure()
             .stderr(predicate::str::contains(
-                "database_connection_not_configured",
+                "Database connection not configured",
             ));
     }
 
