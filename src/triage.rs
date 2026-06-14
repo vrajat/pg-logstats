@@ -518,6 +518,22 @@ mod tests {
         assert_eq!(action.action_type, NextActionType::PromptUser);
         assert_eq!(action.kind, ActionKind::Inspect);
         assert_eq!(action.status, NextActionStatus::Allowed);
+        assert!(action
+            .reason
+            .contains("[database].dsn in config.toml"));
+        assert_eq!(
+            action.requires.as_ref().unwrap(),
+            &vec!["database_dsn".to_string(), "inspect_rerun".to_string()]
+        );
+        assert!(action
+            .survey
+            .as_ref()
+            .unwrap()
+            .choices
+            .first()
+            .unwrap()
+            .description
+            .contains("PG_LOGSTATS_DATABASE_URL"));
         assert_eq!(
             action
                 .survey

@@ -384,9 +384,21 @@ fn test_top_query_families_can_follow_persisted_inspect_output() {
         "workspace.prompt_user.enable_live_follow_up"
     );
     assert_eq!(
+        json["next_actions"][0]["requires"],
+        serde_json::json!(["database_dsn", "inspect_rerun"])
+    );
+    assert!(json["next_actions"][0]["reason"]
+        .as_str()
+        .unwrap()
+        .contains("[database].dsn in config.toml"));
+    assert_eq!(
         json["next_actions"][0]["survey"]["choices"][0]["choice_id"],
         "configure_dsn_and_rerun_inspect"
     );
+    assert!(json["next_actions"][0]["survey"]["choices"][0]["description"]
+        .as_str()
+        .unwrap()
+        .contains("PG_LOGSTATS_DATABASE_URL"));
 
     assert_eq!(persisted_report_paths(&workspace).len(), 1);
     assert!(!workspace.join("sessions").exists());

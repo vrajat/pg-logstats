@@ -585,7 +585,7 @@ fn prompt_user_enable_live_follow_up_action() -> NextAction {
         status: NextActionStatus::Allowed,
         priority: NextActionPriority::Recommended,
         judgement_required: true,
-        reason: "This investigation ranked historical findings from logs only. Live follow-up requires a configured DSN and a fresh inspect run.".to_string(),
+        reason: "This investigation ranked historical findings from logs only. Live follow-up requires a configured DSN and a fresh inspect run. Supply the DSN through [database].dsn in config.toml, PG_LOGSTATS_DATABASE_URL, or --dsn.".to_string(),
         target: None,
         workflow: Some(ActionKind::Inspect),
         command: None,
@@ -595,7 +595,7 @@ fn prompt_user_enable_live_follow_up_action() -> NextAction {
                 PromptUserChoice {
                     choice_id: "configure_dsn_and_rerun_inspect".to_string(),
                     label: "Configure DSN and rerun inspect".to_string(),
-                    description: "Provide database access for this workspace so pg-logstats can unlock live SQL follow-up.".to_string(),
+                    description: "Provide database access for this workspace by setting [database].dsn in config.toml, PG_LOGSTATS_DATABASE_URL, or --dsn, then rerun pg-logstats inspect.".to_string(),
                     workflow: Some(ActionKind::Inspect),
                     command: Some(NextActionCommand {
                         argv: vec!["pg-logstats".to_string(), "inspect".to_string()],
@@ -615,7 +615,10 @@ fn prompt_user_enable_live_follow_up_action() -> NextAction {
         risk: None,
         action_class: None,
         required_identifiers: None,
-        requires: Some(vec!["database_dsn".to_string()]),
+        requires: Some(vec![
+            "database_dsn".to_string(),
+            "inspect_rerun".to_string(),
+        ]),
         produces: Some(vec![
             "workflow:inspect".to_string(),
             "capability:live_follow_up".to_string(),
