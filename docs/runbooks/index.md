@@ -67,4 +67,5 @@ That means:
 ## Read Next
 
 - [Investigation Guidance](../user-guide/guidance.md)
-- [Runbook References](../user-guide/index.md)
+- [Slow Query Triage](../user-guide/top-query-families.md)
+- [Temporary Files Triage](../user-guide/temp-files.md)

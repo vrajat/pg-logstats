@@ -1,8 +1,8 @@
 # pg-logstats
 
-**pg-logstats is a PostgreSQL triage gateway that lets AI agents investigate database incidents safely, enforcing strict operational boundaries without direct database access.**
+**pg-logstats is an agent-first PostgreSQL triage gateway. Instead of granting coding agents arbitrary database access, it provides them with pre-packaged, DBA-approved PostgreSQL runbooks.**
 
-It packages established PostgreSQL triage runbooks into a controlled CLI: inspect the available evidence, rank findings from logs, and execute pre-approved diagnostic SQL through a bounded action model.
+By bundling database triage logic directly into the gateway CLI, `pg-logstats` translates raw log analysis and diagnostic SQL into a sequence of safe, bounded next actions. The agent only supplies the judgement at explicit branch points, while the gateway enforces security, protects database load, and generates an auditable history of the incident.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 

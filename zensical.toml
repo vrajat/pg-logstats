@@ -16,12 +16,10 @@ nav = [
     {"Inspect and Readiness" = "user-guide/inspect.md"},
     {"RDS & CloudWatch" = "user-guide/rds-cloudwatch.md"},
   ]},
-  {"Runbook Model" = [
-    {"Overview" = "runbook-model/index.md"},
+  {"Runbooks" = [
+    {"Overview" = "runbooks/index.md"},
     {"Investigation Guidance" = "user-guide/guidance.md"},
-  ]},
-  {"Runbook References" = [
-    {"Overview" = "user-guide/index.md"},
+    {"Action Types" = "runbooks/action-types.md"},
     {"Slow Query Triage" = "user-guide/top-query-families.md"},
     {"Error Triage" = "user-guide/errors.md"},
     {"Temp File Triage" = "user-guide/temp-files.md"},
