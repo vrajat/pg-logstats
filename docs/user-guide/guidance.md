@@ -31,7 +31,7 @@ Every machine-readable triage report (JSON output) includes a top-level `next_ac
 ```
 
 ### Action Types
-- `run_workflow`: Run another `pg-logstats` workflow directly.
+- `run_workflow`: Run another `pg-logstats` runbook directly.
 - `run_sql`: Run a safe built-in SQL action through `pg-logstats run-sql`.
 - `prompt_user`: Ask the operator to choose how the investigation should proceed.
 - `stop`: End the current investigation branch.
@@ -165,7 +165,7 @@ pg-logstats \
 ### Behavior & Security
 1. **Safety Re-evaluation**: `pg-logstats` reads the parent report, finds the requested action, and re-validates the policy matrix against the current state and parameters. If the action is blocked, unknown, or not a SQL action, execution is rejected with a structured error.
 2. **Execution**: The subcommand (e.g. `run-sql`) is executed with safety checks in place.
-3. **Report Output & Persistence**: The command outputs a new triage report containing the results. Follow-up actions persist immutable reports under `<workspace>/reports/<timestamp>-<workflow>.json` so the investigation history remains auditable without overwriting prior steps.
+3. **Report Output & Persistence**: The command outputs a new triage report containing the results. Follow-up actions persist immutable reports under `<workspace>/reports/<timestamp>-<runbook>.json` so the investigation history remains auditable without overwriting prior steps.
 
 ## Built-In SQL Actions
 
@@ -186,7 +186,7 @@ The gateway provides a set of pre-approved, built-in SQL actions for query-famil
 
 ## Attribution
 
-The workflow-level attribution lives in [engg/design/internal-ai-app-triage-v1.md](https://github.com/vrajat/pg-logstats/blob/main/engg/design/internal-ai-app-triage-v1.md), especially the "Workflow Attribution And Selection" section and its initial V1 reference map.
+The runbook-level attribution lives in [engg/design/internal-ai-app-triage-v1.md](https://github.com/vrajat/pg-logstats/blob/main/engg/design/internal-ai-app-triage-v1.md), especially the "Workflow Attribution And Selection" section and its initial V1 reference map.
 
 For the query-family SQL actions in this phase, the intended prior art is:
 

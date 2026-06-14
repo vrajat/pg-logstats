@@ -39,7 +39,7 @@ log downloads and keeps each run bounded to an explicit time window.
 4. Use a time-bounded query.
 
    CloudWatch input defaults to `--since 1h`. Prefer small windows for LLM
-   workflows so the CLI can rank evidence before anything reaches the model.
+   runbooks so the CLI can rank evidence before anything reaches the model.
 
 ## IAM Policy Requirements
 
@@ -161,7 +161,7 @@ CloudWatch input defaults auto-detected logs to RDS evidence:
 {"source_kind":"AwsRds","record_index":0}
 ```
 
-## LLM Workflow
+## LLM Runbook
 
 For an LLM or agent, prefer JSON output and small windows:
 

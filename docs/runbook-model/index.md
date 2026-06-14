@@ -1,4 +1,4 @@
-# Workflow Model
+# Runbook Model
 
 `pg-logstats` is not a general SQL shell for agents.
 
@@ -16,7 +16,7 @@ The intended loop is:
 2. install the agent guidance
 3. run `inspect`
 4. confirm that the environment is ready
-5. run one bounded triage workflow
+5. run one bounded triage runbook
 6. review the ranked findings and `next_actions[]`
 7. either run one approved next action or delegate a `prompt_user` branch
 8. stop or escalate explicitly
@@ -30,7 +30,7 @@ The important split is:
 - `pg-logstats` owns the runbook, evidence shape, and action graph
 - the agent owns the judgement when several branches are plausible
 
-That is why the workflow pages in this docs set focus on what is being
+That is why the runbook pages in this docs set focus on what is being
 automated, not on teaching a human operator to run each command manually.
 
 ## SQL Control Path
@@ -67,4 +67,4 @@ That means:
 ## Read Next
 
 - [Investigation Guidance](../user-guide/guidance.md)
-- [Workflow References](../user-guide/index.md)
+- [Runbook References](../user-guide/index.md)

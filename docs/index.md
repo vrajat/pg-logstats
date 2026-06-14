@@ -42,13 +42,13 @@ safely:
 - built-in approved SQL actions instead of arbitrary SQL
 - explicit stop or escalate behavior when evidence is insufficient
 
-The core workflow boundary is:
+The core runbook boundary is:
 
 - `pg-logstats` owns the runbook
 - the agent owns the judgement at the branch points
 
 If you want to investigate PostgreSQL manually, use `pgBadger`, `psql`, and
-your normal SRE or DBA workflow.
+your normal SRE or DBA runbook.
 
 ## Operating Model
 

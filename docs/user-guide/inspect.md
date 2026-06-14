@@ -196,7 +196,7 @@ them?
 If an agent check fails, the next action is to install or repair the
 corresponding guidance bundle, then rerun `pg-logstats inspect`.
 
-If a log-backed workflow emits a delegated `prompt_user` action such as
+If a log-backed runbook emits a delegated `prompt_user` action such as
 "configure DSN and rerun inspect", that is also an `inspect` branch. The
 operator changes the workspace capability first; the agent discovers the new
 mode only by rerunning `inspect`.
