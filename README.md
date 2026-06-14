@@ -8,30 +8,23 @@ By bundling database triage logic directly into the gateway CLI, `pg-logstats` t
 
 ---
 
-## Why Setup pg-logstats for AI Agents?
+## Why DBAs Adopt pg-logstats
 
-Giving coding agents direct database access is risky and hard to audit. `pg-logstats` acts as a secure, sandboxed gateway that lets agents perform first-pass database triage under strict controls.
+For database administrators, allowing autonomous coding agents to investigate database incidents requires strict safety boundaries. `pg-logstats` acts as a secure gateway that protects your database:
 
-### 1. Safety via Pre-Approved SQL Actions
-The agent **cannot** run arbitrary SQL text. All live database interaction goes through structured, parameterized read-only queries built into the gateway (e.g. querying `pg_stat_statements` by exact query ID or filtering `pg_stat_activity` by dimension).
-
-### 2. Database Load Protection (Verdict Matrix)
-To prevent diagnostic activity from adding harmful overhead to a stressed database, actions are allowed or blocked dynamically based on the current health **verdict** (e.g., `clear`, `busy`, `saturated`). For example, running `EXPLAIN ANALYZE` (which executes the query) is restricted if the database is under load.
-
-### 3. Packaged Runbooks vs. Agent Judgement
-The gateway models specific PostgreSQL operational runbooks (e.g., Slow Query Triage, Temporary Files Triage):
-* **`pg-logstats` owns the runbook**: It determines the evidence shape, log-parsing logic, and allowed action graph.
-* **The Agent supplies the judgement**: It decides which branch best fits the incident and reviews ranked findings at explicit branch points.
+- **Zero Arbitrary SQL**: Agents are restricted to a pre-approved menu of read-only diagnostic SQL queries. They cannot execute arbitrary query strings or modify data/schemas.
+- **Proactive Load Protection**: High-overhead actions (such as `EXPLAIN ANALYZE`) are dynamically blocked if the database health verdict degrades under locks or query saturation.
+- **Structured Incident Handoffs**: The agent resolves first-pass triage and presents you with structured recommendations (like index creation or local memory adjustments) rather than raw log dumps.
+- **Full Audit Trail**: The gateway logs all agent attempts, parameters, and query results to immutable JSON reports, providing a complete audit record.
 
 ---
 
-## How the Agent Runbook Loop Works
+## The Agent Runbook Loop
 
-1. **Setup**: The DBA installs `pg-logstats` and the harness-specific agent guidance.
-2. **Readiness Probe**: The agent runs `inspect` against the log source to verify that the environment is ready for triage.
-3. **Triage**: The agent executes a log-backed runbook (like `query-families` or `temp-files`), which parses logs and ranks findings.
-4. **Follow-Up (SQL)**: The agent executes pre-approved live SQL checks (`action_type = "run_sql"`) to correlate logs with live state (e.g. lock contention or query plans).
-5. **DBA Recommendation**: The agent concludes by recommending granular, DBA-approved remedial actions (like creating indexes or tuning session `work_mem`) and stopping.
+The gateway enables a structured, three-phase runbook loop for the agent:
+1. **Local Log Triage**: The agent parses PostgreSQL logs offline to rank findings and query families.
+2. **Bounded Diagnostic Expansion**: The agent chooses pre-approved, parameter-bound database actions (`run_sql` action class) to check active sessions or execution plans.
+3. **Escalation & Remediation**: When the runbook is complete, the agent presents structured remedial recommendations (like B-Tree indexes or local `work_mem` overrides) directly to the DBA.
 
 ---
 
