@@ -26,35 +26,14 @@ If you need Amazon RDS or CloudWatch support:
 cargo install pg-logstats --features aws-sdk
 ```
 
-## What pg-logstats Automates
+## Why DBAs Adopt pg-logstats
 
-`pg-logstats` does not invent new database diagnostics.
+For database administrators, allowing autonomous coding agents to investigate issues requires strict boundaries. `pg-logstats` acts as a secure gateway that protects your database:
 
-It packages known PostgreSQL triage runbooks into a form that an agent can use
-safely:
-
-- compact ranked findings instead of raw log dumps
-- explicit `next_actions[]` instead of improvised follow-up steps
-- delegated `prompt_user` branches when the operator must decide or add capability
-- built-in approved SQL actions instead of arbitrary SQL
-- explicit stop or escalate behavior when evidence is insufficient
-
-The core runbook boundary is:
-
-- `pg-logstats` owns the runbook
-- the agent owns the judgement at the branch points
-
-If you want to investigate PostgreSQL manually, use `pgBadger`, `psql`, and
-your normal SRE or DBA runbook.
-
-## Operating Model
-
-- `pg-logstats` is agent-first. AX wins when it conflicts with human CLI UX.
-- `pg-logstats` is the gateway. Agents should not need direct database access.
-- Beta success is `log_backed`. If the required evidence is missing, the honest
-  result is `unready`.
-- The docs are for setup, trust, and auditability, not for teaching manual
-  command-by-command usage.
+- **Zero Arbitrary SQL**: Agents are restricted to a pre-approved menu of read-only diagnostic SQL queries. They cannot execute arbitrary query strings or modify data/schemas.
+- **Proactive Load Protection**: High-overhead actions (such as `EXPLAIN ANALYZE`) are dynamically blocked if the database health verdict degrades under locks or query saturation.
+- **Structured incident Handoffs**: The agent resolves first-pass triage and presents you with structured recommendations (like index creation or local memory adjustments) rather than raw log dumps.
+- **Full Audit Trail**: The gateway logs all agent attempts, parameters, and query results to immutable JSON reports, providing a complete audit record.
 
 ## Runbook References
 
