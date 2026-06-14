@@ -4,8 +4,8 @@ use crate::database::{connect_postgres_client, resolve_database_dsn};
 use crate::findings::FindingsPayload;
 use crate::report_store::ReportStore;
 use crate::triage::{
-    ActionKind, NextActionStatus, NextActionType, OperatingMode, PgTriageReport,
-    SqlActionInsight, SqlInsightConfidence,
+    ActionKind, NextActionStatus, NextActionType, OperatingMode, PgTriageReport, SqlActionInsight,
+    SqlInsightConfidence,
 };
 use crate::{
     sql_action_report, workflow_slug, AppConfig, PgLogstatsError, Result, SqlActionPayload,
