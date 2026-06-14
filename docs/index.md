@@ -71,7 +71,7 @@ Use these guides to configure `pg-logstats` and audit the safety boundaries of t
 
 - [Inspect and Readiness](user-guide/inspect.md)
   Readiness probes, workspace configuration, and operating-mode checks.
-- [Investigation Guidance & Policies](user-guide/guidance.md)
+- [Investigation Guidance & Policies](runbooks/action-types.md)
   The `next_actions[]` model, safety verdict matrix, and pre-approved built-in SQL actions catalog.
 - [RDS and CloudWatch Log Input](user-guide/rds-cloudwatch.md)
   Configuring remote AWS RDS log windows and IAM policy permissions.

@@ -79,7 +79,7 @@ The documentation is organized specifically for DBAs setting up and auditing the
 
 ### 2. Setup & Safety Controls
 * [Inspect and Readiness](docs/user-guide/inspect.md) - Readiness probes, workspace configuration, and operating-mode checks.
-* [Investigation Guidance & Policies](docs/user-guide/guidance.md) - The `next_actions[]` model, safety verdict matrix, and pre-approved SQL actions catalog.
+* [Investigation Guidance & Policies](docs/runbooks/action-types.md) - The `next_actions[]` model, safety verdict matrix, and pre-approved SQL actions catalog.
 * [RDS and CloudWatch Log Input](docs/user-guide/rds-cloudwatch.md) - Configuring remote AWS RDS log windows and IAM policy permissions.
 
 ---

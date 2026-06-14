@@ -23,13 +23,13 @@ When an incident occurs, the agent executes a structured runbook in three distin
 
 ```mermaid
 graph TD
-    A[PostgreSQL Logs / Alert] --> B[Phase 1: Local Log Triage]
-    B -->|Generates Ranked Findings & next_actions[]| C[Phase 2: Bounded Diagnostic Expansion]
-    C -->|Choose Action ID| D{run-sql Action?}
-    D -->|Yes| E[Gateway executes pre-approved SQL]
-    D -->|No: prompt_user| F[Agent escalates to DBA]
-    E -->|Appends insights & new next_actions[]| C
-    F --> G[Phase 3: DBA Handoff & Remediation]
+    A["PostgreSQL Logs / Alert"] --> B["Phase 1: Local Log Triage"]
+    B -->|"Generates Ranked Findings & next_actions[]"| C["Phase 2: Bounded Diagnostic Expansion"]
+    C -->|"Choose Action ID"| D{"run-sql Action?"}
+    D -->|Yes| E["Gateway executes pre-approved SQL"]
+    D -->|No: prompt_user| F["Agent escalates to DBA"]
+    E -->|"Appends insights & new next_actions[]"| C
+    F --> G["Phase 3: DBA Handoff & Remediation"]
 ```
 
 ### Phase 1: Local Log Triage
@@ -57,6 +57,6 @@ To protect your production database from runaway agent queries, the gateway enfo
 
 ## Read Next
 
-* [Investigation Guidance & Safety Policies](../user-guide/guidance.md)
+* [Investigation Guidance & Safety Policies](action-types.md)
 * [Slow Query Triage Runbook](../user-guide/top-query-families.md)
 * [Temporary Files Triage Runbook](../user-guide/temp-files.md)

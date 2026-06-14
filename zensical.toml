@@ -18,11 +18,10 @@ nav = [
   ]},
   {"Runbooks" = [
     {"Overview" = "runbooks/index.md"},
-    {"Investigation Guidance" = "user-guide/guidance.md"},
-    {"Action Types" = "runbooks/action-types.md"},
     {"Slow Query Triage" = "user-guide/top-query-families.md"},
     {"Error Triage" = "user-guide/errors.md"},
     {"Temp File Triage" = "user-guide/temp-files.md"},
+    {"Investigation Guidance" = "runbooks/action-types.md"},
   ]},
   {"Development" = [
     {"Overview" = "development/index.md"},
