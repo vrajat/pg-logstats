@@ -70,4 +70,4 @@ is missing, the honest result is `unready`.
 
 - [Inspect and Readiness](../user-guide/inspect.md)
 - [RDS and CloudWatch](../user-guide/rds-cloudwatch.md)
-- [Workflow Model](../workflow-model/index.md)
+- [Runbook Model](../runbooks/index.md)

@@ -39,7 +39,32 @@ log downloads and keeps each run bounded to an explicit time window.
 4. Use a time-bounded query.
 
    CloudWatch input defaults to `--since 1h`. Prefer small windows for LLM
-   workflows so the CLI can rank evidence before anything reaches the model.
+   runbooks so the CLI can rank evidence before anything reaches the model.
+
+## IAM Policy Requirements
+
+To allow the AI agent running `pg-logstats` to fetch and parse logs from CloudWatch, you must grant the agent's IAM role or user the following minimum permissions:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "AllowReadRDSCloudWatchLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:FilterLogEvents",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams"
+      ],
+      "Resource": "arn:aws:logs:*:*:log-group:/aws/rds/instance/*/postgresql:*"
+    }
+  ]
+}
+```
+
+> [!TIP]
+> Restrict the `Resource` wildcard to specific RDS DB instances to enforce the principle of least privilege.
 
 ## Basic Usage
 
@@ -136,7 +161,7 @@ CloudWatch input defaults auto-detected logs to RDS evidence:
 {"source_kind":"AwsRds","record_index":0}
 ```
 
-## LLM Workflow
+## LLM Runbook
 
 For an LLM or agent, prefer JSON output and small windows:
 

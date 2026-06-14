@@ -1,12 +1,12 @@
 # Slow Query Triage Runbook
 
-This page defines the slow query triage workflow that `pg-logstats` enables for AI agents.
+This page defines the slow query triage runbook that `pg-logstats` enables for AI agents.
 
 As a Database Administrator (DBA), you configure and monitor `pg-logstats` as a secure gateway. This document outlines how agents execute the slow query triage runbook, the diagnostic evidence they gather, the safety policies enforced, and the structured recommendations they hand off to you.
 
 ---
 
-## The Agent Triage Workflow
+## The Agent Triage Runbook
 
 When query latency alerts trigger, the agent automates a three-phase runbook to identify bottleneck queries, check active session lock waits, and inspect execution plans:
 
@@ -80,17 +80,17 @@ Once the agent completes the diagnostic loop, it terminates its live exploration
 ### 1. Create B-Tree Index
 * **Action ID**: `remedial.create_sort_index`
 * **Label**: `DBA Recommendation: Create B-Tree index on sort/group columns`
-* **Workflow**: The agent advises creating a B-Tree index on columns used in `WHERE` filters, `JOIN` conditions, or `ORDER BY` clauses to eliminate sequential scans or dynamic disk sorting.
+* **Runbook**: The agent advises creating a B-Tree index on columns used in `WHERE` filters, `JOIN` conditions, or `ORDER BY` clauses to eliminate sequential scans or dynamic disk sorting.
 
 ### 2. Select Fewer Columns
 * **Action ID**: `remedial.reduce_projection_width`
 * **Label**: `Developer Recommendation: Select fewer columns to narrow row width`
-* **Workflow**: The agent advises developers to avoid `SELECT *` and select only the exact columns required, reducing row width and the memory footprint of sort and join buffers.
+* **Runbook**: The agent advises developers to avoid `SELECT *` and select only the exact columns required, reducing row width and the memory footprint of sort and join buffers.
 
 ### 3. Adjust Session `work_mem` Locally
 * **Action ID**: `remedial.optimize_work_mem`
 * **Label**: `DBA Recommendation: Adjust session work_mem locally`
-* **Workflow**: The agent advises setting a local, session-level memory override (e.g. `SET LOCAL work_mem = '64MB';`) *before* executing the target query, rather than raising the global parameter (which risks memory saturation under concurrency).
+* **Runbook**: The agent advises setting a local, session-level memory override (e.g. `SET LOCAL work_mem = '64MB';`) *before* executing the target query, rather than raising the global parameter (which risks memory saturation under concurrency).
 
 ---
 

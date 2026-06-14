@@ -1,12 +1,12 @@
 # Temporary Files Triage Runbook
 
-This page defines the temporary files triage workflow that `pg-logstats` enables for AI agents. 
+This page defines the temporary files triage runbook that `pg-logstats` enables for AI agents. 
 
 As a Database Administrator (DBA), you configure and monitor `pg-logstats` as a secure gateway. This document outlines how agents execute this specific runbook, the diagnostic evidence they gather, the safety policies enforced, and the structured recommendations they hand off to you.
 
 ---
 
-## The Agent Triage Workflow
+## The Agent Triage Runbook
 
 When database alerts or query latency logs indicate disk pressure from temporary files, the agent automates a three-phase runbook to safely isolate and diagnose the root cause:
 
@@ -75,17 +75,17 @@ Once the agent completes the diagnostic loop and confirms a temp file issue, it 
 ### 1. Create B-Tree Index
 * **Action ID**: `remedial.create_sort_index`
 * **Label**: `DBA Recommendation: Create B-Tree index on sort/group columns`
-* **Workflow**: The agent advises creating a B-Tree index on the sorting (`ORDER BY`) or grouping (`GROUP BY`) columns. This allows PostgreSQL to scan the index in-order, completely avoiding the dynamic sort node and reducing temp file writes to **0 bytes**.
+* **Runbook**: The agent advises creating a B-Tree index on the sorting (`ORDER BY`) or grouping (`GROUP BY`) columns. This allows PostgreSQL to scan the index in-order, completely avoiding the dynamic sort node and reducing temp file writes to **0 bytes**.
 
 ### 2. Select Fewer Columns
 * **Action ID**: `remedial.reduce_projection_width`
 * **Label**: `Developer Recommendation: Select fewer columns to narrow row width`
-* **Workflow**: The agent advises developers to avoid `SELECT *` and retrieve only the exact columns needed. Sorting narrow rows requires significantly less memory, which helps the sort fit entirely within the session's memory buffer.
+* **Runbook**: The agent advises developers to avoid `SELECT *` and retrieve only the exact columns needed. Sorting narrow rows requires significantly less memory, which helps the sort fit entirely within the session's memory buffer.
 
 ### 3. Adjust Session `work_mem` Locally
 * **Action ID**: `remedial.optimize_work_mem`
 * **Label**: `DBA Recommendation: Adjust session work_mem locally`
-* **Workflow**: The agent advises setting a local, session-level memory override (e.g. `SET LOCAL work_mem = '64MB';`) *before* executing this specific query, rather than raising the global `work_mem` parameter (which increases risk of memory saturation/OOMs under high concurrency).
+* **Runbook**: The agent advises setting a local, session-level memory override (e.g. `SET LOCAL work_mem = '64MB';`) *before* executing this specific query, rather than raising the global `work_mem` parameter (which increases risk of memory saturation/OOMs under high concurrency).
 
 ---
 

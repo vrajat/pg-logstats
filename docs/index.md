@@ -1,11 +1,8 @@
 # pg-logstats
 
-**pg-logstats is a PostgreSQL triage gateway that lets agents investigate database incidents through a controlled CLI.**
+**pg-logstats is an agent-first PostgreSQL triage gateway. Instead of granting coding agents arbitrary database access, it provides them with pre-packaged, DBA-approved PostgreSQL runbooks.**
 
-It packages established PostgreSQL runbooks into compact findings, explicit
-next actions, and approved follow-up SQL. The goal is not to replace `pgBadger`
-or `psql` for expert humans. The goal is to give agents a safer and more
-auditable path through first-pass database triage.
+By bundling database triage logic directly into the gateway CLI, `pg-logstats` translates raw log analysis and diagnostic SQL into a sequence of safe, bounded next actions. The agent only supplies the judgement at explicit branch points, while the gateway enforces security, protects database load, and generates an auditable history of the incident.
 
 ## Start Here
 
@@ -29,61 +26,36 @@ If you need Amazon RDS or CloudWatch support:
 cargo install pg-logstats --features aws-sdk
 ```
 
-## What pg-logstats Automates
+## Why DBAs Adopt pg-logstats
 
-`pg-logstats` does not invent new database diagnostics.
+For database administrators, allowing autonomous coding agents to investigate issues requires strict boundaries. `pg-logstats` acts as a secure gateway that protects your database:
 
-It packages known PostgreSQL triage runbooks into a form that an agent can use
-safely:
+- **Zero Arbitrary SQL**: Agents are restricted to a pre-approved menu of read-only diagnostic SQL queries. They cannot execute arbitrary query strings or modify data/schemas.
+- **Proactive Load Protection**: High-overhead actions (such as `EXPLAIN ANALYZE`) are dynamically blocked if the database health verdict degrades under locks or query saturation.
+- **Structured incident Handoffs**: The agent resolves first-pass triage and presents you with structured recommendations (like index creation or local memory adjustments) rather than raw log dumps.
+- **Full Audit Trail**: The gateway logs all agent attempts, parameters, and query results to immutable JSON reports, providing a complete audit record.
 
-- compact ranked findings instead of raw log dumps
-- explicit `next_actions[]` instead of improvised follow-up steps
-- delegated `prompt_user` branches when the operator must decide or add capability
-- built-in approved SQL actions instead of arbitrary SQL
-- explicit stop or escalate behavior when evidence is insufficient
+## Runbook References
 
-The core workflow boundary is:
+These are the primary documentation guides detailing the packaged PostgreSQL triage runbooks that `pg-logstats` automates for agents:
 
-- `pg-logstats` owns the runbook
-- the agent owns the judgement at the branch points
+- [Slow Query Triage](user-guide/top-query-families.md)
+  Triaging slow queries by ranking query families and inspecting execution plans.
+- [Temporary Files Triage](user-guide/temp-files.md)
+  Triaging disk-write pressure from temporary file spills.
 
-If you want to investigate PostgreSQL manually, use `pgBadger`, `psql`, and
-your normal SRE or DBA workflow.
+## Setup And Safety Controls
 
-## Operating Model
+Use these guides to configure `pg-logstats` and audit the safety boundaries of the agent gateway:
 
-- `pg-logstats` is agent-first. AX wins when it conflicts with human CLI UX.
-- `pg-logstats` is the gateway. Agents should not need direct database access.
-- Beta success is `log_backed`. If the required evidence is missing, the honest
-  result is `unready`.
-- The docs are for setup, trust, and auditability, not for teaching manual
-  command-by-command usage.
+- [Inspect and Readiness](user-guide/inspect.md)
+  Readiness probes, workspace configuration, and operating-mode checks.
+- [Investigation Guidance & Policies](runbooks/action-types.md)
+  The `next_actions[]` model, safety verdict matrix, and pre-approved built-in SQL actions catalog.
+- [RDS and CloudWatch Log Input](user-guide/rds-cloudwatch.md)
+  Configuring remote AWS RDS log windows and IAM policy permissions.
 
-## Key References
-
-### Setup And Trust
-
-- [Inspect](user-guide/inspect.md)
-  Current readiness checks, persisted inspect output, and operating-mode
-  reporting.
-- [Investigation Guidance](user-guide/guidance.md)
-  The `next_actions[]` model, delegated `prompt_user` branches, action safety classes, and `run-sql` control path.
-- [RDS and CloudWatch Input](user-guide/rds-cloudwatch.md)
-  How to provide bounded remote PostgreSQL log windows for agent triage.
-
-### Workflow References
-
-These pages are best read as audit and workflow references, not as primary
-human CLI tutorials.
-
-- [Top Query Families](user-guide/top-query-families.md)
-  Slow-query triage workflow and ranking model.
-- [Errors](user-guide/errors.md)
-  Grouped PostgreSQL error triage workflow.
-- [Temporary Files](user-guide/temp-files.md)
-  Temp-file pressure workflow.
-
-### Contributor References
+## Contributor & Developer References
 
 - [Architecture](development/architecture.md)
 - [API Reference](reference/api.md)
