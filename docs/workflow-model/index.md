@@ -18,7 +18,7 @@ The intended loop is:
 4. confirm that the environment is ready
 5. run one bounded triage workflow
 6. review the ranked findings and `next_actions[]`
-7. select one approved next action
+7. either run one approved next action or delegate a `prompt_user` branch
 8. stop or escalate explicitly
 
 This is a bounded investigation path, not a free-form exploration model.
@@ -41,8 +41,10 @@ arbitrary SQL text.
 The agent should:
 
 - read the report
+- inspect `action_type`
 - choose a valid `action_id`
-- invoke `pg-logstats run-sql` with the audit linkage fields
+- invoke `pg-logstats run-sql` only when `action_type = "run_sql"`
+- ask the operator for a decision when `action_type = "prompt_user"`
 
 The product should:
 

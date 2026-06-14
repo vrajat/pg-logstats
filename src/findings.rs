@@ -3,8 +3,9 @@
 use crate::guidance::{build_next_action, evaluate_rule_constraints, GuidancePayload};
 use crate::triage::{
     ActionClass, ActionKind, AnalysisWindow, NextAction, NextActionCommand, NextActionPriority,
-    NextActionStatus, OperatingMode, PgTriageReport, RiskLabel, SourceSummary, SourceSummaryKind,
-    Verdict, PG_TRIAGE_SCHEMA_VERSION,
+    NextActionStatus, NextActionType, OperatingMode, PgTriageReport, PromptUserChoice,
+    PromptUserSurvey, RiskLabel, SourceSummary, SourceSummaryKind, Verdict,
+    PG_TRIAGE_SCHEMA_VERSION,
 };
 use crate::{
     CorrelationConfidence, EventSourceKind, LogEntry, QueryExecution, QueryFamilyIdentity,
@@ -553,6 +554,72 @@ impl GuidancePayload for FindingsPayload {
         }
 
         actions
+    }
+
+    fn supplemental_actions(
+        &self,
+        workflow: ActionKind,
+        operating_mode: OperatingMode,
+        _verdict: Option<Verdict>,
+        _config: &crate::AppConfig,
+    ) -> Vec<NextAction> {
+        if self.findings.is_empty() || operating_mode != OperatingMode::LogBackedOnly {
+            return Vec::new();
+        }
+
+        match workflow {
+            ActionKind::TopQueryFamilies | ActionKind::Errors | ActionKind::TempFiles => {
+                vec![prompt_user_enable_live_follow_up_action()]
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
+fn prompt_user_enable_live_follow_up_action() -> NextAction {
+    NextAction {
+        action_id: "workspace.prompt_user.enable_live_follow_up".to_string(),
+        action_type: NextActionType::PromptUser,
+        kind: ActionKind::Inspect,
+        label: "Enable live follow-up or stop".to_string(),
+        status: NextActionStatus::Allowed,
+        priority: NextActionPriority::Recommended,
+        judgement_required: true,
+        reason: "This investigation ranked historical findings from logs only. Live follow-up requires a configured DSN and a fresh inspect run.".to_string(),
+        target: None,
+        workflow: Some(ActionKind::Inspect),
+        command: None,
+        survey: Some(PromptUserSurvey {
+            question: "How should the investigation proceed?".to_string(),
+            choices: vec![
+                PromptUserChoice {
+                    choice_id: "configure_dsn_and_rerun_inspect".to_string(),
+                    label: "Configure DSN and rerun inspect".to_string(),
+                    description: "Provide database access for this workspace so pg-logstats can unlock live SQL follow-up.".to_string(),
+                    workflow: Some(ActionKind::Inspect),
+                    command: Some(NextActionCommand {
+                        argv: vec!["pg-logstats".to_string(), "inspect".to_string()],
+                    }),
+                },
+                PromptUserChoice {
+                    choice_id: "stop_with_offline_findings".to_string(),
+                    label: "Stop with offline findings".to_string(),
+                    description: "End the investigation after offline log triage without enabling live database access.".to_string(),
+                    workflow: Some(ActionKind::Stop),
+                    command: None,
+                },
+            ],
+        }),
+        sql_preview: None,
+        parameters: None,
+        risk: None,
+        action_class: None,
+        required_identifiers: None,
+        requires: Some(vec!["database_dsn".to_string()]),
+        produces: Some(vec![
+            "workflow:inspect".to_string(),
+            "capability:live_follow_up".to_string(),
+        ]),
     }
 }
 

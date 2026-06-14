@@ -154,10 +154,15 @@ impl LogInputArgs {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Investigation-oriented top findings
-    Top {
-        #[clap(subcommand)]
-        command: TopCommand,
+    /// Rank query families by total runtime in one log window
+    #[clap(name = "query-families")]
+    QueryFamilies {
+        /// Maximum number of query-family findings to emit
+        #[clap(long, default_value_t = 10)]
+        limit: usize,
+
+        #[clap(flatten)]
+        input: LogInputArgs,
     },
     /// Inspect the environment and determine the supported operating mode
     Inspect {
@@ -219,19 +224,6 @@ enum AgentCommand {
         /// Dry run, print intended writes without modifying files
         #[clap(long)]
         dry_run: bool,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-enum TopCommand {
-    /// Rank query families by total runtime in one log window
-    QueryFamilies {
-        /// Maximum number of query-family findings to emit
-        #[clap(long, default_value_t = 10)]
-        limit: usize,
-
-        #[clap(flatten)]
-        input: LogInputArgs,
     },
 }
 
@@ -342,7 +334,9 @@ fn run_command(
     inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
     match &args.command {
-        Command::Top { .. } => run_top_query_families_command(args, parser, config, inspect_report),
+        Command::QueryFamilies { .. } => {
+            run_top_query_families_command(args, parser, config, inspect_report)
+        }
         Command::Inspect { input } => {
             let cloudwatch_input = input.uses_cloudwatch().then(|| input.cloudwatch_input());
             let report = inspect(
@@ -453,11 +447,9 @@ fn run_top_query_families_command(
     config: &pg_logstats::AppConfig,
     inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
-    let Command::Top {
-        command: TopCommand::QueryFamilies { limit, input },
-    } = &args.command
-    else {
-        unreachable!();
+    let (limit, input) = match &args.command {
+        Command::QueryFamilies { limit, input } => (limit, input),
+        _ => unreachable!(),
     };
 
     require_log_backed_mode(inspect_report)?;
@@ -503,8 +495,8 @@ fn run_slow_queries_diff_command(
         return Err(PgLogstatsError::Configuration {
             message: concat!(
                 "`pg-logstats slow-queries` is not the first slow-query triage step.\n",
-                "Run `pg-logstats inspect --output-format json /path/to/postgresql.log` first.\n",
-                "Then run `pg-logstats top query-families --output-format json /path/to/postgresql.log` for single-window slow-query triage.\n",
+                "Run `pg-logstats inspect /path/to/postgresql.log` first.\n",
+                "Then run `pg-logstats query-families /path/to/postgresql.log` for single-window slow-query triage.\n",
                 "Use `pg-logstats slow-queries diff --baseline ... --target ...` only when you already have explicit baseline and target log windows."
             )
             .to_string(),
@@ -534,9 +526,7 @@ fn run_slow_queries_diff_command(
 
 fn validate_arguments(args: &Arguments) -> Result<()> {
     match &args.command {
-        Command::Top {
-            command: TopCommand::QueryFamilies { input, .. },
-        } => validate_log_input_args(input)?,
+        Command::QueryFamilies { input, .. } => validate_log_input_args(input)?,
         Command::Inspect { input, .. } => validate_log_input_args(input)?,
         Command::SlowQueries {
             command: Some(SlowQueriesCommand::Diff { sample_size, .. }),

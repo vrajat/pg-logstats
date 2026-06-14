@@ -1,6 +1,6 @@
-# `pg-logstats top query-families`
+# `pg-logstats query-families`
 
-`pg-logstats top query-families` ranks PostgreSQL query families inside one
+`pg-logstats query-families` ranks PostgreSQL query families inside one
 bounded historical log window.
 
 ## Supported Mode
@@ -58,6 +58,27 @@ Today this workflow is implemented for parser-supported PostgreSQL text logs:
 
 - local PostgreSQL stderr logs
 - AWS RDS PostgreSQL logs in the supported text shape
+
+## What Comes Next
+
+`pg-logstats query-families` is often the honest endpoint of offline slow-query
+triage.
+
+When the workspace is `log_backed_only`, the report may rank the suspicious
+query families correctly but still be unable to run live follow-up SQL. In that
+case the workflow emits a delegated `prompt_user` next action rather than
+pretending `run-sql` is available.
+
+The standard operator choices are:
+
+- configure a DSN for the workspace and rerun `pg-logstats inspect`
+- stop with offline findings only
+
+That means:
+
+- `query-families` ranks the historical window
+- `inspect` is rerun only after the operator chooses to enable live access
+- `run-sql` appears only after `inspect` reports a live-capable mode honestly
 
 ## Attribution
 

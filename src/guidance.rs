@@ -4,7 +4,7 @@ use crate::config::AppConfig;
 use crate::findings::FindingKind;
 use crate::triage::{
     ActionClass, ActionKind, NextAction, NextActionCommand, NextActionPriority, NextActionStatus,
-    OperatingMode, PgTriageReport, RiskLabel, Verdict,
+    NextActionType, OperatingMode, PgTriageReport, RiskLabel, Verdict,
 };
 use serde::{Deserialize, Serialize};
 
@@ -126,6 +126,17 @@ pub trait GuidancePayload {
         verdict: Option<Verdict>,
         config: &AppConfig,
     ) -> Vec<NextAction>;
+
+    /// Emits report-level next actions that are not tied to a single finding.
+    fn supplemental_actions(
+        &self,
+        _workflow: ActionKind,
+        _operating_mode: OperatingMode,
+        _verdict: Option<Verdict>,
+        _config: &AppConfig,
+    ) -> Vec<NextAction> {
+        Vec::new()
+    }
 }
 
 impl GuidancePayload for serde_json::Value {
@@ -254,6 +265,11 @@ pub fn build_next_action(
 
     NextAction {
         action_id,
+        action_type: match rule.kind {
+            ActionKind::RunSql => NextActionType::RunSql,
+            ActionKind::Stop => NextActionType::Stop,
+            _ => NextActionType::RunWorkflow,
+        },
         kind: rule.kind,
         label: rule.label.clone(),
         status,
@@ -263,6 +279,7 @@ pub fn build_next_action(
         target,
         workflow: rule.destination_workflow,
         command,
+        survey: None,
         sql_preview,
         parameters: None,
         risk: rule.risk,
@@ -294,10 +311,19 @@ pub fn populate_next_actions<T: GuidancePayload>(
     report: &mut PgTriageReport<T>,
     config: &AppConfig,
 ) {
-    report.next_actions =
-        report
-            .payload
-            .evaluate_rules(report.operating_mode, report.verdict, config);
+    let mut next_actions: Vec<_> = report
+        .payload
+        .evaluate_rules(report.operating_mode, report.verdict, config)
+        .into_iter()
+        .filter(|action| action.status == NextActionStatus::Allowed)
+        .collect();
+    next_actions.extend(report.payload.supplemental_actions(
+        report.workflow,
+        report.operating_mode,
+        report.verdict,
+        config,
+    ));
+    report.next_actions = next_actions;
 }
 
 pub fn running_query_rules() -> Vec<RuleDefinition> {
@@ -352,7 +378,9 @@ pub fn escape_sql_literal(s: &str) -> String {
 mod tests {
     use super::*;
     use crate::inspect::{AgentInspect, AgentTargetInspect, DatabaseInspect, InspectReportPayload};
-    use crate::triage::{CheckStatus, NextActionStatus};
+    use crate::triage::{
+        ActionKind, CheckStatus, NextActionStatus, PgTriageReport, PG_TRIAGE_SCHEMA_VERSION,
+    };
 
     #[test]
     fn test_inspect_rules_recommends_top_query_families_when_log_backed_and_live() {
@@ -440,6 +468,64 @@ mod tests {
             .find(|a| a.action_id == "inspect.running_queries")
             .unwrap();
         assert_eq!(running_queries_act.status, NextActionStatus::BlockedByMode);
+    }
+
+    #[test]
+    fn test_populate_next_actions_keeps_only_allowed_actions() {
+        let payload = InspectReportPayload {
+            database_inspect: DatabaseInspect {
+                mode_candidate: OperatingMode::LogBackedOnly,
+                checks: std::collections::BTreeMap::new(),
+            },
+            agent_inspect: AgentInspect {
+                active_harness: Some("codex".to_string()),
+                codex: AgentTargetInspect {
+                    status: CheckStatus::Passed,
+                    installed: true,
+                    install_location: String::new(),
+                },
+                claude: AgentTargetInspect {
+                    status: CheckStatus::Passed,
+                    installed: true,
+                    install_location: String::new(),
+                },
+                gemini: AgentTargetInspect {
+                    status: CheckStatus::Passed,
+                    installed: true,
+                    install_location: String::new(),
+                },
+            },
+            required_checks: Vec::new(),
+            failed_checks: Vec::new(),
+        };
+
+        let mut report = PgTriageReport {
+            schema_version: PG_TRIAGE_SCHEMA_VERSION,
+            workflow: ActionKind::Inspect,
+            operating_mode: OperatingMode::LogBackedOnly,
+            limitations: Vec::new(),
+            verdict: None,
+            verdict_reasons: Vec::new(),
+            allowed_actions: None,
+            blocked_actions: None,
+            analysis_window: None,
+            source_summary: None,
+            next_actions: Vec::new(),
+            report_id: None,
+            parent_report_id: None,
+            selected_action_id: None,
+            created_at: None,
+            payload,
+        };
+
+        populate_next_actions(&mut report, &AppConfig::default());
+
+        assert_eq!(report.next_actions.len(), 1);
+        assert_eq!(
+            report.next_actions[0].action_id,
+            "inspect.top_query_families"
+        );
+        assert_eq!(report.next_actions[0].status, NextActionStatus::Allowed);
     }
 
     #[test]

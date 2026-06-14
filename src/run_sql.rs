@@ -180,6 +180,16 @@ pub fn execute_run_sql(
         });
     }
 
+    if action.kind != ActionKind::RunSql {
+        return Err(PgLogstatsError::Configuration {
+            message: format!(
+                "Action '{}' is not a SQL action. Use the action according to its type instead of `pg-logstats run-sql`.",
+                selected_action_id
+            ),
+            field: Some("action_id".to_string()),
+        });
+    }
+
     let prepared = match base_report.workflow {
         ActionKind::TopQueryFamilies | ActionKind::Errors | ActionKind::TempFiles => {
             let report: PgTriageReport<FindingsPayload> =
@@ -548,7 +558,7 @@ mod tests {
     use crate::findings::{
         Finding, FindingConfidence, FindingKind, FindingMetrics, QueryFamilyFinding, ReasonCode,
     };
-    use crate::triage::{NextAction, NextActionPriority};
+    use crate::triage::{NextAction, NextActionPriority, NextActionType};
 
     fn selected_query_family_action(action_id: &str) -> SelectedQueryFamilyAction {
         SelectedQueryFamilyAction {
@@ -574,6 +584,7 @@ mod tests {
             },
             action: NextAction {
                 action_id: action_id.to_string(),
+                action_type: NextActionType::RunSql,
                 kind: ActionKind::RunSql,
                 label: "test".to_string(),
                 status: NextActionStatus::Allowed,
@@ -583,6 +594,7 @@ mod tests {
                 target: Some("query_family:demo".to_string()),
                 workflow: Some(ActionKind::RunSql),
                 command: None,
+                survey: None,
                 sql_preview: None,
                 parameters: None,
                 risk: None,

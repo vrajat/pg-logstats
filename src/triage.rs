@@ -129,6 +129,20 @@ pub enum NextActionPriority {
     Optional,
 }
 
+/// The interaction model required to advance a next action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NextActionType {
+    /// A CLI workflow the agent can run directly.
+    RunWorkflow,
+    /// A bounded SQL follow-up the agent can run directly.
+    RunSql,
+    /// A structured decision the agent must delegate to the operator.
+    PromptUser,
+    /// A terminal action that ends the investigation branch.
+    Stop,
+}
+
 /// Arguments to invoke a command.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NextActionCommand {
@@ -136,11 +150,39 @@ pub struct NextActionCommand {
     pub argv: Vec<String>,
 }
 
+/// One operator choice for a delegated survey-style next action.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PromptUserChoice {
+    /// Stable identifier for the operator choice.
+    pub choice_id: String,
+    /// Human-readable label shown to the operator.
+    pub label: String,
+    /// Short explanation of the choice and its consequence.
+    pub description: String,
+    /// Follow-up workflow that should run if this choice is selected.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub workflow: Option<ActionKind>,
+    /// Follow-up command template for the agent, when applicable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<NextActionCommand>,
+}
+
+/// Structured operator survey for prompt-user next actions.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PromptUserSurvey {
+    /// The question the agent should present to the operator.
+    pub question: String,
+    /// The supported operator choices.
+    pub choices: Vec<PromptUserChoice>,
+}
+
 /// A recommended next diagnostic action.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct NextAction {
     /// The unique identifier of the action.
     pub action_id: String,
+    /// The interaction type required to advance this action.
+    pub action_type: NextActionType,
     /// The kind/type of action.
     pub kind: ActionKind,
     /// Descriptive label shown to the user.
@@ -163,6 +205,9 @@ pub struct NextAction {
     /// The CLI command template to run the action.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<NextActionCommand>,
+    /// Structured operator survey for delegated decisions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub survey: Option<PromptUserSurvey>,
     /// Pre-generated SQL statement preview for reference.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sql_preview: Option<String>,
@@ -453,6 +498,58 @@ mod tests {
             value["payload"]["findings"][0]["finding_id"],
             "query_family:demo"
         );
+    }
+
+    #[test]
+    fn top_query_families_offline_adds_prompt_user_follow_up() {
+        let mut report = crate::findings::top_query_families_report(
+            sample_findings(),
+            &sample_entries(),
+            EventSourceKind::Stderr,
+        );
+
+        crate::populate_next_actions(&mut report, &AppConfig::default());
+
+        let action = report
+            .next_actions
+            .iter()
+            .find(|action| action.action_id == "workspace.prompt_user.enable_live_follow_up")
+            .unwrap();
+        assert_eq!(action.action_type, NextActionType::PromptUser);
+        assert_eq!(action.kind, ActionKind::Inspect);
+        assert_eq!(action.status, NextActionStatus::Allowed);
+        assert_eq!(
+            action
+                .survey
+                .as_ref()
+                .unwrap()
+                .choices
+                .first()
+                .unwrap()
+                .command
+                .as_ref()
+                .unwrap()
+                .argv,
+            vec!["pg-logstats", "inspect"]
+        );
+    }
+
+    #[test]
+    fn top_query_families_live_omits_prompt_user_follow_up() {
+        let mut report = crate::findings::top_query_families_report(
+            sample_findings(),
+            &sample_entries(),
+            EventSourceKind::Stderr,
+        );
+        report.operating_mode = OperatingMode::LogBackedAndLive;
+        report.verdict = Some(Verdict::Clear);
+
+        crate::populate_next_actions(&mut report, &AppConfig::default());
+
+        assert!(report
+            .next_actions
+            .iter()
+            .all(|action| action.action_type != NextActionType::PromptUser));
     }
 
     #[test]

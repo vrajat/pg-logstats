@@ -34,14 +34,7 @@ Install the agent guidance. `codex` is the first-class target harness:
 ```bash
 pg-logstats agent install --harness codex
 pg-logstats agent install --harness codex --status
-```
-
-Verify the environment before the agent starts investigating:
-
-```bash
-pg-logstats inspect \
-  --output-format json \
-  /path/to/postgresql.log
+pg-logstats inspect /path/to/postgresql.log
 ```
 
 If you want to preview the agent guidance install without writing files:
@@ -57,9 +50,10 @@ pg-logstats agent install --harness codex --dry-run
 3. The agent runs `inspect`.
 4. If the environment is ready, the agent runs one bounded triage workflow.
 5. The report returns compact findings plus `next_actions[]`.
-6. If a follow-up SQL action is allowed, the agent selects an `action_id`.
-7. `pg-logstats run-sql` executes only the built-in approved action.
-8. The agent stops or escalates when the workflow says to stop.
+6. The agent checks `action_type` on each next action.
+7. `pg-logstats run-sql` executes only built-in approved actions with `action_type = "run_sql"`.
+8. Delegated branches like "configure DSN and rerun inspect" are `prompt_user` actions, not SQL actions.
+9. The agent stops or escalates when the workflow says to stop.
 
 This is not a free-form exploration loop.
 
@@ -103,8 +97,7 @@ Then the agent or operator can inspect a bounded RDS log window through:
 ```bash
 pg-logstats inspect \
   --rds-instance my-db \
-  --since 1h \
-  --output-format json
+  --since 1h
 ```
 
 ## What The Human Docs Are For

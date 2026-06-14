@@ -363,10 +363,7 @@ pub fn inspect_rules() -> Vec<RuleDefinition> {
             action_class: None,
             command_template: Some(vec![
                 "pg-logstats".to_string(),
-                "top".to_string(),
                 "query-families".to_string(),
-                "--output-format".to_string(),
-                "json".to_string(),
             ]),
             sql_template: None,
             required_operating_mode: Some(OperatingMode::LogBackedOnly),
@@ -389,8 +386,6 @@ pub fn inspect_rules() -> Vec<RuleDefinition> {
             command_template: Some(vec![
                 "pg-logstats".to_string(),
                 "running-queries".to_string(),
-                "--output-format".to_string(),
-                "json".to_string(),
             ]),
             sql_template: None,
             required_operating_mode: Some(OperatingMode::LiveOnly),

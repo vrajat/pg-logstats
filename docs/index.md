@@ -20,7 +20,7 @@ Minimal setup flow:
 cargo install pg-logstats
 pg-logstats agent install --harness codex
 pg-logstats agent install --harness codex --status
-pg-logstats inspect --output-format json /path/to/postgresql.log
+pg-logstats inspect /path/to/postgresql.log
 ```
 
 If you need Amazon RDS or CloudWatch support:
@@ -38,6 +38,7 @@ safely:
 
 - compact ranked findings instead of raw log dumps
 - explicit `next_actions[]` instead of improvised follow-up steps
+- delegated `prompt_user` branches when the operator must decide or add capability
 - built-in approved SQL actions instead of arbitrary SQL
 - explicit stop or escalate behavior when evidence is insufficient
 
@@ -66,7 +67,7 @@ your normal SRE or DBA workflow.
   Current readiness checks, persisted inspect output, and operating-mode
   reporting.
 - [Investigation Guidance](user-guide/guidance.md)
-  The `next_actions[]` model, action safety classes, and `run-sql` control path.
+  The `next_actions[]` model, delegated `prompt_user` branches, action safety classes, and `run-sql` control path.
 - [RDS and CloudWatch Input](user-guide/rds-cloudwatch.md)
   How to provide bounded remote PostgreSQL log windows for agent triage.
 
