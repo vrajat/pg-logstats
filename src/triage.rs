@@ -333,19 +333,130 @@ pub fn workflow_slug(workflow: ActionKind) -> &'static str {
     }
 }
 
+fn push_temp_file_remedial_actions(actions: &mut Vec<NextAction>, target_id: Option<String>) {
+    // 1. Indexing optimization
+    actions.push(NextAction {
+        action_id: "remedial.create_sort_index".to_string(),
+        action_type: NextActionType::Stop,
+        label: "DBA Recommendation: Create B-Tree index on sort/group columns".to_string(),
+        status: NextActionStatus::Allowed,
+        priority: NextActionPriority::Recommended,
+        judgement_required: false,
+        reason: "Create a B-Tree index on the sorting (ORDER BY) or grouping (GROUP BY) columns. This allows PostgreSQL to retrieve rows in-order using an Index Scan, completely avoiding the sort/hash step and using 0 bytes of temp files.".to_string(),
+        target_id: target_id.clone(),
+        command: None,
+        survey: None,
+        parameters: None,
+        risk: None,
+        action_class: None,
+    });
+
+    // 2. Select list / row width optimization
+    actions.push(NextAction {
+        action_id: "remedial.reduce_projection_width".to_string(),
+        action_type: NextActionType::Stop,
+        label: "Developer Recommendation: Select fewer columns to narrow row width".to_string(),
+        status: NextActionStatus::Allowed,
+        priority: NextActionPriority::Recommended,
+        judgement_required: false,
+        reason: "Avoid 'SELECT *' and select only the exact columns needed. Sorting narrow rows requires significantly less memory, which helps the sort fit entirely in memory without spilling to disk.".to_string(),
+        target_id: target_id.clone(),
+        command: None,
+        survey: None,
+        parameters: None,
+        risk: None,
+        action_class: None,
+    });
+
+    // 3. work_mem memory tuning
+    actions.push(NextAction {
+        action_id: "remedial.optimize_work_mem".to_string(),
+        action_type: NextActionType::Stop,
+        label: "DBA Recommendation: Adjust session work_mem locally".to_string(),
+        status: NextActionStatus::Allowed,
+        priority: NextActionPriority::Recommended,
+        judgement_required: false,
+        reason: "Set local/session-level work_mem before query execution (e.g. SET LOCAL work_mem = '64MB';). Avoid raising the global work_mem globally unless absolutely necessary, to prevent memory saturation/OOMs under high concurrency.".to_string(),
+        target_id,
+        command: None,
+        survey: None,
+        parameters: None,
+        risk: None,
+        action_class: None,
+    });
+}
+
 impl GuidancePayload for SqlActionPayload {
     fn evaluate_rules(
         &self,
-        _operating_mode: OperatingMode,
+        operating_mode: OperatingMode,
         _verdict: Option<Verdict>,
         _config: &crate::AppConfig,
     ) -> Vec<NextAction> {
-        vec![NextAction {
+        let mut actions = Vec::new();
+        let rule_id = self.action_id.split(':').next().unwrap_or(&self.action_id);
+
+        if rule_id == "temp_file.pg_stat_database.temp_counters" {
+            let temp_files_detected = self
+                .insights
+                .iter()
+                .any(|i| i.insight_id == "temp_files_volume_detected");
+            if temp_files_detected {
+                // 1. Suggest checking pg_stat_statements temp block usage next
+                actions.push(NextAction {
+                    action_id: "temp_file.pg_stat_statements.temp_blocks".to_string(),
+                    action_type: NextActionType::RunSql,
+                    label: "Check pg_stat_statements temp block activity".to_string(),
+                    status: if operating_mode == OperatingMode::LiveOnly || operating_mode == OperatingMode::LogBackedAndLive {
+                        NextActionStatus::Allowed
+                    } else {
+                        NextActionStatus::BlockedByMode
+                    },
+                    priority: NextActionPriority::Recommended,
+                    judgement_required: true,
+                    reason: "Database-level temp file usage is high. Run this next to identify the exact queries writing temporary blocks in pg_stat_statements.".to_string(),
+                    target_id: self.source_finding_id.clone(),
+                    command: None,
+                    survey: None,
+                    parameters: None,
+                    risk: Some(RiskLabel::Safe),
+                    action_class: Some(ActionClass::StatsViewReads),
+                });
+
+                // Recommend temp file remedial actions
+                push_temp_file_remedial_actions(&mut actions, self.source_finding_id.clone());
+            }
+        } else if rule_id == "temp_file.pg_stat_statements.temp_blocks" {
+            let temp_blocks_detected = self
+                .insights
+                .iter()
+                .any(|i| i.insight_id == "statements_writing_temp_blocks");
+            if temp_blocks_detected {
+                // Recommend temp file remedial actions
+                push_temp_file_remedial_actions(&mut actions, self.source_finding_id.clone());
+            }
+        } else if rule_id == "query_family.explain"
+            || rule_id == "temp_file.explain"
+            || rule_id == "query_family.explain_analyze"
+            || rule_id == "temp_file.explain_analyze"
+        {
+            let plan_disk_spill = self.insights.iter().any(|i| {
+                i.insight_id == "query_plan_disk_spill_detected"
+                    || i.insight_id == "explain_analyze_temp_buffers"
+            });
+            if plan_disk_spill {
+                // Recommend temp file remedial actions
+                push_temp_file_remedial_actions(&mut actions, self.source_finding_id.clone());
+            }
+        }
+
+        // Always include the stop/conclude action
+        actions.push(NextAction {
             action_id: "run_sql.stop.with_insight".to_string(),
             action_type: NextActionType::Stop,
             label: "Conclude live follow-up".to_string(),
             status: NextActionStatus::Allowed,
-            priority: NextActionPriority::Recommended,
+            priority: if actions.is_empty() { NextActionPriority::Recommended } else { NextActionPriority::Optional },
             judgement_required: true,
             reason: if self.insights.is_empty() {
                 "No strong bounded insight was inferred from this SQL result. Use the returned rows together with the parent finding to stop or escalate outside this branch.".to_string()
@@ -358,7 +469,9 @@ impl GuidancePayload for SqlActionPayload {
             parameters: None,
             risk: None,
             action_class: None,
-        }]
+        });
+
+        actions
     }
 }
 
@@ -438,7 +551,7 @@ mod tests {
     use crate::AppConfig;
     use crate::{
         Finding, FindingConfidence, FindingKind, FindingMetrics, FindingSet, FindingsPayload,
-        LogEntry, QueryFamilyFinding, ReasonCode, SourceReference,
+        LogEntry, QueryFamilyFinding, ReasonCode, SourceReference, TempFileFinding,
     };
     use chrono::{TimeZone, Utc};
 
@@ -654,5 +767,87 @@ mod tests {
             .unwrap();
         assert_eq!(activity.action_type, NextActionType::RunSql);
         assert_eq!(activity.target_id.as_deref(), Some("demo"));
+    }
+
+    #[test]
+    fn query_family_rules_emit_explain_actions() {
+        let payload = sample_report_payload();
+
+        let actions = payload.evaluate_rules(
+            OperatingMode::LogBackedAndLive,
+            Some(Verdict::Clear),
+            &AppConfig::default(),
+        );
+
+        let explain = actions
+            .iter()
+            .find(|a| a.action_id == "query_family.explain:demo")
+            .unwrap();
+        assert_eq!(explain.status, NextActionStatus::Allowed);
+        assert_eq!(explain.action_type, NextActionType::RunSql);
+        assert_eq!(
+            explain.action_class,
+            Some(ActionClass::ExplainWithoutAnalyze)
+        );
+
+        let explain_analyze = actions
+            .iter()
+            .find(|a| a.action_id == "query_family.explain_analyze:demo")
+            .unwrap();
+        assert_eq!(explain_analyze.status, NextActionStatus::BlockedByVerdict);
+        assert_eq!(explain_analyze.action_type, NextActionType::RunSql);
+        assert_eq!(
+            explain_analyze.action_class,
+            Some(ActionClass::ExplainAnalyze)
+        );
+    }
+
+    #[test]
+    fn temp_file_rules_emit_explain_actions() {
+        let mut findings = sample_findings();
+        findings.findings[0].kind = FindingKind::TempFile;
+        findings.findings[0].query_family = None;
+        findings.findings[0].temp_file = Some(TempFileFinding {
+            query_family_id: Some("demo".to_string()),
+            normalized_sql: Some("SELECT 1".to_string()),
+            database: Some("appdb".to_string()),
+            user: Some("app".to_string()),
+            application_name: Some("api".to_string()),
+            largest_observed_bytes: 5000000,
+            temp_file_count: 1,
+            total_bytes: 5000000,
+        });
+
+        let payload = FindingsPayload {
+            findings: findings.findings,
+        };
+
+        let actions = payload.evaluate_rules(
+            OperatingMode::LogBackedAndLive,
+            Some(Verdict::Clear),
+            &AppConfig::default(),
+        );
+
+        let explain = actions
+            .iter()
+            .find(|a| a.action_id == "temp_file.explain:demo")
+            .unwrap();
+        assert_eq!(explain.status, NextActionStatus::Allowed);
+        assert_eq!(explain.action_type, NextActionType::RunSql);
+        assert_eq!(
+            explain.action_class,
+            Some(ActionClass::ExplainWithoutAnalyze)
+        );
+
+        let explain_analyze = actions
+            .iter()
+            .find(|a| a.action_id == "temp_file.explain_analyze:demo")
+            .unwrap();
+        assert_eq!(explain_analyze.status, NextActionStatus::BlockedByVerdict);
+        assert_eq!(explain_analyze.action_type, NextActionType::RunSql);
+        assert_eq!(
+            explain_analyze.action_class,
+            Some(ActionClass::ExplainAnalyze)
+        );
     }
 }
