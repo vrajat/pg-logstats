@@ -64,7 +64,8 @@ impl ReportStore {
             });
         }
 
-        let content = serde_json::to_string_pretty(report).map_err(PgLogstatsError::Serialization)?;
+        let content =
+            serde_json::to_string_pretty(report).map_err(PgLogstatsError::Serialization)?;
         fs::write(&report_path, content)?;
 
         Ok(report_path)
@@ -106,10 +107,10 @@ impl ReportStore {
         let raw_content = fs::read_to_string(&path)?;
         let parsed: ReportBase =
             serde_json::from_str(&raw_content).map_err(PgLogstatsError::Serialization)?;
-        let report_id = parsed
-            .report_id
-            .clone()
-            .or_else(|| path.file_stem().map(|stem| stem.to_string_lossy().into_owned()));
+        let report_id = parsed.report_id.clone().or_else(|| {
+            path.file_stem()
+                .map(|stem| stem.to_string_lossy().into_owned())
+        });
 
         Ok(LoadedReportBase {
             path,
@@ -169,7 +170,9 @@ mod tests {
             parent_report_id: None,
             selected_action_id: None,
             created_at: None,
-            payload: FindingsPayload { findings: Vec::new() },
+            payload: FindingsPayload {
+                findings: Vec::new(),
+            },
         }
     }
 

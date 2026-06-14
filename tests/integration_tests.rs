@@ -602,9 +602,7 @@ fn test_slow_queries_without_subcommand_requires_inspect_first() {
         .arg("slow-queries")
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "Run `pg-logstats inspect` first",
-        ));
+        .stderr(predicate::str::contains("Run `pg-logstats inspect` first"));
 }
 
 #[test]
@@ -643,9 +641,9 @@ fn test_slow_queries_without_subcommand_points_to_canonical_first_steps_after_in
         .stderr(predicate::str::contains(
             "pg-logstats slow-queries diff --baseline ... --target ...",
         ))
-        .stderr(predicate::str::contains(
-            "Usage: pg-logstats slow-queries [OPTIONS] <COMMAND>",
-        ).not());
+        .stderr(
+            predicate::str::contains("Usage: pg-logstats slow-queries [OPTIONS] <COMMAND>").not(),
+        );
 }
 
 #[test]
@@ -752,7 +750,11 @@ fn test_run_action_unknown_or_blocked() {
     with_log_backed_and_live_inspect(&mut run_act_cmd, temp_dir.path());
     run_act_cmd
         .arg("--triage-report")
-        .arg(only_persisted_report_path(temp_dir.path()).to_str().unwrap())
+        .arg(
+            only_persisted_report_path(temp_dir.path())
+                .to_str()
+                .unwrap(),
+        )
         .arg("--action-id")
         .arg("nonexistent_action_id")
         .arg("run-sql")
@@ -1103,9 +1105,7 @@ fn test_run_sql_requires_triage_report_and_action_id_after_inspect() {
         .arg("run-sql")
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "run-sql requires --triage-report",
-        ));
+        .stderr(predicate::str::contains("run-sql requires --triage-report"));
 }
 
 #[test]

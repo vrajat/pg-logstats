@@ -484,10 +484,7 @@ fn run_slow_queries_diff_command(
     _config: &pg_logstats::AppConfig,
     inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
-    let Command::SlowQueries {
-        command,
-    } = &args.command
-    else {
+    let Command::SlowQueries { command } = &args.command else {
         unreachable!();
     };
 
@@ -675,7 +672,10 @@ fn persist_workspace_report<T: serde::Serialize>(
 fn load_startup_inspect_report(
     args: &Arguments,
 ) -> Result<Option<PgTriageReport<InspectReportPayload>>> {
-    if matches!(args.command, Command::Inspect { .. } | Command::Agent { .. }) {
+    if matches!(
+        args.command,
+        Command::Inspect { .. } | Command::Agent { .. }
+    ) {
         return Ok(None);
     }
 
@@ -738,9 +738,7 @@ fn require_log_backed_mode(
     Ok(())
 }
 
-fn require_ready_mode(
-    inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
-) -> Result<()> {
+fn require_ready_mode(inspect_report: Option<&PgTriageReport<InspectReportPayload>>) -> Result<()> {
     let Some(report) = inspect_report else {
         return Err(PgLogstatsError::Configuration {
             message: "Inspect output is required before running this command.".to_string(),
@@ -772,17 +770,20 @@ fn run_sql_command(
 
     let workspace = resolve_workspace_path(args.workspace.as_deref())?;
     let parsed_parameters: Vec<ActionParameterInput> = parse_action_parameters(parameters)?;
-    let triage_report = args
-        .triage_report
+    let triage_report =
+        args.triage_report
+            .as_deref()
+            .ok_or_else(|| PgLogstatsError::Configuration {
+                message: "run-sql requires --triage-report".to_string(),
+                field: Some("triage_report".to_string()),
+            })?;
+    let action_id = args
+        .action_id
         .as_deref()
         .ok_or_else(|| PgLogstatsError::Configuration {
-            message: "run-sql requires --triage-report".to_string(),
-            field: Some("triage_report".to_string()),
+            message: "run-sql requires --action-id".to_string(),
+            field: Some("action_id".to_string()),
         })?;
-    let action_id = args.action_id.as_deref().ok_or_else(|| PgLogstatsError::Configuration {
-        message: "run-sql requires --action-id".to_string(),
-        field: Some("action_id".to_string()),
-    })?;
     let parent_report = ReportStore::new(&workspace).load_report_base(triage_report)?;
     let mut sql_report = execute_run_sql(
         &RunSqlRequest {
