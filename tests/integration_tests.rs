@@ -382,10 +382,6 @@ fn test_top_query_families_can_follow_persisted_inspect_output() {
         json["next_actions"][0]["action_id"],
         "workspace.prompt_user.enable_live_follow_up"
     );
-    assert_eq!(
-        json["next_actions"][0]["requires"],
-        serde_json::json!(["database_dsn", "inspect_rerun"])
-    );
     assert!(json["next_actions"][0]["reason"]
         .as_str()
         .unwrap()

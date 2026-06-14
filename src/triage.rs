@@ -183,8 +183,6 @@ pub struct NextAction {
     pub action_id: String,
     /// The interaction type required to advance this action.
     pub action_type: NextActionType,
-    /// The kind/type of action.
-    pub kind: ActionKind,
     /// Descriptive label shown to the user.
     pub label: String,
     /// Current execution/policy status.
@@ -198,19 +196,13 @@ pub struct NextAction {
 
     /// The target identifier (like a query family ID) if applicable.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub target: Option<String>,
-    /// The destination workflow of this action.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub workflow: Option<ActionKind>,
+    pub target_id: Option<String>,
     /// The CLI command template to run the action.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<NextActionCommand>,
     /// Structured operator survey for delegated decisions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub survey: Option<PromptUserSurvey>,
-    /// Pre-generated SQL statement preview for reference.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sql_preview: Option<String>,
     /// Query or command parameters.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parameters: Option<Vec<String>>,
@@ -220,15 +212,6 @@ pub struct NextAction {
     /// Action classification category.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub action_class: Option<ActionClass>,
-    /// Identifiers required to populate/run this action.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub required_identifiers: Option<Vec<String>>,
-    /// Prerequisites required before executing.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub requires: Option<Vec<String>>,
-    /// Artifacts or context this action produces.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub produces: Option<Vec<String>>,
 }
 
 /// The status of a check.
@@ -357,8 +340,49 @@ impl GuidancePayload for SqlActionPayload {
         _verdict: Option<Verdict>,
         _config: &crate::AppConfig,
     ) -> Vec<NextAction> {
-        vec![]
+        vec![NextAction {
+            action_id: "run_sql.stop.with_insight".to_string(),
+            action_type: NextActionType::Stop,
+            label: "Conclude live follow-up".to_string(),
+            status: NextActionStatus::Allowed,
+            priority: NextActionPriority::Recommended,
+            judgement_required: true,
+            reason: if self.insights.is_empty() {
+                "No strong bounded insight was inferred from this SQL result. Use the returned rows together with the parent finding to stop or escalate outside this branch.".to_string()
+            } else {
+                "Use these bounded live insights to confirm or reject the hypothesis from the parent finding, then stop or escalate outside this branch.".to_string()
+            },
+            target_id: self.source_finding_id.clone(),
+            command: None,
+            survey: None,
+            parameters: None,
+            risk: None,
+            action_class: None,
+        }]
     }
+}
+
+/// Confidence level for a bounded SQL-derived insight.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SqlInsightConfidence {
+    /// High-confidence interpretation from specific fields.
+    High,
+    /// Medium-confidence interpretation from partial evidence.
+    Medium,
+}
+
+/// A bounded interpretation derived from a built-in SQL action result.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SqlActionInsight {
+    /// Stable identifier for the interpreted pattern.
+    pub insight_id: String,
+    /// Short operator-facing summary.
+    pub label: String,
+    /// Confidence for this interpretation.
+    pub confidence: SqlInsightConfidence,
+    /// Evidence-based explanation of the pattern.
+    pub reason: String,
 }
 
 /// Triage payload holding SQL action results.
@@ -368,8 +392,11 @@ pub struct SqlActionPayload {
     pub action_id: String,
     /// The parent report that suggested this action.
     pub source_report_id: Option<String>,
-    /// Executed SQL query.
-    pub sql: String,
+    /// The source finding that this live follow-up was derived from.
+    pub source_finding_id: Option<String>,
+    /// Optional bounded interpretations of the SQL result.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub insights: Vec<SqlActionInsight>,
     /// Total row count returned.
     pub row_count: usize,
     /// Whether the rows were truncated to prevent bloat.
@@ -516,13 +543,8 @@ mod tests {
             .find(|action| action.action_id == "workspace.prompt_user.enable_live_follow_up")
             .unwrap();
         assert_eq!(action.action_type, NextActionType::PromptUser);
-        assert_eq!(action.kind, ActionKind::Inspect);
         assert_eq!(action.status, NextActionStatus::Allowed);
         assert!(action.reason.contains("[database].dsn in config.toml"));
-        assert_eq!(
-            action.requires.as_ref().unwrap(),
-            &vec!["database_dsn".to_string(), "inspect_rerun".to_string()]
-        );
         assert!(action
             .survey
             .as_ref()
@@ -580,11 +602,12 @@ mod tests {
             .unwrap();
         assert_eq!(activity.status, NextActionStatus::Allowed);
         assert_eq!(activity.risk, Some(RiskLabel::Safe));
-        assert!(activity
-            .sql_preview
-            .as_deref()
-            .unwrap()
-            .contains("application_name = 'api'"));
+        assert_eq!(activity.action_type, NextActionType::RunSql);
+        assert_eq!(activity.target_id.as_deref(), Some("demo"));
+        assert_eq!(
+            activity.command.as_ref().unwrap().argv,
+            vec!["pg-logstats", "run-sql"]
+        );
 
         let queryid = actions
             .iter()
@@ -609,11 +632,8 @@ mod tests {
             .find(|a| a.action_id == "query_family.pg_stat_statements.by_queryid:demo")
             .unwrap();
         assert_eq!(queryid.status, NextActionStatus::Allowed);
-        assert!(queryid
-            .sql_preview
-            .as_deref()
-            .unwrap()
-            .contains("WHERE queryid = $1"));
+        assert_eq!(queryid.action_type, NextActionType::RunSql);
+        assert_eq!(queryid.target_id.as_deref(), Some("demo"));
     }
 
     #[test]
@@ -632,10 +652,7 @@ mod tests {
             .iter()
             .find(|a| a.action_id == "query_family.pg_stat_activity.by_dimensions:demo")
             .unwrap();
-        assert!(activity
-            .sql_preview
-            .as_deref()
-            .unwrap()
-            .contains("application_name = 'api''s worker'"));
+        assert_eq!(activity.action_type, NextActionType::RunSql);
+        assert_eq!(activity.target_id.as_deref(), Some("demo"));
     }
 }

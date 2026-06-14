@@ -258,14 +258,14 @@ pub fn evaluate_rule_constraints(
     (status, reason)
 }
 
-/// Helper to instantiate a `NextAction` from a `RuleDefinition` with resolved status, reason, target, command, and sql_preview.
+/// Helper to instantiate a `NextAction` from a `RuleDefinition` with resolved status,
+/// reason, target, and command.
 pub fn build_next_action(
     rule: &RuleDefinition,
     status: NextActionStatus,
     reason: String,
     target: Option<String>,
     command: Option<NextActionCommand>,
-    sql_preview: Option<String>,
 ) -> NextAction {
     let action_id = match &target {
         Some(t) => format!("{}:{}", rule.emitted_action_id, t),
@@ -279,38 +279,17 @@ pub fn build_next_action(
             ActionKind::Stop => NextActionType::Stop,
             _ => NextActionType::RunWorkflow,
         },
-        kind: rule.kind,
         label: rule.label.clone(),
         status,
         priority: rule.priority,
         judgement_required: true,
         reason,
-        target,
-        workflow: rule.destination_workflow,
+        target_id: target,
         command,
         survey: None,
-        sql_preview,
         parameters: None,
         risk: rule.risk,
         action_class: rule.action_class,
-        required_identifiers: if rule.required_identifiers.is_empty() {
-            None
-        } else {
-            Some(rule.required_identifiers.clone())
-        },
-        requires: rule.required_operating_mode.map(|mode| {
-            vec![match mode {
-                OperatingMode::LogBackedAndLive => "operating_mode:log_backed_and_live".to_string(),
-                OperatingMode::LogBackedOnly => "operating_mode:log_backed".to_string(),
-                OperatingMode::LiveOnly => "operating_mode:live_only".to_string(),
-                OperatingMode::Unready => "operating_mode:unready".to_string(),
-            }]
-        }),
-        produces: if rule.produces.is_empty() {
-            None
-        } else {
-            Some(rule.produces.clone())
-        },
     }
 }
 
@@ -381,7 +360,7 @@ fn hydrate_next_action_command(
         return;
     };
 
-    let workflow = action.workflow.or(Some(action.kind));
+    let workflow = infer_workflow_from_command_argv(&command.argv);
     command.argv = hydrate_command_argv(&command.argv, workflow, replay_context);
 }
 
@@ -423,6 +402,19 @@ fn hydrate_command_argv(
     }
 
     argv
+}
+
+fn infer_workflow_from_command_argv(base_argv: &[String]) -> Option<ActionKind> {
+    match base_argv.get(1).map(String::as_str) {
+        Some("inspect") => Some(ActionKind::Inspect),
+        Some("query-families") => Some(ActionKind::TopQueryFamilies),
+        Some("errors") => Some(ActionKind::Errors),
+        Some("temp-files") => Some(ActionKind::TempFiles),
+        Some("running-queries") => Some(ActionKind::RunningQueries),
+        Some("agent") => Some(ActionKind::AgentInstall),
+        Some("run-sql") => Some(ActionKind::RunSql),
+        _ => None,
+    }
 }
 
 fn workflow_uses_log_input(workflow: Option<ActionKind>) -> bool {
@@ -743,7 +735,8 @@ mod tests {
             crate::triage::SqlActionPayload {
                 action_id: "noop".to_string(),
                 source_report_id: None,
-                sql: "SELECT 1".to_string(),
+                source_finding_id: None,
+                insights: Vec::new(),
                 row_count: 0,
                 truncated: false,
                 columns: Vec::new(),
@@ -756,25 +749,19 @@ mod tests {
         report.next_actions = vec![NextAction {
             action_id: "query_family.pg_stat_activity.by_dimensions:qf_demo".to_string(),
             action_type: NextActionType::RunSql,
-            kind: ActionKind::RunSql,
             label: "Inspect active sessions by dimensions".to_string(),
             status: NextActionStatus::Allowed,
             priority: NextActionPriority::Recommended,
             judgement_required: true,
             reason: "demo".to_string(),
-            target: None,
-            workflow: Some(ActionKind::RunSql),
+            target_id: None,
             command: Some(NextActionCommand {
                 argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
             }),
             survey: None,
-            sql_preview: None,
             parameters: None,
             risk: None,
             action_class: None,
-            required_identifiers: None,
-            requires: None,
-            produces: None,
         }];
 
         hydrate_replayable_commands(

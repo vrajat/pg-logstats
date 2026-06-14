@@ -80,6 +80,24 @@ That means:
 - `inspect` is rerun only after the operator chooses to enable live access
 - `run-sql` appears only after `inspect` reports a live-capable mode honestly
 
+When the workspace is `log_backed_and_live`, a `query-families` report can
+emit bounded `run-sql` follow-ups for the ranked families. Those live follow-up
+reports do not stop at raw rows alone. `pg-logstats` may surface small,
+action-specific `insights[]` such as:
+
+- a matching live session exists now
+- multiple matching sessions are active
+- the query appears blocked on a lock
+- the query appears blocked on another transaction
+
+For `query_family.pg_stat_activity.by_dimensions`, the bounded lookup is built
+from the parent finding's `query_family.database`, `query_family.user`, and
+`query_family.application_name` fields.
+
+Those insights are intentionally conservative. If the built-in SQL result does
+not support a strong interpretation, the report may contain rows but no
+`insights[]`.
+
 ## Attribution
 
 Each finding surfaces these attribution dimensions when available:

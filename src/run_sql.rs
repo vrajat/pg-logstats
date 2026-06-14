@@ -3,7 +3,10 @@
 use crate::database::{connect_postgres_client, resolve_database_dsn};
 use crate::findings::FindingsPayload;
 use crate::report_store::ReportStore;
-use crate::triage::{ActionKind, NextActionStatus, OperatingMode, PgTriageReport};
+use crate::triage::{
+    ActionKind, NextActionStatus, NextActionType, OperatingMode, PgTriageReport,
+    SqlActionInsight, SqlInsightConfidence,
+};
 use crate::{
     sql_action_report, workflow_slug, AppConfig, PgLogstatsError, Result, SqlActionPayload,
 };
@@ -66,6 +69,16 @@ struct PreparedQuery {
     parameters: Vec<BoundParameter>,
 }
 
+#[derive(Debug, Default)]
+struct ActivityInsightContext {
+    row_count: usize,
+    active_rows: usize,
+    lock_wait_rows: usize,
+    transactionid_lock_rows: usize,
+    io_wait_rows: usize,
+    client_wait_rows: usize,
+}
+
 pub fn parse_action_parameters(raw: &[String]) -> Result<Vec<ActionParameterInput>> {
     let mut params = Vec::new();
     for item in raw {
@@ -101,7 +114,7 @@ fn prepare_running_query_sql(
     let parameters = parameter_map(raw_parameters)?;
     match rule_id {
         "running_query.pg_stat_activity.by_pid" => {
-            let pid = resolve_i64_parameter("pid", action.target.as_deref(), &parameters)?
+            let pid = resolve_i64_parameter("pid", action.target_id.as_deref(), &parameters)?
                 .ok_or_else(|| PgLogstatsError::Configuration {
                     message: format!("Action '{}' requires pid", action.action_id),
                     field: Some("selected_action_id".to_string()),
@@ -113,7 +126,7 @@ fn prepare_running_query_sql(
             })
         }
         "running_query.blocking.by_pid" => {
-            let pid = resolve_i64_parameter("pid", action.target.as_deref(), &parameters)?
+            let pid = resolve_i64_parameter("pid", action.target_id.as_deref(), &parameters)?
                 .ok_or_else(|| PgLogstatsError::Configuration {
                     message: format!("Action '{}' requires pid", action.action_id),
                     field: Some("selected_action_id".to_string()),
@@ -125,11 +138,12 @@ fn prepare_running_query_sql(
             })
         }
         "query_family.pg_stat_statements.by_queryid" => {
-            let queryid = resolve_i64_parameter("queryid", action.target.as_deref(), &parameters)?
-                .ok_or_else(|| PgLogstatsError::Configuration {
-                    message: format!("Action '{}' requires queryid", action.action_id),
-                    field: Some("selected_action_id".to_string()),
-                })?;
+            let queryid =
+                resolve_i64_parameter("queryid", action.target_id.as_deref(), &parameters)?
+                    .ok_or_else(|| PgLogstatsError::Configuration {
+                        message: format!("Action '{}' requires queryid", action.action_id),
+                        field: Some("selected_action_id".to_string()),
+                    })?;
 
             Ok(PreparedQuery {
                 sql: "SELECT queryid, calls, total_exec_time, mean_exec_time, min_exec_time, max_exec_time, rows, shared_blks_hit, shared_blks_read, temp_blks_read, temp_blks_written, query FROM pg_stat_statements WHERE queryid = $1;".to_string(),
@@ -180,7 +194,7 @@ pub fn execute_run_sql(
         });
     }
 
-    if action.kind != ActionKind::RunSql {
+    if action.action_type != NextActionType::RunSql {
         return Err(PgLogstatsError::Configuration {
             message: format!(
                 "Action '{}' is not a SQL action. Use the action according to its type instead of `pg-logstats run-sql`.",
@@ -196,7 +210,7 @@ pub fn execute_run_sql(
                 serde_json::from_str(&parent_content).map_err(PgLogstatsError::Serialization)?;
             let finding_id =
                 action
-                    .target
+                    .target_id
                     .as_deref()
                     .ok_or_else(|| PgLogstatsError::Configuration {
                         message: format!(
@@ -326,7 +340,8 @@ pub fn execute_run_sql(
     let payload = SqlActionPayload {
         action_id: action.action_id.clone(),
         source_report_id: base_report.report_id.clone(),
-        sql: prepared.sql,
+        source_finding_id: action.target_id.clone(),
+        insights: derive_sql_action_insights(&action.action_id, &columns, &json_rows),
         row_count,
         truncated,
         columns,
@@ -334,6 +349,188 @@ pub fn execute_run_sql(
     };
 
     Ok(sql_action_report(payload, request.operating_mode))
+}
+
+fn derive_sql_action_insights(
+    action_id: &str,
+    columns: &[String],
+    rows: &[Vec<serde_json::Value>],
+) -> Vec<SqlActionInsight> {
+    let rule_id = action_id.split(':').next().unwrap_or(action_id);
+    match rule_id {
+        "query_family.pg_stat_activity.by_dimensions" => {
+            derive_pg_stat_activity_dimension_insights(rows, columns)
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn derive_pg_stat_activity_dimension_insights(
+    rows: &[Vec<serde_json::Value>],
+    columns: &[String],
+) -> Vec<SqlActionInsight> {
+    if columns.is_empty() {
+        return Vec::new();
+    }
+
+    if rows.is_empty() {
+        return vec![SqlActionInsight {
+            insight_id: "no_live_match_found".to_string(),
+            label: "No matching live sessions found".to_string(),
+            confidence: SqlInsightConfidence::High,
+            reason:
+                "The bounded pg_stat_activity lookup returned no non-idle sessions for the parent finding dimensions."
+                    .to_string(),
+        }];
+    }
+
+    let index_by_name: BTreeMap<&str, usize> = columns
+        .iter()
+        .enumerate()
+        .map(|(index, name)| (name.as_str(), index))
+        .collect();
+    let state_idx = index_by_name.get("state").copied();
+    let wait_event_type_idx = index_by_name.get("wait_event_type").copied();
+    let wait_event_idx = index_by_name.get("wait_event").copied();
+
+    let mut ctx = ActivityInsightContext {
+        row_count: rows.len(),
+        ..Default::default()
+    };
+
+    for row in rows {
+        if value_eq(row, state_idx, "active") {
+            ctx.active_rows += 1;
+        }
+        if value_eq(row, wait_event_type_idx, "Lock") {
+            ctx.lock_wait_rows += 1;
+        }
+        if value_eq(row, wait_event_type_idx, "Lock")
+            && value_eq(row, wait_event_idx, "transactionid")
+        {
+            ctx.transactionid_lock_rows += 1;
+        }
+        if value_eq(row, wait_event_type_idx, "IO") {
+            ctx.io_wait_rows += 1;
+        }
+        if value_eq(row, wait_event_type_idx, "Client") {
+            ctx.client_wait_rows += 1;
+        }
+    }
+
+    let mut insights = Vec::new();
+    insights.push(SqlActionInsight {
+        insight_id: "live_match_found".to_string(),
+        label: "Matching live sessions found".to_string(),
+        confidence: SqlInsightConfidence::High,
+        reason: if ctx.row_count == 1 {
+            "The bounded pg_stat_activity lookup found one non-idle session matching the parent finding dimensions.".to_string()
+        } else {
+            format!(
+                "The bounded pg_stat_activity lookup found {} non-idle sessions matching the parent finding dimensions.",
+                ctx.row_count
+            )
+        },
+    });
+
+    if ctx.row_count > 1 {
+        insights.push(SqlActionInsight {
+            insight_id: "multiple_matching_sessions".to_string(),
+            label: "Multiple matching sessions are active".to_string(),
+            confidence: SqlInsightConfidence::High,
+            reason: format!(
+                "{} matching sessions are currently active for the parent finding dimensions.",
+                ctx.row_count
+            ),
+        });
+    }
+
+    if ctx.active_rows > 0 {
+        insights.push(SqlActionInsight {
+            insight_id: "active_session_present".to_string(),
+            label: "The query family appears live now".to_string(),
+            confidence: SqlInsightConfidence::High,
+            reason: if ctx.active_rows == 1 {
+                "At least one matching session is in state=active, so the historical finding also appears to be a current live issue.".to_string()
+            } else {
+                format!(
+                    "{} matching sessions are in state=active, so the historical finding also appears to be a current live issue.",
+                    ctx.active_rows
+                )
+            },
+        });
+    }
+
+    if ctx.transactionid_lock_rows > 0 {
+        insights.push(SqlActionInsight {
+            insight_id: "transactionid_lock_wait".to_string(),
+            label: "The query appears blocked on another transaction".to_string(),
+            confidence: SqlInsightConfidence::High,
+            reason: if ctx.transactionid_lock_rows == 1 {
+                "A matching active session is waiting on wait_event_type=Lock and wait_event=transactionid, which strongly suggests lock contention on another transaction.".to_string()
+            } else {
+                format!(
+                    "{} matching active sessions are waiting on wait_event_type=Lock and wait_event=transactionid, which strongly suggests lock contention on other transactions.",
+                    ctx.transactionid_lock_rows
+                )
+            },
+        });
+    } else if ctx.lock_wait_rows > 0 {
+        insights.push(SqlActionInsight {
+            insight_id: "lock_wait_detected".to_string(),
+            label: "The query appears blocked on a lock".to_string(),
+            confidence: SqlInsightConfidence::High,
+            reason: if ctx.lock_wait_rows == 1 {
+                "A matching active session is waiting on wait_event_type=Lock, which suggests lock contention rather than pure execution cost.".to_string()
+            } else {
+                format!(
+                    "{} matching active sessions are waiting on wait_event_type=Lock, which suggests lock contention rather than pure execution cost.",
+                    ctx.lock_wait_rows
+                )
+            },
+        });
+    }
+
+    if ctx.io_wait_rows > 0 {
+        insights.push(SqlActionInsight {
+            insight_id: "io_wait_detected".to_string(),
+            label: "The query appears to be waiting on IO".to_string(),
+            confidence: SqlInsightConfidence::Medium,
+            reason: if ctx.io_wait_rows == 1 {
+                "A matching active session is waiting on wait_event_type=IO, which suggests an IO or storage bottleneck.".to_string()
+            } else {
+                format!(
+                    "{} matching active sessions are waiting on wait_event_type=IO, which suggests an IO or storage bottleneck.",
+                    ctx.io_wait_rows
+                )
+            },
+        });
+    }
+
+    if ctx.client_wait_rows > 0 {
+        insights.push(SqlActionInsight {
+            insight_id: "client_wait_detected".to_string(),
+            label: "The session appears to be waiting on the client".to_string(),
+            confidence: SqlInsightConfidence::Medium,
+            reason: if ctx.client_wait_rows == 1 {
+                "A matching active session is waiting on wait_event_type=Client, which suggests the bottleneck may be outside PostgreSQL execution itself.".to_string()
+            } else {
+                format!(
+                    "{} matching active sessions are waiting on wait_event_type=Client, which suggests the bottleneck may be outside PostgreSQL execution itself.",
+                    ctx.client_wait_rows
+                )
+            },
+        });
+    }
+
+    insights
+}
+
+fn value_eq(row: &[serde_json::Value], index: Option<usize>, expected: &str) -> bool {
+    let Some(index) = index else {
+        return false;
+    };
+    matches!(row.get(index), Some(serde_json::Value::String(value)) if value == expected)
 }
 
 fn prepare_findings_workflow_sql(
@@ -585,23 +782,17 @@ mod tests {
             action: NextAction {
                 action_id: action_id.to_string(),
                 action_type: NextActionType::RunSql,
-                kind: ActionKind::RunSql,
                 label: "test".to_string(),
                 status: NextActionStatus::Allowed,
                 priority: NextActionPriority::Recommended,
                 judgement_required: true,
                 reason: "test".to_string(),
-                target: Some("demo".to_string()),
-                workflow: Some(ActionKind::RunSql),
+                target_id: Some("demo".to_string()),
                 command: None,
                 survey: None,
-                sql_preview: None,
                 parameters: None,
                 risk: None,
                 action_class: None,
-                required_identifiers: None,
-                requires: None,
-                produces: None,
             },
             finding: Finding {
                 id: "demo".to_string(),
@@ -698,5 +889,73 @@ mod tests {
         assert!(err
             .to_string()
             .contains("Parameter 'database' conflicts with the selected action context"));
+    }
+
+    #[test]
+    fn pg_stat_activity_insights_detect_lock_wait_patterns() {
+        let columns = vec![
+            "pid".to_string(),
+            "usename".to_string(),
+            "datname".to_string(),
+            "application_name".to_string(),
+            "state".to_string(),
+            "wait_event_type".to_string(),
+            "wait_event".to_string(),
+            "query_start".to_string(),
+            "query_id".to_string(),
+            "query".to_string(),
+        ];
+        let rows = vec![vec![
+            serde_json::json!(42137),
+            serde_json::json!("app"),
+            serde_json::json!("appdb"),
+            serde_json::json!("api"),
+            serde_json::json!("active"),
+            serde_json::json!("Lock"),
+            serde_json::json!("transactionid"),
+            serde_json::json!("2026-06-14T10:00:18+00:00"),
+            serde_json::Value::Null,
+            serde_json::json!(
+                "SELECT * FROM invoices WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT $2"
+            ),
+        ]];
+
+        let insights = derive_sql_action_insights(
+            "query_family.pg_stat_activity.by_dimensions:qf_demo",
+            &columns,
+            &rows,
+        );
+        let ids: Vec<_> = insights.iter().map(|i| i.insight_id.as_str()).collect();
+
+        assert!(ids.contains(&"live_match_found"));
+        assert!(ids.contains(&"active_session_present"));
+        assert!(ids.contains(&"transactionid_lock_wait"));
+    }
+
+    #[test]
+    fn pg_stat_activity_insights_report_no_live_match() {
+        let columns = vec!["state".to_string(), "wait_event_type".to_string()];
+        let insights = derive_sql_action_insights(
+            "query_family.pg_stat_activity.by_dimensions:qf_demo",
+            &columns,
+            &[],
+        );
+
+        assert_eq!(insights.len(), 1);
+        assert_eq!(insights[0].insight_id, "no_live_match_found");
+        assert_eq!(insights[0].confidence, SqlInsightConfidence::High);
+    }
+
+    #[test]
+    fn sql_insights_are_not_forced_for_unknown_actions() {
+        let columns = vec!["state".to_string(), "wait_event_type".to_string()];
+        let rows = vec![vec![serde_json::json!("active"), serde_json::json!("Lock")]];
+        let insights = derive_sql_action_insights(
+            "query_family.pg_stat_statements.by_queryid:demo",
+            &columns,
+            &rows,
+        );
+
+        assert!(insights.is_empty());
     }
 }

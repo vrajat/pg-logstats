@@ -365,10 +365,6 @@ pub fn findings_rules() -> Vec<RuleDefinition> {
     ]
 }
 
-fn query_family_queryid_sql() -> String {
-    "SELECT queryid, calls, total_exec_time, mean_exec_time, min_exec_time, max_exec_time, rows, shared_blks_hit, shared_blks_read, temp_blks_read, temp_blks_written, query FROM pg_stat_statements WHERE queryid = $1;".to_string()
-}
-
 fn query_family_activity_sql(
     database: Option<&str>,
     user: Option<&str>,
@@ -433,7 +429,6 @@ impl GuidancePayload for FindingsPayload {
 
             for finding in matching_findings {
                 let mut resolved_rule = rule.clone();
-                let mut sql_preview = None;
                 let mut command = None;
                 let mut missing_ids = Vec::new();
 
@@ -441,8 +436,6 @@ impl GuidancePayload for FindingsPayload {
                     RuleId::QueryFamilyPgStatStatementsByQueryId => {
                         if let Some(qf) = &finding.query_family {
                             if qf.queryid.is_some() {
-                                let sql = query_family_queryid_sql();
-                                sql_preview = Some(sql);
                                 command = Some(NextActionCommand {
                                     argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
                                 });
@@ -466,7 +459,7 @@ impl GuidancePayload for FindingsPayload {
                                 } else {
                                     RiskLabel::Bounded
                                 });
-                                sql_preview = Some(sql);
+                                let _ = sql;
                                 command = Some(NextActionCommand {
                                     argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
                                 });
@@ -490,7 +483,7 @@ impl GuidancePayload for FindingsPayload {
                                 } else {
                                     RiskLabel::Bounded
                                 });
-                                sql_preview = Some(sql);
+                                let _ = sql;
                                 command = Some(NextActionCommand {
                                     argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
                                 });
@@ -504,10 +497,7 @@ impl GuidancePayload for FindingsPayload {
                     RuleId::TempFilePgStatDatabaseTempCounters => {
                         if let Some(tf) = &finding.temp_file {
                             if let Some(db) = &tf.database {
-                                sql_preview = Some(format!(
-                                    "SELECT datname, temp_files, temp_bytes FROM pg_stat_database WHERE datname = '{}';",
-                                    crate::guidance::escape_sql_literal(db)
-                                ));
+                                let _ = db;
                                 command = Some(NextActionCommand {
                                     argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
                                 });
@@ -519,7 +509,6 @@ impl GuidancePayload for FindingsPayload {
                         }
                     }
                     RuleId::TempFilePgStatStatementsTempBlocks => {
-                        sql_preview = Some("SELECT queryid, calls, total_exec_time, temp_blks_read, temp_blks_written, query FROM pg_stat_statements WHERE temp_blks_read > 0 OR temp_blks_written > 0 ORDER BY temp_blks_read + temp_blks_written DESC LIMIT 20;".to_string());
                         command = Some(NextActionCommand {
                             argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
                         });
@@ -547,7 +536,6 @@ impl GuidancePayload for FindingsPayload {
                     reason,
                     Some(finding.id.clone()),
                     command,
-                    sql_preview,
                 ));
             }
         }
@@ -579,14 +567,12 @@ fn prompt_user_enable_live_follow_up_action() -> NextAction {
     NextAction {
         action_id: "workspace.prompt_user.enable_live_follow_up".to_string(),
         action_type: NextActionType::PromptUser,
-        kind: ActionKind::Inspect,
         label: "Enable live follow-up or stop".to_string(),
         status: NextActionStatus::Allowed,
         priority: NextActionPriority::Recommended,
         judgement_required: true,
         reason: "This investigation ranked historical findings from logs only. Live follow-up requires a configured DSN and a fresh inspect run. Supply the DSN through [database].dsn in config.toml, PG_LOGSTATS_DATABASE_URL, or --dsn.".to_string(),
-        target: None,
-        workflow: Some(ActionKind::Inspect),
+        target_id: None,
         command: None,
         survey: Some(PromptUserSurvey {
             question: "How should the investigation proceed?".to_string(),
@@ -609,19 +595,9 @@ fn prompt_user_enable_live_follow_up_action() -> NextAction {
                 },
             ],
         }),
-        sql_preview: None,
         parameters: None,
         risk: None,
         action_class: None,
-        required_identifiers: None,
-        requires: Some(vec![
-            "database_dsn".to_string(),
-            "inspect_rerun".to_string(),
-        ]),
-        produces: Some(vec![
-            "workflow:inspect".to_string(),
-            "capability:live_follow_up".to_string(),
-        ]),
     }
 }
 

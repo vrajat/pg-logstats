@@ -116,12 +116,10 @@ impl GuidancePayload for RunningQueriesPayload {
                 }
 
                 let resolved_rule = rule.clone();
-                let mut sql_preview = None;
                 let mut command = None;
 
                 if let Some(ref template) = rule.sql_template {
-                    let sql = template.replace("$1", &session.pid.to_string());
-                    sql_preview = Some(sql);
+                    let _sql = template.replace("$1", &session.pid.to_string());
                     command = Some(NextActionCommand {
                         argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
                     });
@@ -141,7 +139,6 @@ impl GuidancePayload for RunningQueriesPayload {
                     reason,
                     target,
                     command,
-                    sql_preview,
                 );
 
                 actions.push(action);
@@ -571,17 +568,17 @@ mod tests {
         assert_eq!(by_pid_actions.len(), 2);
         assert!(by_pid_actions
             .iter()
-            .any(|a| a.target.as_deref() == Some("1001")));
+            .any(|a| a.target_id.as_deref() == Some("1001")));
         assert!(by_pid_actions
             .iter()
-            .any(|a| a.target.as_deref() == Some("1002")));
+            .any(|a| a.target_id.as_deref() == Some("1002")));
 
         let blocking_actions: Vec<_> = actions
             .iter()
             .filter(|a| a.action_id.starts_with("running_query.blocking.by_pid"))
             .collect();
         assert_eq!(blocking_actions.len(), 1);
-        assert_eq!(blocking_actions[0].target.as_deref(), Some("1002"));
+        assert_eq!(blocking_actions[0].target_id.as_deref(), Some("1002"));
     }
 
     #[test]

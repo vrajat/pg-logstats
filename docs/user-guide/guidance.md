@@ -16,16 +16,17 @@ Every machine-readable triage report (JSON output) includes a top-level `next_ac
 {
   "action_id": "query_family.pg_stat_activity.by_dimensions:qf_51125b8829ab1fdf",
   "action_type": "run_sql",
-  "kind": "run_sql",
   "label": "Find current active sessions for the same query-family dimensions",
   "status": "allowed",
   "priority": "optional",
   "judgement_required": true,
   "reason": "The finding includes database, user, or application attribution that can bound pg_stat_activity.",
-  "sql_preview": "SELECT pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query_id, query FROM pg_stat_activity WHERE ...",
+  "target_id": "qf_51125b8829ab1fdf",
+  "command": {
+    "argv": ["pg-logstats", "--triage-report", "20260613T181530123456Z-top_query_families", "--action-id", "query_family.pg_stat_activity.by_dimensions:qf_51125b8829ab1fdf", "run-sql"]
+  },
   "risk": "safe",
-  "action_class": "bounded_activity_queries",
-  "required_identifiers": ["database|user|application_name"]
+  "action_class": "bounded_activity_queries"
 }
 ```
 
@@ -34,15 +35,6 @@ Every machine-readable triage report (JSON output) includes a top-level `next_ac
 - `run_sql`: Run a safe built-in SQL action through `pg-logstats run-sql`.
 - `prompt_user`: Ask the operator to choose how the investigation should proceed.
 - `stop`: End the current investigation branch.
-
-### Action Kinds
-- `top_query_families`: Rank query families.
-- `run_sql`: Runs a safe, built-in diagnostic SQL query.
-- `agent_install`: Installs agent skill playbooks/harnesses.
-- `running_queries`: Monitor active database sessions.
-- `collect_logs`: Collects additional database logs.
-- `escalate`: Directs the agent to stop and notify a human operator.
-- `stop`: Directs the agent that the investigation is successfully complete.
 
 ### Priorities
 - `required`
@@ -68,7 +60,6 @@ Example:
 {
   "action_id": "workspace.prompt_user.enable_live_follow_up",
   "action_type": "prompt_user",
-  "kind": "inspect",
   "label": "Enable live follow-up or stop",
   "status": "allowed",
   "priority": "recommended",
@@ -100,6 +91,45 @@ The important rule is:
 
 - only `action_type = "run_sql"` should be executed through `pg-logstats run-sql`
 - `action_type = "prompt_user"` means the agent must ask the operator for a decision first
+
+### Interpreted SQL Results
+
+`run-sql` reports can include a small `payload.insights[]` list when
+`pg-logstats` recognizes a strong pattern in the bounded result set of one of
+its own built-in SQL actions.
+
+Example:
+
+```json
+{
+  "workflow": "run_sql",
+  "payload": {
+    "action_id": "query_family.pg_stat_activity.by_dimensions:qf_51125b8829ab1fdf",
+    "source_report_id": "20260613T181530123456Z-top_query_families",
+    "source_finding_id": "qf_51125b8829ab1fdf",
+    "insights": [
+      {
+        "insight_id": "transactionid_lock_wait",
+        "label": "The query appears blocked on another transaction",
+        "confidence": "high",
+        "reason": "A matching active session is waiting on wait_event_type=Lock and wait_event=transactionid."
+      }
+    ],
+    "row_count": 1,
+    "truncated": false,
+    "columns": ["pid", "usename", "datname", "application_name", "state", "wait_event_type", "wait_event", "query_start", "query_id", "query"],
+    "rows": [[42137, "app", "appdb", "api", "active", "Lock", "transactionid", "2026-06-14T10:00:18+00:00", null, "SELECT * FROM invoices WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT $2"]]
+  }
+}
+```
+
+Current product rule:
+
+- `source_finding_id` ties the live follow-up back to the parent finding
+- `insights[]` is emitted only when the built-in action result supports a
+  bounded interpretation
+- an empty `insights[]` is valid; `pg-logstats` should not invent certainty
+  from weak or ambiguous SQL output
 
 ---
 

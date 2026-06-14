@@ -479,7 +479,6 @@ impl GuidancePayload for InspectReportPayload {
                 rule.command_template
                     .clone()
                     .map(|argv| crate::triage::NextActionCommand { argv }),
-                None,
             );
             actions.push(next_act);
         }
