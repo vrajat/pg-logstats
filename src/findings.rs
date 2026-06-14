@@ -362,6 +362,82 @@ pub fn findings_rules() -> Vec<RuleDefinition> {
             attribution: "PostgreSQL pg_stat_statements temp block reads/writes check"
                 .to_string(),
         },
+        RuleDefinition {
+            rule_id: RuleId::QueryFamilyExplain,
+            emitted_action_id: RuleId::QueryFamilyExplain,
+            kind: ActionKind::RunSql,
+            target_workflow: ActionKind::TopQueryFamilies,
+            target_finding_kind: Some(FindingKind::QueryFamily),
+            destination_workflow: Some(ActionKind::RunSql),
+            required_identifiers: vec![],
+            label: "Explain query execution plan".to_string(),
+            reason: "Get the query execution plan (without running it) to identify missing indexes or bad join plans.".to_string(),
+            priority: NextActionPriority::Recommended,
+            risk: Some(RiskLabel::Safe),
+            action_class: Some(ActionClass::ExplainWithoutAnalyze),
+            command_template: None,
+            sql_template: None,
+            required_operating_mode: Some(OperatingMode::LiveOnly),
+            produces: vec!["workflow:sql_action".to_string()],
+            attribution: "PostgreSQL EXPLAIN query plan".to_string(),
+        },
+        RuleDefinition {
+            rule_id: RuleId::QueryFamilyExplainAnalyze,
+            emitted_action_id: RuleId::QueryFamilyExplainAnalyze,
+            kind: ActionKind::RunSql,
+            target_workflow: ActionKind::TopQueryFamilies,
+            target_finding_kind: Some(FindingKind::QueryFamily),
+            destination_workflow: Some(ActionKind::RunSql),
+            required_identifiers: vec![],
+            label: "Explain analyze query execution plan".to_string(),
+            reason: "Run the query and get the plan (with buffer statistics) to verify actual rows and memory usage.".to_string(),
+            priority: NextActionPriority::Optional,
+            risk: Some(RiskLabel::Bounded),
+            action_class: Some(ActionClass::ExplainAnalyze),
+            command_template: None,
+            sql_template: None,
+            required_operating_mode: Some(OperatingMode::LiveOnly),
+            produces: vec!["workflow:sql_action".to_string()],
+            attribution: "PostgreSQL EXPLAIN ANALYZE BUFFERS query plan".to_string(),
+        },
+        RuleDefinition {
+            rule_id: RuleId::TempFileExplain,
+            emitted_action_id: RuleId::TempFileExplain,
+            kind: ActionKind::RunSql,
+            target_workflow: ActionKind::TempFiles,
+            target_finding_kind: Some(FindingKind::TempFile),
+            destination_workflow: Some(ActionKind::RunSql),
+            required_identifiers: vec![],
+            label: "Explain query execution plan for the temp-file query".to_string(),
+            reason: "Get the query execution plan (without running it) to check why this query is spilling to temporary files.".to_string(),
+            priority: NextActionPriority::Recommended,
+            risk: Some(RiskLabel::Safe),
+            action_class: Some(ActionClass::ExplainWithoutAnalyze),
+            command_template: None,
+            sql_template: None,
+            required_operating_mode: Some(OperatingMode::LiveOnly),
+            produces: vec!["workflow:sql_action".to_string()],
+            attribution: "PostgreSQL EXPLAIN query plan for temp files".to_string(),
+        },
+        RuleDefinition {
+            rule_id: RuleId::TempFileExplainAnalyze,
+            emitted_action_id: RuleId::TempFileExplainAnalyze,
+            kind: ActionKind::RunSql,
+            target_workflow: ActionKind::TempFiles,
+            target_finding_kind: Some(FindingKind::TempFile),
+            destination_workflow: Some(ActionKind::RunSql),
+            required_identifiers: vec![],
+            label: "Explain analyze query execution plan for the temp-file query".to_string(),
+            reason: "Run the query and get the plan (with buffer statistics) to verify actual disk writes and memory spills.".to_string(),
+            priority: NextActionPriority::Recommended,
+            risk: Some(RiskLabel::Bounded),
+            action_class: Some(ActionClass::ExplainAnalyze),
+            command_template: None,
+            sql_template: None,
+            required_operating_mode: Some(OperatingMode::LiveOnly),
+            produces: vec!["workflow:sql_action".to_string()],
+            attribution: "PostgreSQL EXPLAIN ANALYZE BUFFERS query plan for temp files".to_string(),
+        },
     ]
 }
 
@@ -512,6 +588,32 @@ impl GuidancePayload for FindingsPayload {
                         command = Some(NextActionCommand {
                             argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
                         });
+                    }
+                    RuleId::QueryFamilyExplain | RuleId::QueryFamilyExplainAnalyze => {
+                        if let Some(qf) = &finding.query_family {
+                            if qf.normalized_sql.is_empty() {
+                                missing_ids.push("normalized_sql".to_string());
+                            } else {
+                                command = Some(NextActionCommand {
+                                    argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
+                                });
+                            }
+                        } else {
+                            missing_ids.push("query_family".to_string());
+                        }
+                    }
+                    RuleId::TempFileExplain | RuleId::TempFileExplainAnalyze => {
+                        if let Some(tf) = &finding.temp_file {
+                            if tf.normalized_sql.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
+                                missing_ids.push("normalized_sql".to_string());
+                            } else {
+                                command = Some(NextActionCommand {
+                                    argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
+                                });
+                            }
+                        } else {
+                            missing_ids.push("temp_file".to_string());
+                        }
                     }
                     _ => {}
                 }

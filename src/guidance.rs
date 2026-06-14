@@ -26,6 +26,12 @@ pub enum RuleId {
     /// Inspect-level rule to run Top Query Families suggestion.
     #[serde(rename = "inspect.top_query_families")]
     InspectTopQueryFamilies,
+    /// Inspect-level rule to run Errors suggestion.
+    #[serde(rename = "inspect.errors")]
+    InspectErrors,
+    /// Inspect-level rule to run Temp Files suggestion.
+    #[serde(rename = "inspect.temp_files")]
+    InspectTempFiles,
     /// Inspect-level rule to suggest running query inspection.
     #[serde(rename = "inspect.running_queries")]
     InspectRunningQueries,
@@ -38,6 +44,12 @@ pub enum RuleId {
     /// Query-family-level rule to inspect active sessions by finding dimensions.
     #[serde(rename = "query_family.pg_stat_activity.by_dimensions")]
     QueryFamilyPgStatActivityByDimensions,
+    /// Query-family-level rule to run EXPLAIN on the query family.
+    #[serde(rename = "query_family.explain")]
+    QueryFamilyExplain,
+    /// Query-family-level rule to run EXPLAIN ANALYZE on the query family.
+    #[serde(rename = "query_family.explain_analyze")]
+    QueryFamilyExplainAnalyze,
     /// Running-query-level rule to inspect details for a specific backend PID.
     #[serde(rename = "running_query.pg_stat_activity.by_pid")]
     RunningQueryPgStatActivityByPid,
@@ -53,12 +65,20 @@ pub enum RuleId {
     /// Temp-file-level rule to check pg_stat_statements temp block activity.
     #[serde(rename = "temp_file.pg_stat_statements.temp_blocks")]
     TempFilePgStatStatementsTempBlocks,
+    /// Temp-file-level rule to run EXPLAIN on the target query.
+    #[serde(rename = "temp_file.explain")]
+    TempFileExplain,
+    /// Temp-file-level rule to run EXPLAIN ANALYZE on the target query.
+    #[serde(rename = "temp_file.explain_analyze")]
+    TempFileExplainAnalyze,
 }
 
 impl std::fmt::Display for RuleId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = match self {
             RuleId::InspectTopQueryFamilies => "inspect.top_query_families",
+            RuleId::InspectErrors => "inspect.errors",
+            RuleId::InspectTempFiles => "inspect.temp_files",
             RuleId::InspectRunningQueries => "inspect.running_queries",
             RuleId::InspectAgentInstall => "inspect.agent_install",
             RuleId::QueryFamilyPgStatStatementsByQueryId => {
@@ -67,6 +87,8 @@ impl std::fmt::Display for RuleId {
             RuleId::QueryFamilyPgStatActivityByDimensions => {
                 "query_family.pg_stat_activity.by_dimensions"
             }
+            RuleId::QueryFamilyExplain => "query_family.explain",
+            RuleId::QueryFamilyExplainAnalyze => "query_family.explain_analyze",
             RuleId::RunningQueryPgStatActivityByPid => "running_query.pg_stat_activity.by_pid",
             RuleId::RunningQueryBlockingByPid => "running_query.blocking.by_pid",
             RuleId::ErrorClassPgStatActivityByDimensions => {
@@ -78,6 +100,8 @@ impl std::fmt::Display for RuleId {
             RuleId::TempFilePgStatStatementsTempBlocks => {
                 "temp_file.pg_stat_statements.temp_blocks"
             }
+            RuleId::TempFileExplain => "temp_file.explain",
+            RuleId::TempFileExplainAnalyze => "temp_file.explain_analyze",
         };
         write!(f, "{}", s)
     }
@@ -647,12 +671,10 @@ mod tests {
 
         populate_next_actions(&mut report, &AppConfig::default());
 
-        assert_eq!(report.next_actions.len(), 1);
-        assert_eq!(
-            report.next_actions[0].action_id,
-            "inspect.top_query_families"
-        );
-        assert_eq!(report.next_actions[0].status, NextActionStatus::Allowed);
+        assert_eq!(report.next_actions.len(), 3);
+        assert!(report.next_actions.iter().any(|a| a.action_id == "inspect.top_query_families" && a.status == NextActionStatus::Allowed));
+        assert!(report.next_actions.iter().any(|a| a.action_id == "inspect.errors" && a.status == NextActionStatus::Allowed));
+        assert!(report.next_actions.iter().any(|a| a.action_id == "inspect.temp_files" && a.status == NextActionStatus::Allowed));
     }
 
     #[test]
