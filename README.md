@@ -1,135 +1,94 @@
 # pg-logstats
 
-**pg-logstats is a PostgreSQL triage gateway that lets agents investigate database incidents without direct database access.**
+**pg-logstats is a PostgreSQL triage gateway that lets AI agents investigate database incidents safely, enforcing strict operational boundaries without direct database access.**
 
-It packages established PostgreSQL triage runbooks into a controlled CLI:
-inspect the available evidence, rank the most suspicious findings from logs, and
-execute approved follow-up SQL through a bounded action model.
+It packages established PostgreSQL triage runbooks into a controlled CLI: inspect the available evidence, rank findings from logs, and execute pre-approved diagnostic SQL through a bounded action model.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Why Set This Up
+---
 
-Use `pg-logstats` when you want an agent in the investigation loop without
-turning that agent into a general-purpose database operator.
+## Why Setup pg-logstats for AI Agents?
 
-This is the intended operating model:
+Giving coding agents direct database access is risky and hard to audit. `pg-logstats` acts as a secure, sandboxed gateway that lets agents perform first-pass database triage under strict controls.
 
-- `pg-logstats` packages the runbook
-- the agent supplies judgement at the allowed branch points
-- `pg-logstats` remains the gateway for diagnostic SQL
+### 1. Safety via Pre-Approved SQL Actions
+The agent **cannot** run arbitrary SQL text. All live database interaction goes through structured, parameterized read-only queries built into the gateway (e.g. querying `pg_stat_statements` by exact query ID or filtering `pg_stat_activity` by dimension).
 
-If a human wants to work the logs directly, `pgBadger` is the better tool.
+### 2. Database Load Protection (Verdict Matrix)
+To prevent diagnostic activity from adding harmful overhead to a stressed database, actions are allowed or blocked dynamically based on the current health **verdict** (e.g., `clear`, `busy`, `saturated`). For example, running `EXPLAIN ANALYZE` (which executes the query) is restricted if the database is under load.
+
+### 3. Packaged Runbooks vs. Agent Judgement
+The gateway models specific PostgreSQL operational runbooks (e.g., Slow Query Triage, Temporary Files Triage):
+* **`pg-logstats` owns the runbook**: It determines the evidence shape, log-parsing logic, and allowed action graph.
+* **The Agent supplies the judgement**: It decides which branch best fits the incident and reviews ranked findings at explicit branch points.
+
+---
+
+## How the Agent Runbook Loop Works
+
+1. **Setup**: The DBA installs `pg-logstats` and the harness-specific agent guidance.
+2. **Readiness Probe**: The agent runs `inspect` against the log source to verify that the environment is ready for triage.
+3. **Triage**: The agent executes a log-backed runbook (like `query-families` or `temp-files`), which parses logs and ranks findings.
+4. **Follow-Up (SQL)**: The agent executes pre-approved live SQL checks (`action_type = "run_sql"`) to correlate logs with live state (e.g. lock contention or query plans).
+5. **DBA Recommendation**: The agent concludes by recommending granular, DBA-approved remedial actions (like creating indexes or tuning session `work_mem`) and stopping.
+
+---
 
 ## Quick Start
 
 Install the CLI:
-
 ```bash
 cargo install pg-logstats
 ```
 
-Install the agent guidance. `codex` is the first-class target harness:
-
+Install the agent guidance (supporting Codex, Claude Code, and Gemini):
 ```bash
 pg-logstats agent install --harness codex
 pg-logstats agent install --harness codex --status
 pg-logstats inspect /path/to/postgresql.log
 ```
 
-If you want to preview the agent guidance install without writing files:
-
-```bash
-pg-logstats agent install --harness codex --dry-run
-```
-
-## How The Agent Loop Works
-
-1. A human installs `pg-logstats`.
-2. A human installs the agent guidance with `pg-logstats agent install`.
-3. The agent runs `inspect`.
-4. If the environment is ready, the agent runs one bounded triage workflow.
-5. The report returns compact findings plus `next_actions[]`.
-6. The agent checks `action_type` on each next action.
-7. `pg-logstats run-sql` executes only built-in approved actions with `action_type = "run_sql"`.
-8. Delegated branches like "configure DSN and rerun inspect" are `prompt_user` actions, not SQL actions.
-9. The agent stops or escalates when the workflow says to stop.
-
-This is not a free-form exploration loop.
-
-## Beta Boundary
-
-For beta, the intended success path is `log_backed`.
-
-If the required evidence is missing, `pg-logstats` should report `unready` and
-stop. It should not pretend a weak degraded workflow is acceptable.
-
-That means:
-
-- no historical ranking without supported logs
-- no temp-file triage without the required temp-file evidence
-- no arbitrary SQL execution through the product path
-- no promise that an agent can improvise around missing prerequisites
-
-## Supported Log Inputs
-
-The current text parser supports:
-
-- local PostgreSQL stderr logs with a prefix shaped like `%m [%p] %u@%d %a:`
-- Amazon RDS PostgreSQL text logs with a prefix shaped like `%t:%r:%u@%d:[%p]:`
-
-Example stderr shape:
-
-```text
-2024-01-15 10:00:00.000 UTC [2001] app@appdb api: LOG:  statement: SELECT * FROM users WHERE id = 1;
-2024-01-15 10:00:00.020 UTC [2001] app@appdb api: LOG:  duration: 20.000 ms
-```
-
-RDS and CloudWatch-based investigation are also supported. For CloudWatch input,
-install with the optional AWS SDK feature:
-
+If the investigation requires Amazon RDS or CloudWatch support, compile with the optional AWS SDK feature:
 ```bash
 cargo install pg-logstats --features aws-sdk
 ```
 
-Then the agent or operator can inspect a bounded RDS log window through:
+---
 
+## Supported Log Inputs
+
+The current text parser supports:
+* **Local stderr logs** with a prefix shaped like `%m [%p] %u@%d %a:`
+* **Amazon RDS text logs** with a prefix shaped like `%t:%r:%u@%d:[%p]:`
+
+For CloudWatch logs, the agent or operator can inspect a bounded RDS log window:
 ```bash
-pg-logstats inspect \
-  --rds-instance my-db \
-  --since 1h
+pg-logstats inspect --rds-instance my-db --since 1h
 ```
 
-## What The Human Docs Are For
+---
 
-The docs in `docs/` are for expert humans setting up `pg-logstats` for agents.
+## Documentation Index
 
-They are meant to answer:
+The documentation is organized specifically for DBAs setting up and auditing the gateway:
 
-- why `pg-logstats` exists
-- how to install it
-- how to install the agent guidance
-- how to verify that agent triage is trustworthy
-- which PostgreSQL runbooks the agent is automating
-- where runbook ends and agent judgement begins
+### 1. Primary Runbook References
+* [Slow Query Triage](docs/user-guide/top-query-families.md) - Triaging slow queries by ranking query families and inspecting execution plans.
+* [Temporary Files Triage](docs/user-guide/temp-files.md) - Triaging disk-write pressure from temporary file spills.
 
-They are not meant to be a full command-by-command human CLI manual.
+### 2. Setup & Safety Controls
+* [Inspect and Readiness](docs/user-guide/inspect.md) - Readiness probes, workspace configuration, and operating-mode checks.
+* [Investigation Guidance & Policies](docs/user-guide/guidance.md) - The `next_actions[]` model, safety verdict matrix, and pre-approved SQL actions catalog.
+* [RDS and CloudWatch Log Input](docs/user-guide/rds-cloudwatch.md) - Configuring remote AWS RDS log windows and IAM policy permissions.
 
-## Read Next
+---
 
-- [Docs Index](docs/index.md)
-- [Inspect Reference](docs/user-guide/inspect.md)
-- [Investigation Guidance](docs/user-guide/guidance.md)
-- [RDS and CloudWatch Input](docs/user-guide/rds-cloudwatch.md)
-- [Architecture](docs/development/architecture.md)
-- [Development](docs/development/index.md)
+## Local Development
 
-## Development
+Checked-in fixtures for smoke tests live in [tests/fixtures/cli/](tests/fixtures/cli/).
 
-Checked-in fixtures for smoke tests live in [tests/fixtures/cli](tests/fixtures/cli/).
-
-For local development:
-
+Run formatters and checks:
 ```bash
 make fmt
 make check

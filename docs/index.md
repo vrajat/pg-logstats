@@ -59,31 +59,27 @@ your normal SRE or DBA workflow.
 - The docs are for setup, trust, and auditability, not for teaching manual
   command-by-command usage.
 
-## Key References
+## Runbook References
 
-### Setup And Trust
+These are the primary documentation guides detailing the packaged PostgreSQL triage runbooks that `pg-logstats` automates for agents:
 
-- [Inspect](user-guide/inspect.md)
-  Current readiness checks, persisted inspect output, and operating-mode
-  reporting.
-- [Investigation Guidance](user-guide/guidance.md)
-  The `next_actions[]` model, delegated `prompt_user` branches, action safety classes, and `run-sql` control path.
-- [RDS and CloudWatch Input](user-guide/rds-cloudwatch.md)
-  How to provide bounded remote PostgreSQL log windows for agent triage.
+- [Slow Query Triage](user-guide/top-query-families.md)
+  Triaging slow queries by ranking query families and inspecting execution plans.
+- [Temporary Files Triage](user-guide/temp-files.md)
+  Triaging disk-write pressure from temporary file spills.
 
-### Workflow References
+## Setup And Safety Controls
 
-These pages are best read as audit and workflow references, not as primary
-human CLI tutorials.
+Use these guides to configure `pg-logstats` and audit the safety boundaries of the agent gateway:
 
-- [Top Query Families](user-guide/top-query-families.md)
-  Slow-query triage workflow and ranking model.
-- [Errors](user-guide/errors.md)
-  Grouped PostgreSQL error triage workflow.
-- [Temporary Files](user-guide/temp-files.md)
-  Temp-file pressure workflow.
+- [Inspect and Readiness](user-guide/inspect.md)
+  Readiness probes, workspace configuration, and operating-mode checks.
+- [Investigation Guidance & Policies](user-guide/guidance.md)
+  The `next_actions[]` model, safety verdict matrix, and pre-approved built-in SQL actions catalog.
+- [RDS and CloudWatch Log Input](user-guide/rds-cloudwatch.md)
+  Configuring remote AWS RDS log windows and IAM policy permissions.
 
-### Contributor References
+## Contributor & Developer References
 
 - [Architecture](development/architecture.md)
 - [API Reference](reference/api.md)
