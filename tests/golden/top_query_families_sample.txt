@@ -1,21 +1,19 @@
 Findings
-Schema Version: 1
 
-#1 [query_family:qf_51125b8829ab1fdf] Query family with high total runtime
+#1 [qf_51125b8829ab1fdf] Query family with high total runtime
 Reason: 2 executions contributed 44.000 ms total runtime; max execution was 24.000 ms
 Score: 44.000  Confidence: High
 Query Family: qf_51125b8829ab1fdf
 SQL: SELECT * FROM users WHERE id = ?
 
-#2 [query_family:qf_ea6d9c1674a70be1] Query family with high total runtime
+#2 [qf_ea6d9c1674a70be1] Query family with high total runtime
 Reason: 1 executions contributed 18.000 ms total runtime; max execution was 18.000 ms
 Score: 18.000  Confidence: High
 Query Family: qf_ea6d9c1674a70be1
 SQL: SELECT COUNT(*) FROM orders WHERE created_at >= ?
 
-#3 [query_family:qf_8fd1b7db817a0410] Query family with high total runtime
+#3 [qf_8fd1b7db817a0410] Query family with high total runtime
 Reason: 1 executions contributed 9.000 ms total runtime; max execution was 9.000 ms
 Score: 9.000  Confidence: High
 Query Family: qf_8fd1b7db817a0410
 SQL: UPDATE users SET last_login = NOW() WHERE id = ?
-

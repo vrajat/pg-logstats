@@ -417,8 +417,7 @@ mod tests {
 
     fn sample_findings() -> FindingSet {
         FindingSet::new(vec![Finding {
-            schema_version: 1,
-            finding_id: "query_family:demo".to_string(),
+            id: "demo".to_string(),
             kind: FindingKind::QueryFamily,
             rank: 1,
             title: "Query family with high total runtime".to_string(),
@@ -491,13 +490,14 @@ mod tests {
         assert_eq!(value["schema_version"], 1);
         assert_eq!(value["workflow"], "top_query_families");
         assert_eq!(value["operating_mode"], "log_backed_only");
-        assert_eq!(value["verdict"], "unknown");
+        assert!(value.get("verdict").is_none());
+        assert_eq!(
+            value["limitations"],
+            serde_json::json!(["live_database_checks_unavailable"])
+        );
         assert_eq!(value["source_summary"]["kind"], "local_stderr");
         assert_eq!(value["source_summary"]["entries_scanned"], 2);
-        assert_eq!(
-            value["payload"]["findings"][0]["finding_id"],
-            "query_family:demo"
-        );
+        assert_eq!(value["payload"]["findings"][0]["id"], "demo");
     }
 
     #[test]
@@ -518,9 +518,7 @@ mod tests {
         assert_eq!(action.action_type, NextActionType::PromptUser);
         assert_eq!(action.kind, ActionKind::Inspect);
         assert_eq!(action.status, NextActionStatus::Allowed);
-        assert!(action
-            .reason
-            .contains("[database].dsn in config.toml"));
+        assert!(action.reason.contains("[database].dsn in config.toml"));
         assert_eq!(
             action.requires.as_ref().unwrap(),
             &vec!["database_dsn".to_string(), "inspect_rerun".to_string()]
@@ -578,9 +576,7 @@ mod tests {
 
         let activity = actions
             .iter()
-            .find(|a| {
-                a.action_id == "query_family.pg_stat_activity.by_dimensions:query_family:demo"
-            })
+            .find(|a| a.action_id == "query_family.pg_stat_activity.by_dimensions:demo")
             .unwrap();
         assert_eq!(activity.status, NextActionStatus::Allowed);
         assert_eq!(activity.risk, Some(RiskLabel::Safe));
@@ -592,7 +588,7 @@ mod tests {
 
         let queryid = actions
             .iter()
-            .find(|a| a.action_id == "query_family.pg_stat_statements.by_queryid:query_family:demo")
+            .find(|a| a.action_id == "query_family.pg_stat_statements.by_queryid:demo")
             .unwrap();
         assert_eq!(queryid.status, NextActionStatus::OmittedNotEnoughContext);
     }
@@ -610,7 +606,7 @@ mod tests {
 
         let queryid = actions
             .iter()
-            .find(|a| a.action_id == "query_family.pg_stat_statements.by_queryid:query_family:demo")
+            .find(|a| a.action_id == "query_family.pg_stat_statements.by_queryid:demo")
             .unwrap();
         assert_eq!(queryid.status, NextActionStatus::Allowed);
         assert!(queryid
@@ -634,9 +630,7 @@ mod tests {
 
         let activity = actions
             .iter()
-            .find(|a| {
-                a.action_id == "query_family.pg_stat_activity.by_dimensions:query_family:demo"
-            })
+            .find(|a| a.action_id == "query_family.pg_stat_activity.by_dimensions:demo")
             .unwrap();
         assert!(activity
             .sql_preview

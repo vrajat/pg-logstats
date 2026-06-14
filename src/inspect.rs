@@ -78,8 +78,17 @@ pub struct InspectReportPayload {
     pub agent_inspect: AgentInspect,
     /// The list of all checks run during this inspection.
     pub required_checks: Vec<InspectCheckId>,
-    /// Reasons for check failures, if any.
-    pub failed_checks: Vec<InspectReason>,
+    /// Failed checks with their machine-readable reasons.
+    pub failed_checks: Vec<FailedInspectCheck>,
+}
+
+/// One failed inspect check with its stable identifier and reason code.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FailedInspectCheck {
+    /// The check that failed.
+    pub check_id: InspectCheckId,
+    /// The machine-readable reason for failure.
+    pub reason: InspectReason,
 }
 
 /// Verification results for database configuration settings.
@@ -407,7 +416,8 @@ pub fn inspect_rules() -> Vec<RuleDefinition> {
             action_class: None,
             command_template: Some(vec![
                 "pg-logstats".to_string(),
-                "agent-install".to_string(),
+                "agent".to_string(),
+                "install".to_string(),
             ]),
             sql_template: None,
             required_operating_mode: None,
@@ -559,12 +569,19 @@ fn determine_mode(checks: &BTreeMap<InspectCheckId, InspectCheck>) -> OperatingM
     }
 }
 
-/// Accumulates the failure reasons from all verification checks.
-fn collect_failed_checks(checks: &BTreeMap<InspectCheckId, InspectCheck>) -> Vec<InspectReason> {
+/// Accumulates failed checks with their reasons.
+fn collect_failed_checks(
+    checks: &BTreeMap<InspectCheckId, InspectCheck>,
+) -> Vec<FailedInspectCheck> {
     checks
-        .values()
-        .filter(|check| matches!(check.status, CheckStatus::Failed))
-        .filter_map(|check| check.reason)
+        .iter()
+        .filter(|(_, check)| matches!(check.status, CheckStatus::Failed))
+        .filter_map(|(check_id, check)| {
+            check.reason.map(|reason| FailedInspectCheck {
+                check_id: *check_id,
+                reason,
+            })
+        })
         .collect()
 }
 
@@ -1328,6 +1345,13 @@ mod tests {
         assert_eq!(
             report.payload.database_inspect.checks[&InspectCheckId::LogSourceReachable].status,
             CheckStatus::Failed
+        );
+        assert_eq!(
+            report.payload.failed_checks,
+            vec![FailedInspectCheck {
+                check_id: InspectCheckId::LogSourceReachable,
+                reason: InspectReason::SupportedLogSourceUnreachable,
+            }]
         );
     }
 }

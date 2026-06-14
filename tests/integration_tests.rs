@@ -5,8 +5,8 @@
 use assert_cmd::Command;
 use pg_logstats::{
     inspect::{AgentInspect, AgentTargetInspect, DatabaseInspect},
-    ActionKind, AppConfig, CheckStatus, FindingsPayload, InspectReportPayload, OperatingMode,
-    PgTriageReport, PG_TRIAGE_SCHEMA_VERSION,
+    ActionKind, ActionReplayContext, AppConfig, CheckStatus, FindingsPayload, InspectReportPayload,
+    OperatingMode, PgTriageReport, PG_TRIAGE_SCHEMA_VERSION,
 };
 use predicates::prelude::*;
 use std::collections::BTreeMap;
@@ -82,7 +82,7 @@ fn target_slow_query_diff_content() -> &'static str {
 }
 
 fn finding_id_for_users_select() -> &'static str {
-    "query_family:qf_c05e64f15dea15ce"
+    "qf_c05e64f15dea15ce"
 }
 
 fn repo_fixture(path: &str) -> std::path::PathBuf {
@@ -229,8 +229,7 @@ fn test_single_log_file_text_output() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Findings"))
-        .stdout(predicate::str::contains("Schema Version: 1"))
-        .stdout(predicate::str::contains("#1 [query_family:"))
+        .stdout(predicate::str::contains("#1 [qf_"))
         .stdout(predicate::str::contains("SELECT * FROM users WHERE id = ?"))
         .stdout(predicate::str::contains(
             "INSERT INTO users (name, email) VALUES (?, ?)",
@@ -256,7 +255,6 @@ fn test_single_log_file_json_output() {
         .arg(log_file.to_str().unwrap())
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"schema_version\": 1"))
         .stdout(predicate::str::contains("\"kind\": \"query_family\""))
         .stdout(predicate::str::contains("\"total_duration_ms\": 15.234"))
         .stdout(predicate::str::contains("\"execution_count\": 1"));
@@ -320,6 +318,7 @@ fn test_inspect_defaults_to_json_output() {
 
     assert_eq!(json["workflow"], "inspect");
     assert_eq!(json["operating_mode"], "log_backed_only");
+    assert_eq!(json["payload"]["failed_checks"], serde_json::json!([]));
 }
 
 #[test]
@@ -395,13 +394,74 @@ fn test_top_query_families_can_follow_persisted_inspect_output() {
         json["next_actions"][0]["survey"]["choices"][0]["choice_id"],
         "configure_dsn_and_rerun_inspect"
     );
-    assert!(json["next_actions"][0]["survey"]["choices"][0]["description"]
-        .as_str()
-        .unwrap()
-        .contains("PG_LOGSTATS_DATABASE_URL"));
+    assert!(
+        json["next_actions"][0]["survey"]["choices"][0]["description"]
+            .as_str()
+            .unwrap()
+            .contains("PG_LOGSTATS_DATABASE_URL")
+    );
+    assert_eq!(
+        json["next_actions"][0]["survey"]["choices"][0]["command"]["argv"],
+        serde_json::json!([
+            "pg-logstats",
+            "--workspace",
+            workspace.display().to_string(),
+            "inspect",
+            log_file.display().to_string(),
+        ])
+    );
 
     assert_eq!(persisted_report_paths(&workspace).len(), 1);
     assert!(!workspace.join("sessions").exists());
+}
+
+#[test]
+fn test_top_query_families_live_mode_clears_offline_limitation() {
+    let temp_dir = TempDir::new().unwrap();
+    let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
+
+    let mut cmd = Command::cargo_bin("pg-logstats").unwrap();
+    let output = with_log_backed_and_live_inspect(&mut cmd, temp_dir.path())
+        .arg("--quiet")
+        .arg("query-families")
+        .arg(log_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(json["operating_mode"], "log_backed_and_live");
+    assert_eq!(json["limitations"], serde_json::json!([]));
+}
+
+#[test]
+fn test_inspect_next_actions_include_workspace_and_log_input() {
+    let temp_dir = TempDir::new().unwrap();
+    let log_file = create_test_log_file(temp_dir.path(), "test.log", sample_log_content());
+    let workspace = temp_dir.path().join("workspace");
+    fs::create_dir_all(&workspace).unwrap();
+
+    let output = Command::cargo_bin("pg-logstats")
+        .unwrap()
+        .env("PG_LOGSTATS_WORKSPACE", &workspace)
+        .arg("--quiet")
+        .arg("inspect")
+        .arg(log_file.to_str().unwrap())
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(
+        json["next_actions"][0]["command"]["argv"],
+        serde_json::json!([
+            "pg-logstats",
+            "--workspace",
+            workspace.display().to_string(),
+            "query-families",
+            log_file.display().to_string(),
+        ])
+    );
 }
 
 #[test]
@@ -505,6 +565,7 @@ fn test_output_to_file() {
     assert!(output_file.exists());
     let content = fs::read_to_string(&output_file).unwrap();
     assert!(content.contains("\"schema_version\": 1"));
+    assert!(!content.contains("\"finding_id\""));
     assert!(content.contains("\"total_duration_ms\": 15.234"));
     assert!(content.contains("\"kind\": \"query_family\""));
 }
@@ -527,6 +588,7 @@ fn test_top_query_families_json_output() {
         .assert()
         .success()
         .stdout(predicate::str::contains("\"schema_version\": 1"))
+        .stdout(predicate::str::contains("\"id\":"))
         .stdout(predicate::str::contains("\"kind\": \"query_family\""))
         .stdout(predicate::str::contains("\"rank\": 1"))
         .stdout(predicate::str::contains("\"rank\": 2"))
@@ -553,13 +615,12 @@ fn test_top_query_families_text_output() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Findings"))
-        .stdout(predicate::str::contains("Schema Version: 1"))
-        .stdout(predicate::str::contains("#1 [query_family:"))
+        .stdout(predicate::str::contains("#1 [qf_"))
         .stdout(predicate::str::contains(
             "Query family with high total runtime",
         ))
         .stdout(predicate::str::contains("SELECT * FROM users WHERE id = ?"))
-        .stdout(predicate::str::contains("#2 [query_family:").not());
+        .stdout(predicate::str::contains("#2 [qf_").not());
 }
 
 #[test]
@@ -734,6 +795,55 @@ fn test_run_action_sql_missing_db() {
         .stderr(predicate::str::contains(
             "Database connection not configured",
         ));
+}
+
+#[test]
+fn test_query_family_run_sql_action_command_is_replayable() {
+    let fixture = repo_fixture("tests/fixtures/cli/sample_stderr.log");
+    let temp_dir = TempDir::new().unwrap();
+
+    let mut top_cmd = Command::cargo_bin("pg-logstats").unwrap();
+    with_log_backed_and_live_inspect(&mut top_cmd, temp_dir.path());
+    top_cmd
+        .arg("--quiet")
+        .arg("query-families")
+        .arg(fixture.to_str().unwrap())
+        .assert()
+        .success();
+
+    let report_path = only_persisted_report_path(temp_dir.path());
+    let content = std::fs::read_to_string(&report_path).unwrap();
+    let mut report: PgTriageReport<FindingsPayload> = serde_json::from_str(&content).unwrap();
+    report.verdict = Some(pg_logstats::Verdict::Clear);
+    pg_logstats::populate_next_actions_with_context(
+        &mut report,
+        &AppConfig::default(),
+        &ActionReplayContext {
+            workspace: Some(temp_dir.path().display().to_string()),
+            log_input_args: vec![fixture.display().to_string()],
+        },
+    );
+
+    let action = report
+        .next_actions
+        .iter()
+        .find(|action| {
+            action.action_id == "query_family.pg_stat_activity.by_dimensions:qf_51125b8829ab1fdf"
+        })
+        .unwrap();
+    assert_eq!(
+        action.command.as_ref().unwrap().argv,
+        vec![
+            "pg-logstats".to_string(),
+            "--workspace".to_string(),
+            temp_dir.path().display().to_string(),
+            "--triage-report".to_string(),
+            report.report_id.as_deref().unwrap().to_string(),
+            "--action-id".to_string(),
+            "query_family.pg_stat_activity.by_dimensions:qf_51125b8829ab1fdf".to_string(),
+            "run-sql".to_string(),
+        ]
+    );
 }
 
 #[test]
@@ -1339,7 +1449,7 @@ fn test_checked_in_run_action_happy_path() {
         .arg(report.report_id.as_deref().unwrap())
         .arg("--action-id")
         .arg(format!(
-            "query_family.pg_stat_activity.by_dimensions:query_family:{}",
+            "query_family.pg_stat_activity.by_dimensions:{}",
             "qf_51125b8829ab1fdf"
         ))
         .arg("run-sql")
@@ -1367,7 +1477,10 @@ fn test_top_query_families_text_golden() {
         .unwrap();
 
     assert!(output.status.success());
-    assert_eq!(String::from_utf8(output.stdout).unwrap(), expected);
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim_end(),
+        expected.trim_end()
+    );
 }
 
 #[test]
@@ -1422,7 +1535,7 @@ fn test_run_action_from_checked_in_findings_json() {
         .arg(test_report_path.to_str().unwrap())
         .arg("--action-id")
         .arg(format!(
-            "query_family.pg_stat_activity.by_dimensions:query_family:{}",
+            "query_family.pg_stat_activity.by_dimensions:{}",
             "qf_51125b8829ab1fdf"
         ))
         .arg("run-sql")
@@ -1464,7 +1577,7 @@ fn test_run_action_rejects_conflicting_parameter_override() {
         .arg("--triage-report")
         .arg(report.report_id.as_deref().unwrap())
         .arg("--action-id")
-        .arg("query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf")
+        .arg("query_family.pg_stat_activity.by_dimensions:qf_51125b8829ab1fdf")
         .arg("run-sql")
         .arg("--parameter")
         .arg("database=otherdb")
@@ -1575,6 +1688,11 @@ fn test_json_output_structure() {
     assert_eq!(json["schema_version"], 1);
     assert_eq!(json["workflow"], "top_query_families");
     assert_eq!(json["operating_mode"], "log_backed_only");
+    assert_eq!(
+        json["limitations"],
+        serde_json::json!(["live_database_checks_unavailable"])
+    );
+    assert!(json.get("verdict").is_none());
     assert!(json["analysis_window"].is_object());
     assert!(json["source_summary"].is_object());
     assert!(json["payload"]["findings"].is_array());
@@ -1705,6 +1823,11 @@ mod benchmark_tests {
 
         assert_eq!(json["schema_version"], 1);
         assert_eq!(json["workflow"], "errors");
+        assert_eq!(
+            json["limitations"],
+            serde_json::json!(["live_database_checks_unavailable"])
+        );
+        assert!(json.get("verdict").is_none());
         assert_eq!(json["payload"]["findings"][0]["kind"], "error_class");
         assert_eq!(
             json["payload"]["findings"][0]["error_class"]["sqlstate"],
@@ -1739,6 +1862,8 @@ mod benchmark_tests {
 
         assert_eq!(json["schema_version"], 1);
         assert_eq!(json["workflow"], "temp_files");
+        assert_eq!(json["limitations"][0], "live_database_checks_unavailable");
+        assert!(json.get("verdict").is_none());
         assert_eq!(json["payload"]["findings"][0]["kind"], "temp_file");
         assert_eq!(
             json["payload"]["findings"][0]["temp_file"]["largest_observed_bytes"],

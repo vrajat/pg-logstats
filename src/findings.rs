@@ -14,29 +14,22 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub const FINDING_SCHEMA_VERSION: u32 = 1;
-
-/// Collection wrapper for versioned finding output.
+/// Collection wrapper for finding output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FindingSet {
-    pub schema_version: u32,
     pub findings: Vec<Finding>,
 }
 
 impl FindingSet {
     pub fn new(findings: Vec<Finding>) -> Self {
-        Self {
-            schema_version: FINDING_SCHEMA_VERSION,
-            findings,
-        }
+        Self { findings }
     }
 }
 
 /// Machine-readable investigation finding.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
-    pub schema_version: u32,
-    pub finding_id: String,
+    pub id: String,
     pub kind: FindingKind,
     pub rank: usize,
     pub title: String,
@@ -57,6 +50,12 @@ pub struct Finding {
     pub error_class: Option<ErrorClassFinding>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temp_file: Option<TempFileFinding>,
+}
+
+impl Finding {
+    pub fn target_id(&self) -> &str {
+        &self.id
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -231,9 +230,9 @@ pub fn top_query_families_report(
         schema_version: PG_TRIAGE_SCHEMA_VERSION,
         workflow: ActionKind::TopQueryFamilies,
         operating_mode: OperatingMode::LogBackedOnly,
-        limitations: Vec::new(),
-        verdict: Some(Verdict::Unknown),
-        verdict_reasons: vec!["live_state_verdict_not_evaluated".to_string()],
+        limitations: vec!["live_database_checks_unavailable".to_string()],
+        verdict: None,
+        verdict_reasons: Vec::new(),
         allowed_actions: None,
         blocked_actions: None,
         analysis_window: analysis_window(entries),
@@ -546,7 +545,7 @@ impl GuidancePayload for FindingsPayload {
                     &resolved_rule,
                     status,
                     reason,
-                    Some(finding.finding_id.clone()),
+                    Some(finding.id.clone()),
                     command,
                     sql_preview,
                 ));
@@ -703,8 +702,7 @@ impl QueryFamilyAccumulator {
         }
 
         Finding {
-            schema_version: FINDING_SCHEMA_VERSION,
-            finding_id: format!("query_family:{}", self.identity.family_id),
+            id: self.identity.family_id.clone(),
             kind: FindingKind::QueryFamily,
             rank,
             title: "Query family with high total runtime".to_string(),
@@ -985,8 +983,7 @@ fn diff_finding(rank: usize, candidate: DiffCandidate) -> Finding {
     };
 
     Finding {
-        schema_version: FINDING_SCHEMA_VERSION,
-        finding_id: format!("slow_query_diff:{}", accumulator.identity.family_id),
+        id: accumulator.identity.family_id.clone(),
         kind: FindingKind::SlowQueryRegression,
         rank,
         title: "Query family regressed in target window".to_string(),
@@ -1174,11 +1171,10 @@ impl ErrorClassAccumulator {
         }
 
         Finding {
-            schema_version: FINDING_SCHEMA_VERSION,
-            finding_id: format!(
-                "error_class:{}",
-                self.sqlstate.as_deref().unwrap_or(&self.normalized_message)
-            ),
+            id: self
+                .sqlstate
+                .clone()
+                .unwrap_or_else(|| self.normalized_message.clone()),
             kind: FindingKind::ErrorClass,
             rank,
             title,
@@ -1359,13 +1355,10 @@ impl TempFileAccumulator {
         }
 
         Finding {
-            schema_version: FINDING_SCHEMA_VERSION,
-            finding_id: format!(
-                "temp_file:{}",
-                self.query_family_id
-                    .as_deref()
-                    .unwrap_or("unknown_statement")
-            ),
+            id: self
+                .query_family_id
+                .clone()
+                .unwrap_or_else(|| "unknown_statement".to_string()),
             kind: FindingKind::TempFile,
             rank,
             title,
@@ -1414,9 +1407,9 @@ pub fn errors_report(
         schema_version: PG_TRIAGE_SCHEMA_VERSION,
         workflow: ActionKind::Errors,
         operating_mode: OperatingMode::LogBackedOnly,
-        limitations: Vec::new(),
-        verdict: Some(Verdict::Unknown),
-        verdict_reasons: vec!["live_state_verdict_not_evaluated".to_string()],
+        limitations: vec!["live_database_checks_unavailable".to_string()],
+        verdict: None,
+        verdict_reasons: Vec::new(),
         allowed_actions: None,
         blocked_actions: None,
         analysis_window: analysis_window(entries),
@@ -1442,6 +1435,7 @@ pub fn temp_files_report(
     has_uncorrelated: bool,
 ) -> PgTriageReport<FindingsPayload> {
     let mut limitations = Vec::new();
+    limitations.push("live_database_checks_unavailable".to_string());
     if has_uncorrelated {
         limitations.push(
             "Some temporary file events could not be correlated with a SQL statement.".to_string(),
@@ -1453,8 +1447,8 @@ pub fn temp_files_report(
         workflow: ActionKind::TempFiles,
         operating_mode: OperatingMode::LogBackedOnly,
         limitations,
-        verdict: Some(Verdict::Unknown),
-        verdict_reasons: vec!["live_state_verdict_not_evaluated".to_string()],
+        verdict: None,
+        verdict_reasons: Vec::new(),
         allowed_actions: None,
         blocked_actions: None,
         analysis_window: analysis_window(entries),
@@ -1524,7 +1518,6 @@ mod tests {
 
         let findings = query_family_findings(&executions, 10);
 
-        assert_eq!(findings.schema_version, 1);
         assert_eq!(findings.findings.len(), 2);
         assert_eq!(findings.findings[0].rank, 1);
         assert_eq!(findings.findings[0].metrics.total_duration_ms, 250.0);
@@ -1541,7 +1534,6 @@ mod tests {
         let findings = query_family_findings(&executions, 10);
         let finding = &findings.findings[0];
 
-        assert_eq!(finding.schema_version, 1);
         assert_eq!(finding.kind, FindingKind::QueryFamily);
         assert_eq!(finding.confidence, FindingConfidence::Medium);
         assert_eq!(finding.evidence.len(), 2);

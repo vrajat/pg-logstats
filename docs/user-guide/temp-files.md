@@ -50,8 +50,7 @@ Each finding outputs the following fields when available:
 Example finding payload:
 ```json
 {
-  "schema_version": 1,
-  "finding_id": "temp_file:qf_c05e64f15dea15ce",
+  "id": "qf_c05e64f15dea15ce",
   "kind": "temp_file",
   "rank": 1,
   "title": "Temp file creation for SELECT * FROM giant_table ORDER BY name",

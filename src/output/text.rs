@@ -254,18 +254,11 @@ impl TextFormatter {
             message: e.to_string(),
             context: Some("text formatting".to_string()),
         })?;
-        writeln!(output, "Schema Version: {}", findings.schema_version).map_err(|e| {
-            PgLogstatsError::Unexpected {
-                message: e.to_string(),
-                context: Some("text formatting".to_string()),
-            }
-        })?;
-
         for finding in &findings.findings {
             writeln!(
                 output,
                 "\n#{} [{}] {}",
-                finding.rank, finding.finding_id, finding.title
+                finding.rank, finding.id, finding.title
             )
             .map_err(|e| PgLogstatsError::Unexpected {
                 message: e.to_string(),

@@ -4,12 +4,21 @@ use crate::config::AppConfig;
 use crate::findings::FindingKind;
 use crate::triage::{
     ActionClass, ActionKind, NextAction, NextActionCommand, NextActionPriority, NextActionStatus,
-    NextActionType, OperatingMode, PgTriageReport, RiskLabel, Verdict,
+    NextActionType, OperatingMode, PgTriageReport, PromptUserSurvey, RiskLabel, Verdict,
 };
 use serde::{Deserialize, Serialize};
 
 /// The default limit for the number of recommended actions produced by a rule.
 pub const DEFAULT_RULE_LIMIT: usize = 10;
+
+/// Context required to turn generic next-action templates into replayable commands.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ActionReplayContext {
+    /// Resolved workspace path for this investigation branch.
+    pub workspace: Option<String>,
+    /// Input arguments required to replay log-backed workflows.
+    pub log_input_args: Vec<String>,
+}
 
 /// Unique identifiers for the rules in the guidance framework.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -311,6 +320,16 @@ pub fn populate_next_actions<T: GuidancePayload>(
     report: &mut PgTriageReport<T>,
     config: &AppConfig,
 ) {
+    populate_next_actions_with_context(report, config, &ActionReplayContext::default());
+}
+
+/// Populates next actions and hydrates them into replayable CLI commands using
+/// the provided execution context.
+pub fn populate_next_actions_with_context<T: GuidancePayload>(
+    report: &mut PgTriageReport<T>,
+    config: &AppConfig,
+    replay_context: &ActionReplayContext,
+) {
     let mut next_actions: Vec<_> = report
         .payload
         .evaluate_rules(report.operating_mode, report.verdict, config)
@@ -323,7 +342,123 @@ pub fn populate_next_actions<T: GuidancePayload>(
         report.verdict,
         config,
     ));
+    hydrate_replayable_commands(
+        &mut next_actions,
+        replay_context,
+        report.report_id.as_deref(),
+    );
     report.next_actions = next_actions;
+}
+
+fn hydrate_replayable_commands(
+    next_actions: &mut [NextAction],
+    replay_context: &ActionReplayContext,
+    parent_report_id: Option<&str>,
+) {
+    for action in next_actions {
+        hydrate_next_action_command(action, replay_context, parent_report_id);
+        if let Some(survey) = action.survey.as_mut() {
+            hydrate_prompt_user_survey(survey, replay_context);
+        }
+    }
+}
+
+fn hydrate_next_action_command(
+    action: &mut NextAction,
+    replay_context: &ActionReplayContext,
+    parent_report_id: Option<&str>,
+) {
+    if action.action_type == NextActionType::RunSql {
+        action.command = Some(run_sql_replay_command(
+            &action.action_id,
+            replay_context,
+            parent_report_id,
+        ));
+        return;
+    }
+
+    let Some(command) = action.command.as_mut() else {
+        return;
+    };
+
+    let workflow = action.workflow.or(Some(action.kind));
+    command.argv = hydrate_command_argv(&command.argv, workflow, replay_context);
+}
+
+fn hydrate_prompt_user_survey(survey: &mut PromptUserSurvey, replay_context: &ActionReplayContext) {
+    for choice in &mut survey.choices {
+        let Some(command) = choice.command.as_mut() else {
+            continue;
+        };
+
+        command.argv = hydrate_command_argv(&command.argv, choice.workflow, replay_context);
+    }
+}
+
+fn hydrate_command_argv(
+    base_argv: &[String],
+    workflow: Option<ActionKind>,
+    replay_context: &ActionReplayContext,
+) -> Vec<String> {
+    if base_argv.is_empty() {
+        return Vec::new();
+    }
+
+    let mut argv = Vec::with_capacity(
+        base_argv.len()
+            + usize::from(replay_context.workspace.is_some()) * 2
+            + replay_context.log_input_args.len(),
+    );
+    argv.push(base_argv[0].clone());
+
+    if let Some(workspace) = &replay_context.workspace {
+        argv.push("--workspace".to_string());
+        argv.push(workspace.clone());
+    }
+
+    argv.extend(base_argv.iter().skip(1).cloned());
+
+    if workflow_uses_log_input(workflow) {
+        argv.extend(replay_context.log_input_args.iter().cloned());
+    }
+
+    argv
+}
+
+fn workflow_uses_log_input(workflow: Option<ActionKind>) -> bool {
+    matches!(
+        workflow,
+        Some(
+            ActionKind::Inspect
+                | ActionKind::TopQueryFamilies
+                | ActionKind::Errors
+                | ActionKind::TempFiles
+        )
+    )
+}
+
+fn run_sql_replay_command(
+    action_id: &str,
+    replay_context: &ActionReplayContext,
+    parent_report_id: Option<&str>,
+) -> NextActionCommand {
+    let mut argv = vec!["pg-logstats".to_string()];
+
+    if let Some(workspace) = &replay_context.workspace {
+        argv.push("--workspace".to_string());
+        argv.push(workspace.clone());
+    }
+
+    if let Some(report_id) = parent_report_id {
+        argv.push("--triage-report".to_string());
+        argv.push(report_id.to_string());
+    }
+
+    argv.push("--action-id".to_string());
+    argv.push(action_id.to_string());
+    argv.push("run-sql".to_string());
+
+    NextActionCommand { argv }
 }
 
 pub fn running_query_rules() -> Vec<RuleDefinition> {
@@ -526,6 +661,144 @@ mod tests {
             "inspect.top_query_families"
         );
         assert_eq!(report.next_actions[0].status, NextActionStatus::Allowed);
+    }
+
+    #[test]
+    fn test_replay_context_hydrates_log_workflow_and_prompt_user_commands() {
+        let payload = InspectReportPayload {
+            database_inspect: DatabaseInspect {
+                mode_candidate: OperatingMode::LogBackedOnly,
+                checks: std::collections::BTreeMap::new(),
+            },
+            agent_inspect: AgentInspect {
+                active_harness: Some("codex".to_string()),
+                codex: AgentTargetInspect {
+                    status: CheckStatus::Passed,
+                    installed: true,
+                    install_location: String::new(),
+                },
+                claude: AgentTargetInspect {
+                    status: CheckStatus::Passed,
+                    installed: true,
+                    install_location: String::new(),
+                },
+                gemini: AgentTargetInspect {
+                    status: CheckStatus::Passed,
+                    installed: true,
+                    install_location: String::new(),
+                },
+            },
+            required_checks: Vec::new(),
+            failed_checks: Vec::new(),
+        };
+
+        let mut report = PgTriageReport {
+            schema_version: PG_TRIAGE_SCHEMA_VERSION,
+            workflow: ActionKind::Inspect,
+            operating_mode: OperatingMode::LogBackedOnly,
+            limitations: Vec::new(),
+            verdict: None,
+            verdict_reasons: Vec::new(),
+            allowed_actions: None,
+            blocked_actions: None,
+            analysis_window: None,
+            source_summary: None,
+            next_actions: Vec::new(),
+            report_id: Some("20260614T100000000000Z-inspect".to_string()),
+            parent_report_id: None,
+            selected_action_id: None,
+            created_at: None,
+            payload,
+        };
+
+        populate_next_actions_with_context(
+            &mut report,
+            &AppConfig::default(),
+            &ActionReplayContext {
+                workspace: Some("/tmp/workspace".to_string()),
+                log_input_args: vec!["/tmp/postgresql.log".to_string()],
+            },
+        );
+
+        let query_families = report
+            .next_actions
+            .iter()
+            .find(|action| action.action_id == "inspect.top_query_families")
+            .unwrap();
+        assert_eq!(
+            query_families.command.as_ref().unwrap().argv,
+            vec![
+                "pg-logstats",
+                "--workspace",
+                "/tmp/workspace",
+                "query-families",
+                "/tmp/postgresql.log",
+            ]
+        );
+    }
+
+    #[test]
+    fn test_replay_context_hydrates_run_sql_commands_with_report_linkage() {
+        let mut report = crate::triage::sql_action_report(
+            crate::triage::SqlActionPayload {
+                action_id: "noop".to_string(),
+                source_report_id: None,
+                sql: "SELECT 1".to_string(),
+                row_count: 0,
+                truncated: false,
+                columns: Vec::new(),
+                rows: Vec::new(),
+            },
+            OperatingMode::LogBackedAndLive,
+        );
+        report.workflow = ActionKind::TopQueryFamilies;
+        report.report_id = Some("20260614T100000000000Z-top_query_families".to_string());
+        report.next_actions = vec![NextAction {
+            action_id: "query_family.pg_stat_activity.by_dimensions:qf_demo".to_string(),
+            action_type: NextActionType::RunSql,
+            kind: ActionKind::RunSql,
+            label: "Inspect active sessions by dimensions".to_string(),
+            status: NextActionStatus::Allowed,
+            priority: NextActionPriority::Recommended,
+            judgement_required: true,
+            reason: "demo".to_string(),
+            target: None,
+            workflow: Some(ActionKind::RunSql),
+            command: Some(NextActionCommand {
+                argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
+            }),
+            survey: None,
+            sql_preview: None,
+            parameters: None,
+            risk: None,
+            action_class: None,
+            required_identifiers: None,
+            requires: None,
+            produces: None,
+        }];
+
+        hydrate_replayable_commands(
+            &mut report.next_actions,
+            &ActionReplayContext {
+                workspace: Some("/tmp/workspace".to_string()),
+                log_input_args: Vec::new(),
+            },
+            report.report_id.as_deref(),
+        );
+
+        assert_eq!(
+            report.next_actions[0].command.as_ref().unwrap().argv,
+            vec![
+                "pg-logstats",
+                "--workspace",
+                "/tmp/workspace",
+                "--triage-report",
+                "20260614T100000000000Z-top_query_families",
+                "--action-id",
+                "query_family.pg_stat_activity.by_dimensions:qf_demo",
+                "run-sql",
+            ]
+        );
     }
 
     #[test]

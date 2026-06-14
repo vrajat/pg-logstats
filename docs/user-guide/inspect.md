@@ -142,7 +142,7 @@ Important behavior:
 
 - missing DB connection marks live checks as `skipped`
 - requested but unusable log input marks `log_source_reachable` as `failed`
-- `failed_checks` lists the machine-readable reason codes for failed checks
+- `failed_checks` lists structured `{check_id, reason}` objects for failed checks
 - `limitations` describes what the caller must not assume in the chosen mode
 
 ## Modes

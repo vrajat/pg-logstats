@@ -7,10 +7,11 @@ use pg_logstats::{
         discover_log_files, process_cloudwatch_input, process_log_file, process_log_paths,
         validate_file_input_args, CloudWatchInput, CloudWatchSince, CloudWatchUntil, LocalLogInput,
     },
-    inspect, load_config, normalize_log_entries, parse_action_parameters, query_family_findings,
-    resolve_workspace_path, run_running_queries, slow_query_diff_findings, temp_file_findings,
-    temp_files_report, top_query_families_report, workspace_inspect_report_path, ActionKind,
-    ActionParameterInput, Correlator, EventSourceKind, InspectReportPayload, JsonFormatter,
+    inspect, load_config, normalize_log_entries, parse_action_parameters,
+    populate_next_actions_with_context, query_family_findings, resolve_workspace_path,
+    run_running_queries, slow_query_diff_findings, temp_file_findings, temp_files_report,
+    top_query_families_report, workspace_inspect_report_path, ActionKind, ActionParameterInput,
+    ActionReplayContext, Correlator, EventSourceKind, InspectReportPayload, JsonFormatter,
     OperatingMode, OutputFormat, PgLogstatsError, PgTriageReport, ProcessOrderCorrelator,
     ReportStore, Result, RunSqlRequest, SlowQueryDiffOptions, TextFormatter, TextLogFormat,
     TextLogParser,
@@ -339,7 +340,7 @@ fn run_command(
         }
         Command::Inspect { input } => {
             let cloudwatch_input = input.uses_cloudwatch().then(|| input.cloudwatch_input());
-            let report = inspect(
+            let mut report = inspect(
                 config,
                 args.dsn.as_deref(),
                 &input.local_log_input(),
@@ -348,6 +349,12 @@ fn run_command(
                 source_kind_for_input(args, input),
                 args.workspace.as_deref(),
             )?;
+            populate_next_actions_with_context(
+                &mut report,
+                config,
+                &action_replay_context(args, Some(input))?,
+            );
+            persist_inspect_report_override(args, &report)?;
 
             output_report(&report, args)?;
             Ok(())
@@ -462,10 +469,9 @@ fn run_top_query_families_command(
         top_query_families_report(findings, &all_entries, source_kind_for_input(args, input));
     if let Some(ir) = inspect_report {
         report.operating_mode = ir.operating_mode;
+        reconcile_live_database_limitations(&mut report);
     }
-    pg_logstats::populate_next_actions(&mut report, config);
-
-    persist_workspace_report(args, &mut report)?;
+    finalize_workspace_report(args, &mut report, config, Some(input))?;
 
     output_report(&report, args)
 }
@@ -650,13 +656,155 @@ fn run_slow_queries_diff(
     Ok((findings, total_entries))
 }
 
-fn persist_workspace_report<T: serde::Serialize>(
+fn finalize_workspace_report<T: serde::Serialize + pg_logstats::GuidancePayload>(
     args: &Arguments,
     report: &mut PgTriageReport<T>,
+    config: &pg_logstats::AppConfig,
+    input: Option<&LogInputArgs>,
 ) -> Result<PathBuf> {
     let workspace = resolve_workspace_path(args.workspace.as_deref())?;
     let store = ReportStore::new(&workspace);
+    store.prepare(report)?;
+    populate_next_actions_with_context(report, config, &action_replay_context(args, input)?);
     store.persist(report)
+}
+
+fn persist_inspect_report_override(
+    args: &Arguments,
+    report: &PgTriageReport<InspectReportPayload>,
+) -> Result<()> {
+    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
+    let path = workspace_inspect_report_path(&workspace);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let output = serde_json::to_string_pretty(report).map_err(PgLogstatsError::Serialization)?;
+    fs::write(path, output)?;
+    Ok(())
+}
+
+fn action_replay_context(
+    args: &Arguments,
+    input: Option<&LogInputArgs>,
+) -> Result<ActionReplayContext> {
+    Ok(ActionReplayContext {
+        workspace: resolve_workspace_path(args.workspace.as_deref())
+            .ok()
+            .map(|path| path.display().to_string()),
+        log_input_args: input
+            .map(log_input_replay_args)
+            .transpose()?
+            .unwrap_or_default(),
+    })
+}
+
+fn log_input_replay_args(input: &LogInputArgs) -> Result<Vec<String>> {
+    let mut args = Vec::new();
+
+    if let Some(log_dir) = &input.log_dir {
+        args.push("--log-dir".to_string());
+        args.push(log_dir.display().to_string());
+    }
+
+    if let Some(log_group) = &input.cloudwatch_log_group {
+        args.push("--cloudwatch-log-group".to_string());
+        args.push(log_group.clone());
+    }
+
+    if let Some(rds_instance) = &input.rds_instance {
+        args.push("--rds-instance".to_string());
+        args.push(rds_instance.clone());
+    }
+
+    if input.uses_cloudwatch() {
+        args.push("--since".to_string());
+        args.push(cloudwatch_since_cli_value(&input.since));
+    }
+
+    if let Some(until) = &input.until {
+        args.push("--until".to_string());
+        args.push(cloudwatch_until_cli_value(until));
+    }
+
+    if let Some(filter_pattern) = &input.cloudwatch_filter_pattern {
+        args.push("--cloudwatch-filter-pattern".to_string());
+        args.push(filter_pattern.clone());
+    }
+
+    if input.cloudwatch_max_pages != 20 {
+        args.push("--cloudwatch-max-pages".to_string());
+        args.push(input.cloudwatch_max_pages.to_string());
+    }
+
+    if let Some(region) = &input.aws_region {
+        args.push("--aws-region".to_string());
+        args.push(region.clone());
+    }
+
+    if let Some(profile) = &input.aws_profile {
+        args.push("--aws-profile".to_string());
+        args.push(profile.clone());
+    }
+
+    if let Some(sample_size) = input.sample_size {
+        args.push("--sample-size".to_string());
+        args.push(sample_size.to_string());
+    }
+
+    if let Some(logfile_list) = &input.logfile_list {
+        args.push("--logfile-list".to_string());
+        args.push(logfile_list.clone());
+    }
+
+    args.extend(input.log_files.iter().cloned());
+    Ok(args)
+}
+
+fn cloudwatch_since_cli_value(value: &CloudWatchSince) -> String {
+    match value {
+        CloudWatchSince::RelativeMillis(duration_ms) => {
+            if duration_ms % 86_400_000 == 0 {
+                format!("{}d", duration_ms / 86_400_000)
+            } else if duration_ms % 3_600_000 == 0 {
+                format!("{}h", duration_ms / 3_600_000)
+            } else {
+                format!("{}m", duration_ms / 60_000)
+            }
+        }
+        CloudWatchSince::AbsoluteMillis(timestamp_ms) => {
+            chrono::DateTime::from_timestamp_millis(*timestamp_ms)
+                .expect("valid timestamp millis")
+                .to_rfc3339()
+        }
+    }
+}
+
+fn cloudwatch_until_cli_value(value: &CloudWatchUntil) -> String {
+    chrono::DateTime::from_timestamp_millis(value.timestamp_millis())
+        .expect("valid timestamp millis")
+        .to_rfc3339()
+}
+
+fn reconcile_live_database_limitations<T>(report: &mut PgTriageReport<T>) {
+    const LIVE_DB_UNAVAILABLE: &str = "live_database_checks_unavailable";
+
+    match report.operating_mode {
+        OperatingMode::LogBackedAndLive => report
+            .limitations
+            .retain(|limitation| limitation != LIVE_DB_UNAVAILABLE),
+        OperatingMode::LogBackedOnly
+            if !report
+                .limitations
+                .iter()
+                .any(|limitation| limitation == LIVE_DB_UNAVAILABLE) =>
+        {
+            report
+                .limitations
+                .insert(0, LIVE_DB_UNAVAILABLE.to_string());
+        }
+        _ => {}
+    }
 }
 
 fn load_startup_inspect_report(
@@ -789,10 +937,9 @@ fn run_sql_command(
         config,
     )?;
 
-    pg_logstats::populate_next_actions(&mut sql_report, config);
     sql_report.parent_report_id = parent_report.report_id;
     sql_report.selected_action_id = Some(action_id.to_string());
-    persist_workspace_report(args, &mut sql_report)?;
+    finalize_workspace_report(args, &mut sql_report, config, None)?;
 
     output_report(&sql_report, args)
 }
@@ -806,7 +953,7 @@ fn run_running_queries_command(
     require_ready_mode(inspect_report)?;
 
     let mut report = run_running_queries(args.dsn.as_deref(), config, inspect_report)?;
-    persist_workspace_report(args, &mut report)?;
+    finalize_workspace_report(args, &mut report, config, None)?;
     output_report(&report, args)
 }
 
@@ -884,10 +1031,9 @@ fn run_errors_command(
 
     if let Some(ir) = inspect_report {
         report.operating_mode = ir.operating_mode;
+        reconcile_live_database_limitations(&mut report);
     }
-    pg_logstats::populate_next_actions(&mut report, config);
-
-    persist_workspace_report(args, &mut report)?;
+    finalize_workspace_report(args, &mut report, config, Some(input))?;
 
     output_report(&report, args)
 }
@@ -941,10 +1087,9 @@ fn run_temp_files_command(
 
     if let Some(ir) = inspect_report {
         report.operating_mode = ir.operating_mode;
+        reconcile_live_database_limitations(&mut report);
     }
-    pg_logstats::populate_next_actions(&mut report, config);
-
-    persist_workspace_report(args, &mut report)?;
+    finalize_workspace_report(args, &mut report, config, Some(input))?;
 
     output_report(&report, args)
 }

@@ -52,7 +52,7 @@ source you expect the agent to use.
 Local logs:
 
 ```bash
-pg-logstats inspect --output-format json /path/to/postgresql.log
+pg-logstats inspect /path/to/postgresql.log
 ```
 
 RDS / CloudWatch:
@@ -60,8 +60,7 @@ RDS / CloudWatch:
 ```bash
 pg-logstats inspect \
   --rds-instance my-db \
-  --since 1h \
-  --output-format json
+  --since 1h
 ```
 
 For beta, the intended success path is `log_backed`. If the required evidence

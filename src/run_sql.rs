@@ -209,7 +209,7 @@ pub fn execute_run_sql(
                 .payload
                 .findings
                 .iter()
-                .find(|f| f.finding_id == finding_id)
+                .find(|f| f.target_id() == finding_id)
                 .cloned()
                 .ok_or_else(|| PgLogstatsError::Configuration {
                     message: format!(
@@ -591,7 +591,7 @@ mod tests {
                 priority: NextActionPriority::Recommended,
                 judgement_required: true,
                 reason: "test".to_string(),
-                target: Some("query_family:demo".to_string()),
+                target: Some("demo".to_string()),
                 workflow: Some(ActionKind::RunSql),
                 command: None,
                 survey: None,
@@ -604,8 +604,7 @@ mod tests {
                 produces: None,
             },
             finding: Finding {
-                schema_version: 1,
-                finding_id: "query_family:demo".to_string(),
+                id: "demo".to_string(),
                 kind: FindingKind::QueryFamily,
                 rank: 1,
                 title: "demo".to_string(),
@@ -654,9 +653,8 @@ mod tests {
 
     #[test]
     fn queryid_sql_uses_bound_parameter() {
-        let selected = selected_query_family_action(
-            "query_family.pg_stat_statements.by_queryid:query_family:demo",
-        );
+        let selected =
+            selected_query_family_action("query_family.pg_stat_statements.by_queryid:demo");
         let prepared =
             prepare_findings_workflow_sql(&selected.action, &selected.finding, &[]).unwrap();
 
@@ -672,9 +670,8 @@ mod tests {
 
     #[test]
     fn activity_sql_binds_exact_dimensions() {
-        let selected = selected_query_family_action(
-            "query_family.pg_stat_activity.by_dimensions:query_family:demo",
-        );
+        let selected =
+            selected_query_family_action("query_family.pg_stat_activity.by_dimensions:demo");
         let prepared =
             prepare_findings_workflow_sql(&selected.action, &selected.finding, &[]).unwrap();
 
@@ -686,9 +683,8 @@ mod tests {
 
     #[test]
     fn conflicting_parameter_override_is_rejected() {
-        let selected = selected_query_family_action(
-            "query_family.pg_stat_activity.by_dimensions:query_family:demo",
-        );
+        let selected =
+            selected_query_family_action("query_family.pg_stat_activity.by_dimensions:demo");
         let err = prepare_findings_workflow_sql(
             &selected.action,
             &selected.finding,

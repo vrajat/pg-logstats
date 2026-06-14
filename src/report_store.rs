@@ -39,7 +39,7 @@ impl ReportStore {
         workspace_reports_dir(&self.workspace_path)
     }
 
-    pub fn persist<T: Serialize>(&self, report: &mut PgTriageReport<T>) -> Result<PathBuf> {
+    pub fn prepare<T: Serialize>(&self, report: &mut PgTriageReport<T>) -> Result<()> {
         let reports_dir = self.reports_dir();
         fs::create_dir_all(&reports_dir)?;
 
@@ -63,6 +63,19 @@ impl ReportStore {
                 field: Some("report_id".to_string()),
             });
         }
+
+        Ok(())
+    }
+
+    pub fn persist<T: Serialize>(&self, report: &mut PgTriageReport<T>) -> Result<PathBuf> {
+        self.prepare(report)?;
+
+        let reports_dir = self.reports_dir();
+        let report_id = report
+            .report_id
+            .clone()
+            .expect("prepare should set report_id");
+        let report_path = reports_dir.join(format!("{report_id}.json"));
 
         let content =
             serde_json::to_string_pretty(report).map_err(PgLogstatsError::Serialization)?;
@@ -188,6 +201,26 @@ mod tests {
         assert!(path.exists());
         assert!(report.report_id.is_some());
         assert!(report.created_at.is_some());
+    }
+
+    #[test]
+    fn prepare_assigns_report_id_without_writing_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let store = ReportStore::new(temp_dir.path());
+        let mut report = sample_report();
+
+        store.prepare(&mut report).unwrap();
+
+        assert!(report.report_id.is_some());
+        assert!(report.created_at.is_some());
+        assert!(store.reports_dir().exists());
+        assert!(persisted_report_count(&store) == 0);
+    }
+
+    fn persisted_report_count(store: &ReportStore) -> usize {
+        fs::read_dir(store.reports_dir())
+            .map(|entries| entries.count())
+            .unwrap_or(0)
     }
 
     #[test]

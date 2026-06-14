@@ -49,15 +49,15 @@ pub use findings::{
     temp_file_findings, temp_files_report, top_query_families_report, AttributionField,
     ComparisonMetrics, DeltaMetrics, ErrorClassFinding, Finding, FindingConfidence, FindingKind,
     FindingMetrics, FindingSet, FindingsPayload, QueryFamilyFinding, ReasonCode,
-    SlowQueryDiffOptions, TempFileFinding, FINDING_SCHEMA_VERSION,
+    SlowQueryDiffOptions, TempFileFinding,
 };
 pub use guidance::{
-    populate_next_actions, running_query_rules, GuidancePayload, RuleDefinition, RuleId,
-    DEFAULT_RULE_LIMIT,
+    populate_next_actions, populate_next_actions_with_context, running_query_rules,
+    ActionReplayContext, GuidancePayload, RuleDefinition, RuleId, DEFAULT_RULE_LIMIT,
 };
 pub use inspect::{
-    format_inspect_text, inspect, InspectCheckId, InspectLimitation, InspectReason,
-    InspectReportPayload, LogEvidence, LogInspectEvidence,
+    format_inspect_text, inspect, FailedInspectCheck, InspectCheckId, InspectLimitation,
+    InspectReason, InspectReportPayload, LogEvidence, LogInspectEvidence,
 };
 pub use output::{
     output_report, write_or_print_output, JsonFormatter, OutputFormat, TextFormatter,

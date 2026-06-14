@@ -139,8 +139,7 @@ fn create_test_log_entries() -> Vec<LogEntry> {
 
 fn create_test_finding_set() -> FindingSet {
     FindingSet::new(vec![Finding {
-        schema_version: 1,
-        finding_id: "query_family:db=appdb|sql=SELECT ?".to_string(),
+        id: "db=appdb|sql=SELECT ?".to_string(),
         kind: FindingKind::QueryFamily,
         rank: 1,
         title: "Query family with high total runtime".to_string(),
@@ -343,8 +342,7 @@ mod text_formatter_tests {
         let output = formatter.format_findings(&findings).unwrap();
 
         assert!(output.contains("Findings"));
-        assert!(output.contains("Schema Version: 1"));
-        assert!(output.contains("#1 [query_family:db=appdb|sql=SELECT ?]"));
+        assert!(output.contains("#1 [db=appdb|sql=SELECT ?]"));
         assert!(output.contains("Query family with high total runtime"));
         assert!(output.contains("Confidence: High"));
         assert!(output.contains("SQL: SELECT ?"));
@@ -561,11 +559,9 @@ mod json_formatter_tests {
         let json_str = formatter.format_findings(&findings).unwrap();
         let json: serde_json::Value = serde_json::from_str(&json_str).unwrap();
 
-        assert_eq!(json["schema_version"], 1);
         assert!(json["metadata"]["analysis_timestamp"].is_string());
         let first = &json["findings"][0];
-        assert_eq!(first["schema_version"], 1);
-        assert_eq!(first["finding_id"], "query_family:db=appdb|sql=SELECT ?");
+        assert_eq!(first["id"], "db=appdb|sql=SELECT ?");
         assert_eq!(first["kind"], "query_family");
         assert_eq!(first["rank"], 1);
         assert_eq!(first["reason_codes"][0], "high_total_duration");

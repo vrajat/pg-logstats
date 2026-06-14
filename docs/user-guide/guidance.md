@@ -14,7 +14,7 @@ Every machine-readable triage report (JSON output) includes a top-level `next_ac
 
 ```json
 {
-  "action_id": "query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf",
+  "action_id": "query_family.pg_stat_activity.by_dimensions:qf_51125b8829ab1fdf",
   "action_type": "run_sql",
   "kind": "run_sql",
   "label": "Find current active sessions for the same query-family dimensions",
@@ -124,7 +124,7 @@ For `action_type = "run_sql"`, the caller executes `pg-logstats run-sql` and lin
 ```bash
 pg-logstats \
   --triage-report 20260613T181530123456Z-top_query_families \
-  --action-id query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf \
+  --action-id query_family.pg_stat_activity.by_dimensions:qf_51125b8829ab1fdf \
   run-sql
 ```
 
