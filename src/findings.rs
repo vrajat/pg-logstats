@@ -604,7 +604,12 @@ impl GuidancePayload for FindingsPayload {
                     }
                     RuleId::TempFileExplain | RuleId::TempFileExplainAnalyze => {
                         if let Some(tf) = &finding.temp_file {
-                            if tf.normalized_sql.as_ref().map(|s| s.is_empty()).unwrap_or(true) {
+                            if tf
+                                .normalized_sql
+                                .as_ref()
+                                .map(|s| s.is_empty())
+                                .unwrap_or(true)
+                            {
                                 missing_ids.push("normalized_sql".to_string());
                             } else {
                                 command = Some(NextActionCommand {

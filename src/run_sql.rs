@@ -972,8 +972,8 @@ mod tests {
     use crate::findings::{
         Finding, FindingConfidence, FindingKind, FindingMetrics, QueryFamilyFinding, ReasonCode,
     };
-    use crate::triage::{NextAction, NextActionPriority, NextActionType, Verdict};
     use crate::guidance::GuidancePayload;
+    use crate::triage::{NextAction, NextActionPriority, NextActionType, Verdict};
 
     fn selected_query_family_action(action_id: &str) -> SelectedQueryFamilyAction {
         SelectedQueryFamilyAction {
@@ -1180,7 +1180,8 @@ mod tests {
     #[test]
     fn explain_sql_generation() {
         let selected = selected_query_family_action("query_family.explain:demo");
-        let prepared = prepare_findings_workflow_sql(&selected.action, &selected.finding, &[]).unwrap();
+        let prepared =
+            prepare_findings_workflow_sql(&selected.action, &selected.finding, &[]).unwrap();
         assert_eq!(prepared.sql, "EXPLAIN SELECT 1;");
         assert!(prepared.parameters.is_empty());
     }
@@ -1188,7 +1189,8 @@ mod tests {
     #[test]
     fn explain_analyze_sql_generation() {
         let selected = selected_query_family_action("query_family.explain_analyze:demo");
-        let prepared = prepare_findings_workflow_sql(&selected.action, &selected.finding, &[]).unwrap();
+        let prepared =
+            prepare_findings_workflow_sql(&selected.action, &selected.finding, &[]).unwrap();
         assert_eq!(prepared.sql, "EXPLAIN (ANALYZE, BUFFERS) SELECT 1;");
         assert!(prepared.parameters.is_empty());
     }
@@ -1234,17 +1236,29 @@ mod tests {
             &AppConfig::default(),
         );
 
-        let explain_action = next_actions.iter().find(|a| a.action_id == "temp_file.pg_stat_statements.temp_blocks").unwrap();
+        let explain_action = next_actions
+            .iter()
+            .find(|a| a.action_id == "temp_file.pg_stat_statements.temp_blocks")
+            .unwrap();
         assert_eq!(explain_action.status, NextActionStatus::Allowed);
 
-        let remedial_action = next_actions.iter().find(|a| a.action_id == "remedial.optimize_work_mem").unwrap();
+        let remedial_action = next_actions
+            .iter()
+            .find(|a| a.action_id == "remedial.optimize_work_mem")
+            .unwrap();
         assert_eq!(remedial_action.status, NextActionStatus::Allowed);
         assert!(remedial_action.reason.contains("SET LOCAL work_mem"));
 
-        let index_action = next_actions.iter().find(|a| a.action_id == "remedial.create_sort_index").unwrap();
+        let index_action = next_actions
+            .iter()
+            .find(|a| a.action_id == "remedial.create_sort_index")
+            .unwrap();
         assert_eq!(index_action.status, NextActionStatus::Allowed);
 
-        let projection_action = next_actions.iter().find(|a| a.action_id == "remedial.reduce_projection_width").unwrap();
+        let projection_action = next_actions
+            .iter()
+            .find(|a| a.action_id == "remedial.reduce_projection_width")
+            .unwrap();
         assert_eq!(projection_action.status, NextActionStatus::Allowed);
     }
 
@@ -1257,15 +1271,13 @@ mod tests {
             vec![serde_json::json!("  Sort Method: external merge  Disk: 85000kB")],
         ];
 
-        let insights = derive_sql_action_insights(
-            "temp_file.explain:qf_demo",
-            &columns,
-            &rows,
-        );
+        let insights = derive_sql_action_insights("temp_file.explain:qf_demo", &columns, &rows);
 
         assert_eq!(insights.len(), 1);
         assert_eq!(insights[0].insight_id, "query_plan_disk_spill_detected");
-        assert!(insights[0].reason.contains("spilled to disk (Disk: 85000kB)"));
+        assert!(insights[0]
+            .reason
+            .contains("spilled to disk (Disk: 85000kB)"));
 
         let payload = SqlActionPayload {
             action_id: "temp_file.explain:qf_demo".to_string(),
@@ -1284,13 +1296,22 @@ mod tests {
             &AppConfig::default(),
         );
 
-        let remedial_action = next_actions.iter().find(|a| a.action_id == "remedial.optimize_work_mem").unwrap();
+        let remedial_action = next_actions
+            .iter()
+            .find(|a| a.action_id == "remedial.optimize_work_mem")
+            .unwrap();
         assert_eq!(remedial_action.status, NextActionStatus::Allowed);
 
-        let index_action = next_actions.iter().find(|a| a.action_id == "remedial.create_sort_index").unwrap();
+        let index_action = next_actions
+            .iter()
+            .find(|a| a.action_id == "remedial.create_sort_index")
+            .unwrap();
         assert_eq!(index_action.status, NextActionStatus::Allowed);
 
-        let projection_action = next_actions.iter().find(|a| a.action_id == "remedial.reduce_projection_width").unwrap();
+        let projection_action = next_actions
+            .iter()
+            .find(|a| a.action_id == "remedial.reduce_projection_width")
+            .unwrap();
         assert_eq!(projection_action.status, NextActionStatus::Allowed);
     }
 
@@ -1302,14 +1323,13 @@ mod tests {
             vec![serde_json::json!("  Buffers: shared hit=45 read=12, temp read=125 temp written=250")],
         ];
 
-        let insights = derive_sql_action_insights(
-            "temp_file.explain_analyze:qf_demo",
-            &columns,
-            &rows,
-        );
+        let insights =
+            derive_sql_action_insights("temp_file.explain_analyze:qf_demo", &columns, &rows);
 
         assert_eq!(insights.len(), 1);
         assert_eq!(insights[0].insight_id, "explain_analyze_temp_buffers");
-        assert!(insights[0].reason.contains("temp buffers read: 125 blocks, written: 250 blocks"));
+        assert!(insights[0]
+            .reason
+            .contains("temp buffers read: 125 blocks, written: 250 blocks"));
     }
 }

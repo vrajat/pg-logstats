@@ -397,7 +397,10 @@ impl GuidancePayload for SqlActionPayload {
         let rule_id = self.action_id.split(':').next().unwrap_or(&self.action_id);
 
         if rule_id == "temp_file.pg_stat_database.temp_counters" {
-            let temp_files_detected = self.insights.iter().any(|i| i.insight_id == "temp_files_volume_detected");
+            let temp_files_detected = self
+                .insights
+                .iter()
+                .any(|i| i.insight_id == "temp_files_volume_detected");
             if temp_files_detected {
                 // 1. Suggest checking pg_stat_statements temp block usage next
                 actions.push(NextAction {
@@ -424,7 +427,10 @@ impl GuidancePayload for SqlActionPayload {
                 push_temp_file_remedial_actions(&mut actions, self.source_finding_id.clone());
             }
         } else if rule_id == "temp_file.pg_stat_statements.temp_blocks" {
-            let temp_blocks_detected = self.insights.iter().any(|i| i.insight_id == "statements_writing_temp_blocks");
+            let temp_blocks_detected = self
+                .insights
+                .iter()
+                .any(|i| i.insight_id == "statements_writing_temp_blocks");
             if temp_blocks_detected {
                 // Recommend temp file remedial actions
                 push_temp_file_remedial_actions(&mut actions, self.source_finding_id.clone());
@@ -779,7 +785,10 @@ mod tests {
             .unwrap();
         assert_eq!(explain.status, NextActionStatus::Allowed);
         assert_eq!(explain.action_type, NextActionType::RunSql);
-        assert_eq!(explain.action_class, Some(ActionClass::ExplainWithoutAnalyze));
+        assert_eq!(
+            explain.action_class,
+            Some(ActionClass::ExplainWithoutAnalyze)
+        );
 
         let explain_analyze = actions
             .iter()
@@ -787,7 +796,10 @@ mod tests {
             .unwrap();
         assert_eq!(explain_analyze.status, NextActionStatus::BlockedByVerdict);
         assert_eq!(explain_analyze.action_type, NextActionType::RunSql);
-        assert_eq!(explain_analyze.action_class, Some(ActionClass::ExplainAnalyze));
+        assert_eq!(
+            explain_analyze.action_class,
+            Some(ActionClass::ExplainAnalyze)
+        );
     }
 
     #[test]
@@ -822,7 +834,10 @@ mod tests {
             .unwrap();
         assert_eq!(explain.status, NextActionStatus::Allowed);
         assert_eq!(explain.action_type, NextActionType::RunSql);
-        assert_eq!(explain.action_class, Some(ActionClass::ExplainWithoutAnalyze));
+        assert_eq!(
+            explain.action_class,
+            Some(ActionClass::ExplainWithoutAnalyze)
+        );
 
         let explain_analyze = actions
             .iter()
@@ -830,6 +845,9 @@ mod tests {
             .unwrap();
         assert_eq!(explain_analyze.status, NextActionStatus::BlockedByVerdict);
         assert_eq!(explain_analyze.action_type, NextActionType::RunSql);
-        assert_eq!(explain_analyze.action_class, Some(ActionClass::ExplainAnalyze));
+        assert_eq!(
+            explain_analyze.action_class,
+            Some(ActionClass::ExplainAnalyze)
+        );
     }
 }

@@ -672,9 +672,19 @@ mod tests {
         populate_next_actions(&mut report, &AppConfig::default());
 
         assert_eq!(report.next_actions.len(), 3);
-        assert!(report.next_actions.iter().any(|a| a.action_id == "inspect.top_query_families" && a.status == NextActionStatus::Allowed));
-        assert!(report.next_actions.iter().any(|a| a.action_id == "inspect.errors" && a.status == NextActionStatus::Allowed));
-        assert!(report.next_actions.iter().any(|a| a.action_id == "inspect.temp_files" && a.status == NextActionStatus::Allowed));
+        assert!(report
+            .next_actions
+            .iter()
+            .any(|a| a.action_id == "inspect.top_query_families"
+                && a.status == NextActionStatus::Allowed));
+        assert!(report
+            .next_actions
+            .iter()
+            .any(|a| a.action_id == "inspect.errors" && a.status == NextActionStatus::Allowed));
+        assert!(report
+            .next_actions
+            .iter()
+            .any(|a| a.action_id == "inspect.temp_files" && a.status == NextActionStatus::Allowed));
     }
 
     #[test]
