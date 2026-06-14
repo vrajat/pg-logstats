@@ -1,130 +1,106 @@
-# `pg-logstats query-families`
+# Slow Query Triage Runbook
 
-`pg-logstats query-families` ranks PostgreSQL query families inside one
-bounded historical log window.
+This page defines the slow query triage workflow that `pg-logstats` enables for AI agents.
 
-## Supported Mode
+As a Database Administrator (DBA), you configure and monitor `pg-logstats` as a secure gateway. This document outlines how agents execute the slow query triage runbook, the diagnostic evidence they gather, the safety policies enforced, and the structured recommendations they hand off to you.
 
-This workflow supports `log_backed` mode only.
+---
 
-At startup, `pg-logstats` requires a persisted `inspect` report. This workflow
-then requires that the stored inspect report says `operating_mode =
-"log_backed"`.
+## The Agent Triage Workflow
 
-If the inspect report is missing, startup fails and points you to
-`pg-logstats inspect`.
+When query latency alerts trigger, the agent automates a three-phase runbook to identify bottleneck queries, check active session lock waits, and inspect execution plans:
 
-The inspect artifact is read from the workspace directory:
-
-- default workspace: `~/.local/share/pg-logstats`
-- override with `--workspace <dir>` or `PG_LOGSTATS_WORKSPACE`
-- inspect artifact path: `<workspace>/inspect.json`
-
-## Bounded Historical Window
-
-The command works over the specific log window you provide:
-
-- one or more local PostgreSQL log files
-- `--log-dir` discovery
-- AWS RDS / CloudWatch windows when using the RDS input path
-
-The report includes:
-
-- `analysis_window.since`
-- `analysis_window.until`
-- `source_summary.kind`
-- `source_summary.entries_scanned`
-
-That window is descriptive, not inferred from wall-clock state.
-
-## Required Log Evidence
-
-For useful ranking, the parser needs supported PostgreSQL statement and duration
-evidence.
-
-Common settings to verify:
-
-- `log_destination = 'stderr'` for local stderr logs
-- a `log_line_prefix` that preserves process identity
-- duration logging enabled through PostgreSQL duration settings
-
-Use `pg-logstats inspect` to determine whether the required evidence is present
-in your environment and to persist the startup artifact required by later
-commands.
-
-## Supported Formats
-
-Today this workflow is implemented for parser-supported PostgreSQL text logs:
-
-- local PostgreSQL stderr logs
-- AWS RDS PostgreSQL logs in the supported text shape
-
-## What Comes Next
-
-`pg-logstats query-families` is often the honest endpoint of offline slow-query
-triage.
-
-When the workspace is `log_backed_only`, the report may rank the suspicious
-query families correctly but still be unable to run live follow-up SQL. In that
-case the workflow emits a delegated `prompt_user` next action rather than
-pretending `run-sql` is available.
-
-The standard operator choices are:
-
-- configure a DSN for the workspace and rerun `pg-logstats inspect`
-- stop with offline findings only
-
-That means:
-
-- `query-families` ranks the historical window
-- `inspect` is rerun only after the operator chooses to enable live access
-- `run-sql` appears only after `inspect` reports a live-capable mode honestly
-
-When the workspace is `log_backed_and_live`, a `query-families` report can
-emit bounded `run-sql` follow-ups for the ranked families. Those live follow-up
-reports do not stop at raw rows alone. `pg-logstats` may surface small,
-action-specific `insights[]` such as:
-
-- a matching live session exists now
-- multiple matching sessions are active
-- the query appears blocked on a lock
-- the query appears blocked on another transaction
-
-For `query_family.pg_stat_activity.by_dimensions`, the bounded lookup is built
-from the parent finding's `query_family.database`, `query_family.user`, and
-`query_family.application_name` fields.
-
-Those insights are intentionally conservative. If the built-in SQL result does
-not support a strong interpretation, the report may contain rows but no
-`insights[]`.
-
-## Attribution
-
-Each finding surfaces these attribution dimensions when available:
-
-- `query_family.database`
-- `query_family.user`
-- `query_family.application_name`
-
-When attribution is unavailable in the source logs:
-
-- the specific field remains `null`
-- `query_family.missing_attribution[]` lists the missing dimensions explicitly
-
-Example:
-
-```json
-{
-  "database": "appdb",
-  "user": "app",
-  "application_name": null,
-  "missing_attribution": ["application_name"]
-}
+```mermaid
+sequenceDiagram
+    participant Agent as AI Agent (pg-logstats)
+    participant Logs as PostgreSQL Logs
+    participant DB as Live Database (SQL)
+    participant DBA as Database Administrator (DBA)
+    
+    rect rgb(20, 20, 30)
+        Note over Agent, Logs: Phase 1: Offline Ranking & Attribution
+        Agent->>Logs: Parse statement durations & rank Query Families
+        Logs-->>Agent: Returns ranked queries & metadata (DB, user, app)
+    end
+    
+    rect rgb(30, 20, 20)
+        Note over Agent, DB: Phase 2 & 3: Live Session & Plan Correlation
+        Agent->>DB: Query pg_stat_activity by DB, user, app dimensions
+        DB-->>Agent: Returns active sessions (e.g. locks, wait states)
+        Agent->>DB: Run EXPLAIN / EXPLAIN ANALYZE on query family
+        DB-->>Agent: Returns plan structure (Seq Scan, Sort Method, etc.)
+    end
+    
+    rect rgb(20, 30, 20)
+        Note over Agent, DBA: Phase 4: Structured Remedial Handoff
+        Agent->>Agent: Derive session & plan insights
+        Agent->>DBA: Recommend granular fixes (create index, select columns, local work_mem)
+    end
 ```
 
-## References
+### Phase 1: Offline Ranking & Attribution (Log-Backed)
+The agent begins by scanning the historical log window to isolate resource hogs:
+* **Duration Parsing**: Parses statement lines and matches them with their corresponding duration logs (e.g., `LOG: duration: ... ms`).
+* **Query Family Grouping**: Normalizes literals and whitespace to group query patterns into stable `query_family_id` targets.
+* **Outlier Ranking**: Ranks query families by total execution time, p95 latency, and call frequency to pinpoint the bottleneck.
 
-Engineers used these references while shaping this workflow:
+### Phase 2: Live Session Correlation
+If live access is configured (`log_backed_and_live` mode), the agent correlates log findings with the current database state:
+* `query_family.pg_stat_activity.by_dimensions`: Queries `pg_stat_activity` for active backends that match the target database, user, application name, or query pattern.
+* **Concurrency Check**: Identifies whether the slow query is an isolated incident or part of a concurrent bottleneck causing queueing.
 
-- pgBadger top-query style prior art: https://github.com/darold/pgbadger
-- PostgreSQL logging configuration documentation: https://www.postgresql.org/docs/current/runtime-config-logging.html
+### Phase 3: Execution Plan Deep-Dive (EXPLAIN / EXPLAIN ANALYZE)
+The agent runs query plan verification to locate inefficient scan nodes or spills:
+* **EXPLAIN** (`query_family.explain`): Safely retrieves the execution plan without running the query to check for sequential scans or bad joins.
+* **EXPLAIN ANALYZE** (`query_family.explain_analyze`): Executes the query with buffer statistics to verify actual read/write counts and plan node durations.
+
+---
+
+## Derived Insights
+
+Based on live SQL actions, the agent automatically interprets raw session rows and plan lines to yield stable insights:
+
+### Session & Blocking Insights (`pg_stat_activity`)
+* **`active_session_present`**: At least one backend is currently executing the target query pattern.
+* **`multiple_active_sessions`**: Multiple concurrent backends are executing the target query, indicating concurrency pressure.
+* **`transactionid_lock_wait`**: The backend is active but blocked waiting on a transaction-level lock (e.g. row lock contention).
+* **`no_live_match_found`**: No active sessions match the dimensions, indicating the issue was historical or transient.
+
+### Execution Plan Insights (`EXPLAIN`)
+* **`query_plan_disk_spill_detected`**: The query execution plan confirms a sort or hash operation spilled to disk (e.g., external merge sort).
+* **`explain_analyze_temp_buffers`**: Buffer statistics confirm temporary buffers were read/written during execution.
+* **`query_plan_no_disk_spill`**: The plan returned successfully but shows no spill, indicating the current parameters or table sizes do not trigger disk sorts.
+
+---
+
+## Agent-Suggested DBA Remedial Actions
+
+Once the agent completes the diagnostic loop, it terminates its live exploration branch and hands off structured remedial actions to the DBA:
+
+### 1. Create B-Tree Index
+* **Action ID**: `remedial.create_sort_index`
+* **Label**: `DBA Recommendation: Create B-Tree index on sort/group columns`
+* **Workflow**: The agent advises creating a B-Tree index on columns used in `WHERE` filters, `JOIN` conditions, or `ORDER BY` clauses to eliminate sequential scans or dynamic disk sorting.
+
+### 2. Select Fewer Columns
+* **Action ID**: `remedial.reduce_projection_width`
+* **Label**: `Developer Recommendation: Select fewer columns to narrow row width`
+* **Workflow**: The agent advises developers to avoid `SELECT *` and select only the exact columns required, reducing row width and the memory footprint of sort and join buffers.
+
+### 3. Adjust Session `work_mem` Locally
+* **Action ID**: `remedial.optimize_work_mem`
+* **Label**: `DBA Recommendation: Adjust session work_mem locally`
+* **Workflow**: The agent advises setting a local, session-level memory override (e.g. `SET LOCAL work_mem = '64MB';`) *before* executing the target query, rather than raising the global parameter (which risks memory saturation under concurrency).
+
+---
+
+## Safety & Audit Policies
+
+> [!IMPORTANT]
+> The agent is restricted by a strict safety policy enforced at the gateway layer. The agent **cannot** run arbitrary SQL or modify schema/data.
+
+### Risk & Verdict Restrictions
+* **No Arbitrary SQL**: The agent can only request queries by selecting a structured `action_id`.
+* **Risk Classifications**:
+  * Standard `EXPLAIN` (`ExplainWithoutAnalyze` class) is classified as `Safe` and is allowed.
+  * `EXPLAIN (ANALYZE, BUFFERS)` (`ExplainAnalyze` class) actually runs the query, carrying a risk of side-effects or heavy database load. It is classified as `Bounded` risk and is blocked by default under restrictive health verdicts (`Verdict::Clear` blocks it by default to avoid unintended system load).
