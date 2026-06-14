@@ -46,10 +46,9 @@ log downloads and keeps each run bounded to an explicit time window.
 Analyze the last two hours for an RDS instance:
 
 ```bash
-pg-logstats top query-families \
+pg-logstats query-families \
   --rds-instance my-db \
-  --since 2h \
-  --output-format json
+  --since 2h
 ```
 
 `--rds-instance my-db` resolves to:
@@ -61,22 +60,20 @@ pg-logstats top query-families \
 Pass the CloudWatch log group explicitly when needed:
 
 ```bash
-pg-logstats top query-families \
+pg-logstats query-families \
   --cloudwatch-log-group /aws/rds/instance/my-db/postgresql \
   --since 2026-05-03T10:00:00Z \
-  --until 2026-05-03T11:00:00Z \
-  --output-format json
+  --until 2026-05-03T11:00:00Z
 ```
 
 Use AWS profile and region flags:
 
 ```bash
-pg-logstats top query-families \
+pg-logstats query-families \
   --rds-instance my-db \
   --since 30m \
   --aws-profile prod \
-  --aws-region us-east-1 \
-  --output-format json
+  --aws-region us-east-1
 ```
 
 ## Time Windows
@@ -101,11 +98,10 @@ Use a CloudWatch filter pattern when you want AWS to reduce the event stream
 before `pg-logstats` parses it:
 
 ```bash
-pg-logstats top query-families \
+pg-logstats query-families \
   --rds-instance my-db \
   --since 1h \
-  --cloudwatch-filter-pattern '"duration:"' \
-  --output-format json
+  --cloudwatch-filter-pattern '"duration:"'
 ```
 
 CloudWatch input calls the CloudWatch Logs `FilterLogEvents` API and reads up to
@@ -113,7 +109,7 @@ CloudWatch input calls the CloudWatch Logs `FilterLogEvents` API and reads up to
 time window is too large or CloudWatch returns many matching events:
 
 ```bash
-pg-logstats top query-families \
+pg-logstats query-families \
   --rds-instance my-db \
   --since 6h \
   --cloudwatch-max-pages 100
@@ -145,20 +141,18 @@ CloudWatch input defaults auto-detected logs to RDS evidence:
 For an LLM or agent, prefer JSON output and small windows:
 
 ```bash
-pg-logstats top query-families \
+pg-logstats query-families \
   --rds-instance my-db \
   --since 30m \
-  --limit 10 \
-  --output-format json
+  --limit 10
 ```
 
-Then execute a recommended next action using safety checks and session tracking:
+Then execute a recommended next action using safety checks and explicit report linkage:
 
 ```bash
 pg-logstats \
-  --session-id test_sess \
-  --parent-report-id 0001-top_query_families \
-  --selected-action-id query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf \
+  --triage-report 20260613T181530123456Z-top_query_families \
+  --action-id query_family.pg_stat_activity.by_dimensions:qf_51125b8829ab1fdf \
   run-sql
 ```
 
@@ -171,7 +165,7 @@ If CloudWatch export is not enabled, download or copy RDS logs locally and use
 the RDS parser:
 
 ```bash
-pg-logstats --input-format rds top query-families postgresql.log.2026-05-03-10
+pg-logstats --input-format rds query-families postgresql.log.2026-05-03-10
 ```
 
 ## Troubleshooting

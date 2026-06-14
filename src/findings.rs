@@ -3,8 +3,9 @@
 use crate::guidance::{build_next_action, evaluate_rule_constraints, GuidancePayload};
 use crate::triage::{
     ActionClass, ActionKind, AnalysisWindow, NextAction, NextActionCommand, NextActionPriority,
-    NextActionStatus, OperatingMode, PgTriageReport, RiskLabel, SourceSummary, SourceSummaryKind,
-    Verdict, PG_TRIAGE_SCHEMA_VERSION,
+    NextActionStatus, NextActionType, OperatingMode, PgTriageReport, PromptUserChoice,
+    PromptUserSurvey, RiskLabel, SourceSummary, SourceSummaryKind, Verdict,
+    PG_TRIAGE_SCHEMA_VERSION,
 };
 use crate::{
     CorrelationConfidence, EventSourceKind, LogEntry, QueryExecution, QueryFamilyIdentity,
@@ -13,29 +14,22 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub const FINDING_SCHEMA_VERSION: u32 = 1;
-
-/// Collection wrapper for versioned finding output.
+/// Collection wrapper for finding output.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FindingSet {
-    pub schema_version: u32,
     pub findings: Vec<Finding>,
 }
 
 impl FindingSet {
     pub fn new(findings: Vec<Finding>) -> Self {
-        Self {
-            schema_version: FINDING_SCHEMA_VERSION,
-            findings,
-        }
+        Self { findings }
     }
 }
 
 /// Machine-readable investigation finding.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Finding {
-    pub schema_version: u32,
-    pub finding_id: String,
+    pub id: String,
     pub kind: FindingKind,
     pub rank: usize,
     pub title: String,
@@ -56,6 +50,12 @@ pub struct Finding {
     pub error_class: Option<ErrorClassFinding>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temp_file: Option<TempFileFinding>,
+}
+
+impl Finding {
+    pub fn target_id(&self) -> &str {
+        &self.id
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -230,9 +230,9 @@ pub fn top_query_families_report(
         schema_version: PG_TRIAGE_SCHEMA_VERSION,
         workflow: ActionKind::TopQueryFamilies,
         operating_mode: OperatingMode::LogBackedOnly,
-        limitations: Vec::new(),
-        verdict: Some(Verdict::Unknown),
-        verdict_reasons: vec!["live_state_verdict_not_evaluated".to_string()],
+        limitations: vec!["live_database_checks_unavailable".to_string()],
+        verdict: None,
+        verdict_reasons: Vec::new(),
         allowed_actions: None,
         blocked_actions: None,
         analysis_window: analysis_window(entries),
@@ -242,7 +242,6 @@ pub fn top_query_families_report(
         }),
         next_actions: Vec::new(),
         report_id: None,
-        session_id: None,
         parent_report_id: None,
         selected_action_id: None,
         created_at: None,
@@ -366,10 +365,6 @@ pub fn findings_rules() -> Vec<RuleDefinition> {
     ]
 }
 
-fn query_family_queryid_sql() -> String {
-    "SELECT queryid, calls, total_exec_time, mean_exec_time, min_exec_time, max_exec_time, rows, shared_blks_hit, shared_blks_read, temp_blks_read, temp_blks_written, query FROM pg_stat_statements WHERE queryid = $1;".to_string()
-}
-
 fn query_family_activity_sql(
     database: Option<&str>,
     user: Option<&str>,
@@ -434,7 +429,6 @@ impl GuidancePayload for FindingsPayload {
 
             for finding in matching_findings {
                 let mut resolved_rule = rule.clone();
-                let mut sql_preview = None;
                 let mut command = None;
                 let mut missing_ids = Vec::new();
 
@@ -442,8 +436,6 @@ impl GuidancePayload for FindingsPayload {
                     RuleId::QueryFamilyPgStatStatementsByQueryId => {
                         if let Some(qf) = &finding.query_family {
                             if qf.queryid.is_some() {
-                                let sql = query_family_queryid_sql();
-                                sql_preview = Some(sql);
                                 command = Some(NextActionCommand {
                                     argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
                                 });
@@ -467,7 +459,7 @@ impl GuidancePayload for FindingsPayload {
                                 } else {
                                     RiskLabel::Bounded
                                 });
-                                sql_preview = Some(sql);
+                                let _ = sql;
                                 command = Some(NextActionCommand {
                                     argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
                                 });
@@ -491,7 +483,7 @@ impl GuidancePayload for FindingsPayload {
                                 } else {
                                     RiskLabel::Bounded
                                 });
-                                sql_preview = Some(sql);
+                                let _ = sql;
                                 command = Some(NextActionCommand {
                                     argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
                                 });
@@ -505,10 +497,7 @@ impl GuidancePayload for FindingsPayload {
                     RuleId::TempFilePgStatDatabaseTempCounters => {
                         if let Some(tf) = &finding.temp_file {
                             if let Some(db) = &tf.database {
-                                sql_preview = Some(format!(
-                                    "SELECT datname, temp_files, temp_bytes FROM pg_stat_database WHERE datname = '{}';",
-                                    crate::guidance::escape_sql_literal(db)
-                                ));
+                                let _ = db;
                                 command = Some(NextActionCommand {
                                     argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
                                 });
@@ -520,7 +509,6 @@ impl GuidancePayload for FindingsPayload {
                         }
                     }
                     RuleId::TempFilePgStatStatementsTempBlocks => {
-                        sql_preview = Some("SELECT queryid, calls, total_exec_time, temp_blks_read, temp_blks_written, query FROM pg_stat_statements WHERE temp_blks_read > 0 OR temp_blks_written > 0 ORDER BY temp_blks_read + temp_blks_written DESC LIMIT 20;".to_string());
                         command = Some(NextActionCommand {
                             argv: vec!["pg-logstats".to_string(), "run-sql".to_string()],
                         });
@@ -546,14 +534,70 @@ impl GuidancePayload for FindingsPayload {
                     &resolved_rule,
                     status,
                     reason,
-                    Some(finding.finding_id.clone()),
+                    Some(finding.id.clone()),
                     command,
-                    sql_preview,
                 ));
             }
         }
 
         actions
+    }
+
+    fn supplemental_actions(
+        &self,
+        workflow: ActionKind,
+        operating_mode: OperatingMode,
+        _verdict: Option<Verdict>,
+        _config: &crate::AppConfig,
+    ) -> Vec<NextAction> {
+        if self.findings.is_empty() || operating_mode != OperatingMode::LogBackedOnly {
+            return Vec::new();
+        }
+
+        match workflow {
+            ActionKind::TopQueryFamilies | ActionKind::Errors | ActionKind::TempFiles => {
+                vec![prompt_user_enable_live_follow_up_action()]
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
+fn prompt_user_enable_live_follow_up_action() -> NextAction {
+    NextAction {
+        action_id: "workspace.prompt_user.enable_live_follow_up".to_string(),
+        action_type: NextActionType::PromptUser,
+        label: "Enable live follow-up or stop".to_string(),
+        status: NextActionStatus::Allowed,
+        priority: NextActionPriority::Recommended,
+        judgement_required: true,
+        reason: "This investigation ranked historical findings from logs only. Live follow-up requires a configured DSN and a fresh inspect run. Supply the DSN through [database].dsn in config.toml, PG_LOGSTATS_DATABASE_URL, or --dsn.".to_string(),
+        target_id: None,
+        command: None,
+        survey: Some(PromptUserSurvey {
+            question: "How should the investigation proceed?".to_string(),
+            choices: vec![
+                PromptUserChoice {
+                    choice_id: "configure_dsn_and_rerun_inspect".to_string(),
+                    label: "Configure DSN and rerun inspect".to_string(),
+                    description: "Provide database access for this workspace by setting [database].dsn in config.toml, PG_LOGSTATS_DATABASE_URL, or --dsn, then rerun pg-logstats inspect.".to_string(),
+                    workflow: Some(ActionKind::Inspect),
+                    command: Some(NextActionCommand {
+                        argv: vec!["pg-logstats".to_string(), "inspect".to_string()],
+                    }),
+                },
+                PromptUserChoice {
+                    choice_id: "stop_with_offline_findings".to_string(),
+                    label: "Stop with offline findings".to_string(),
+                    description: "End the investigation after offline log triage without enabling live database access.".to_string(),
+                    workflow: Some(ActionKind::Stop),
+                    command: None,
+                },
+            ],
+        }),
+        parameters: None,
+        risk: None,
+        action_class: None,
     }
 }
 
@@ -634,8 +678,7 @@ impl QueryFamilyAccumulator {
         }
 
         Finding {
-            schema_version: FINDING_SCHEMA_VERSION,
-            finding_id: format!("query_family:{}", self.identity.family_id),
+            id: self.identity.family_id.clone(),
             kind: FindingKind::QueryFamily,
             rank,
             title: "Query family with high total runtime".to_string(),
@@ -916,8 +959,7 @@ fn diff_finding(rank: usize, candidate: DiffCandidate) -> Finding {
     };
 
     Finding {
-        schema_version: FINDING_SCHEMA_VERSION,
-        finding_id: format!("slow_query_diff:{}", accumulator.identity.family_id),
+        id: accumulator.identity.family_id.clone(),
         kind: FindingKind::SlowQueryRegression,
         rank,
         title: "Query family regressed in target window".to_string(),
@@ -1105,11 +1147,10 @@ impl ErrorClassAccumulator {
         }
 
         Finding {
-            schema_version: FINDING_SCHEMA_VERSION,
-            finding_id: format!(
-                "error_class:{}",
-                self.sqlstate.as_deref().unwrap_or(&self.normalized_message)
-            ),
+            id: self
+                .sqlstate
+                .clone()
+                .unwrap_or_else(|| self.normalized_message.clone()),
             kind: FindingKind::ErrorClass,
             rank,
             title,
@@ -1290,13 +1331,10 @@ impl TempFileAccumulator {
         }
 
         Finding {
-            schema_version: FINDING_SCHEMA_VERSION,
-            finding_id: format!(
-                "temp_file:{}",
-                self.query_family_id
-                    .as_deref()
-                    .unwrap_or("unknown_statement")
-            ),
+            id: self
+                .query_family_id
+                .clone()
+                .unwrap_or_else(|| "unknown_statement".to_string()),
             kind: FindingKind::TempFile,
             rank,
             title,
@@ -1345,9 +1383,9 @@ pub fn errors_report(
         schema_version: PG_TRIAGE_SCHEMA_VERSION,
         workflow: ActionKind::Errors,
         operating_mode: OperatingMode::LogBackedOnly,
-        limitations: Vec::new(),
-        verdict: Some(Verdict::Unknown),
-        verdict_reasons: vec!["live_state_verdict_not_evaluated".to_string()],
+        limitations: vec!["live_database_checks_unavailable".to_string()],
+        verdict: None,
+        verdict_reasons: Vec::new(),
         allowed_actions: None,
         blocked_actions: None,
         analysis_window: analysis_window(entries),
@@ -1357,7 +1395,6 @@ pub fn errors_report(
         }),
         next_actions: Vec::new(),
         report_id: None,
-        session_id: None,
         parent_report_id: None,
         selected_action_id: None,
         created_at: None,
@@ -1374,6 +1411,7 @@ pub fn temp_files_report(
     has_uncorrelated: bool,
 ) -> PgTriageReport<FindingsPayload> {
     let mut limitations = Vec::new();
+    limitations.push("live_database_checks_unavailable".to_string());
     if has_uncorrelated {
         limitations.push(
             "Some temporary file events could not be correlated with a SQL statement.".to_string(),
@@ -1385,8 +1423,8 @@ pub fn temp_files_report(
         workflow: ActionKind::TempFiles,
         operating_mode: OperatingMode::LogBackedOnly,
         limitations,
-        verdict: Some(Verdict::Unknown),
-        verdict_reasons: vec!["live_state_verdict_not_evaluated".to_string()],
+        verdict: None,
+        verdict_reasons: Vec::new(),
         allowed_actions: None,
         blocked_actions: None,
         analysis_window: analysis_window(entries),
@@ -1396,7 +1434,6 @@ pub fn temp_files_report(
         }),
         next_actions: Vec::new(),
         report_id: None,
-        session_id: None,
         parent_report_id: None,
         selected_action_id: None,
         created_at: None,
@@ -1457,7 +1494,6 @@ mod tests {
 
         let findings = query_family_findings(&executions, 10);
 
-        assert_eq!(findings.schema_version, 1);
         assert_eq!(findings.findings.len(), 2);
         assert_eq!(findings.findings[0].rank, 1);
         assert_eq!(findings.findings[0].metrics.total_duration_ms, 250.0);
@@ -1474,7 +1510,6 @@ mod tests {
         let findings = query_family_findings(&executions, 10);
         let finding = &findings.findings[0];
 
-        assert_eq!(finding.schema_version, 1);
         assert_eq!(finding.kind, FindingKind::QueryFamily);
         assert_eq!(finding.confidence, FindingConfidence::Medium);
         assert_eq!(finding.evidence.len(), 2);

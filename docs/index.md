@@ -1,65 +1,90 @@
 # pg-logstats
 
-**pg-logstats is a PostgreSQL log investigation CLI.**
+**pg-logstats is a PostgreSQL triage gateway that lets agents investigate database incidents through a controlled CLI.**
 
-It reads supported PostgreSQL stderr logs, groups related statements into query families, ranks the most useful findings, and emits bounded follow-up actions for live PostgreSQL inspection.
+It packages established PostgreSQL runbooks into compact findings, explicit
+next actions, and approved follow-up SQL. The goal is not to replace `pgBadger`
+or `psql` for expert humans. The goal is to give agents a safer and more
+auditable path through first-pass database triage.
 
-Use it when you want to triage PostgreSQL database issues, analyze query behavior over specific time windows, or generate safe, actionable guidance for resolving database pressure.
+## Start Here
 
-## Supported Workflows
+1. Install `pg-logstats`.
+2. Install the agent guidance with `pg-logstats agent install`.
+3. Run `pg-logstats inspect`.
+4. Confirm the environment is ready before the agent starts deeper triage.
 
-- **inspect**: Check the environment to detect database configuration and agent readiness.
-- **top query-families**: Rank query families in a log window by total runtime.
-- **slow-queries diff**: Compare query family execution patterns between a target log window and a baseline.
-- **run-sql**: Safely execute diagnostic SQL actions with audit linkage and safety checks.
-- **errors**: Triage, group, and attribute error logs.
-- **temp-files**: Detect temporary file write pressure and correlate them to query families.
-- **agent install**: Install playbook instructions and commands into AI agent harnesses.
-
-## Log Prefix Requirements
-
-`pg-logstats` auto-detects local stderr and RDS-style logs. The expected shapes are:
-
-### Local/Standard Stderr Log Prefix Shape
-```text
-2024-01-15 10:00:00.000 UTC [2001] app@appdb api: LOG:  statement: SELECT * FROM users WHERE id = 1;
-2024-01-15 10:00:00.020 UTC [2001] app@appdb api: LOG:  duration: 20.000 ms
-```
-This corresponds to a `log_line_prefix` resembling:
-```text
-%m [%p] %u@%d %a:
-```
-
-### AWS RDS PostgreSQL Log Prefix Shape
-```text
-%t:%r:%u@%d:[%p]:
-```
-
-Use `--input-format rds` to force RDS parsing or filter for AWS RDS format.
-
-## Quick Start
+Minimal setup flow:
 
 ```bash
-# Install the CLI tool
 cargo install pg-logstats
-
-# Triage the configuration
-pg-logstats inspect --dsn "postgresql://user:password@localhost:5432/dbname"
-
-# Analyze top query families in a stderr log
-pg-logstats top query-families sample_stderr.log
-
-# Triage errors in the logs
-pg-logstats errors sample_stderr.log
-
-# Triage temporary file resource pressure
-pg-logstats temp-files sample_stderr.log
+pg-logstats agent install --harness codex
+pg-logstats agent install --harness codex --status
+pg-logstats inspect /path/to/postgresql.log
 ```
 
-## Read Next
+If you need Amazon RDS or CloudWatch support:
 
-- [User Guide](user-guide/index.md)
-- [Inspect Workflow](user-guide/inspect.md)
-- [Top Query Families Guide](user-guide/top-query-families.md)
-- [API Reference](reference/api.md)
+```bash
+cargo install pg-logstats --features aws-sdk
+```
+
+## What pg-logstats Automates
+
+`pg-logstats` does not invent new database diagnostics.
+
+It packages known PostgreSQL triage runbooks into a form that an agent can use
+safely:
+
+- compact ranked findings instead of raw log dumps
+- explicit `next_actions[]` instead of improvised follow-up steps
+- delegated `prompt_user` branches when the operator must decide or add capability
+- built-in approved SQL actions instead of arbitrary SQL
+- explicit stop or escalate behavior when evidence is insufficient
+
+The core workflow boundary is:
+
+- `pg-logstats` owns the runbook
+- the agent owns the judgement at the branch points
+
+If you want to investigate PostgreSQL manually, use `pgBadger`, `psql`, and
+your normal SRE or DBA workflow.
+
+## Operating Model
+
+- `pg-logstats` is agent-first. AX wins when it conflicts with human CLI UX.
+- `pg-logstats` is the gateway. Agents should not need direct database access.
+- Beta success is `log_backed`. If the required evidence is missing, the honest
+  result is `unready`.
+- The docs are for setup, trust, and auditability, not for teaching manual
+  command-by-command usage.
+
+## Key References
+
+### Setup And Trust
+
+- [Inspect](user-guide/inspect.md)
+  Current readiness checks, persisted inspect output, and operating-mode
+  reporting.
+- [Investigation Guidance](user-guide/guidance.md)
+  The `next_actions[]` model, delegated `prompt_user` branches, action safety classes, and `run-sql` control path.
+- [RDS and CloudWatch Input](user-guide/rds-cloudwatch.md)
+  How to provide bounded remote PostgreSQL log windows for agent triage.
+
+### Workflow References
+
+These pages are best read as audit and workflow references, not as primary
+human CLI tutorials.
+
+- [Top Query Families](user-guide/top-query-families.md)
+  Slow-query triage workflow and ranking model.
+- [Errors](user-guide/errors.md)
+  Grouped PostgreSQL error triage workflow.
+- [Temporary Files](user-guide/temp-files.md)
+  Temp-file pressure workflow.
+
+### Contributor References
+
 - [Architecture](development/architecture.md)
+- [API Reference](reference/api.md)
+- [Development](development/index.md)

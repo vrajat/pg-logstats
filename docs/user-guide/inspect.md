@@ -123,7 +123,7 @@ Example:
       ],
       "failed_checks": [],
       "recommended_next_commands": [
-        "pg-logstats top query-families --output-format json"
+        "pg-logstats query-families"
       ]
     }
   }
@@ -142,7 +142,7 @@ Important behavior:
 
 - missing DB connection marks live checks as `skipped`
 - requested but unusable log input marks `log_source_reachable` as `failed`
-- `failed_checks` lists the machine-readable reason codes for failed checks
+- `failed_checks` lists structured `{check_id, reason}` objects for failed checks
 - `limitations` describes what the caller must not assume in the chosen mode
 
 ## Modes
@@ -159,8 +159,12 @@ Chosen when available parsed log evidence supports:
 Typical next step:
 
 ```bash
-pg-logstats top query-families --output-format json ...
+pg-logstats query-families ...
 ```
+
+If later triage needs live database follow-up, the operator provides a DSN for
+the workspace and the agent reruns `pg-logstats inspect`. The agent should not
+assume live capability before `inspect` reports it.
 
 ### `live_only`
 
@@ -170,7 +174,7 @@ checks pass.
 Typical next step:
 
 ```bash
-pg-logstats running-queries --output-format json
+pg-logstats running-queries
 ```
 
 ### `unready`
@@ -191,6 +195,11 @@ them?
 
 If an agent check fails, the next action is to install or repair the
 corresponding guidance bundle, then rerun `pg-logstats inspect`.
+
+If a log-backed workflow emits a delegated `prompt_user` action such as
+"configure DSN and rerun inspect", that is also an `inspect` branch. The
+operator changes the workspace capability first; the agent discovers the new
+mode only by rerunning `inspect`.
 
 ## Text Output
 

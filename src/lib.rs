@@ -21,6 +21,7 @@ pub mod input;
 pub mod inspect;
 pub mod output;
 pub mod parsers;
+pub mod report_store;
 pub mod run_sql;
 pub mod running_queries;
 pub mod sql;
@@ -31,7 +32,7 @@ pub use agent_install::{check_agent_status, execute_agent_install, AgentInstallP
 pub use analytics::{QueryAnalyzer, TimingAnalysis, TimingAnalyzer};
 pub use config::{
     default_workspace_path, load_config, resolve_workspace_path, workspace_config_path,
-    workspace_env_var_name, workspace_inspect_report_path, workspace_results_dir, AppConfig,
+    workspace_env_var_name, workspace_inspect_report_path, workspace_reports_dir, AppConfig,
     ConfigSource, ResolvedConfig,
 };
 pub use correlation::{
@@ -48,20 +49,21 @@ pub use findings::{
     temp_file_findings, temp_files_report, top_query_families_report, AttributionField,
     ComparisonMetrics, DeltaMetrics, ErrorClassFinding, Finding, FindingConfidence, FindingKind,
     FindingMetrics, FindingSet, FindingsPayload, QueryFamilyFinding, ReasonCode,
-    SlowQueryDiffOptions, TempFileFinding, FINDING_SCHEMA_VERSION,
+    SlowQueryDiffOptions, TempFileFinding,
 };
 pub use guidance::{
-    populate_next_actions, running_query_rules, GuidancePayload, RuleDefinition, RuleId,
-    DEFAULT_RULE_LIMIT,
+    populate_next_actions, populate_next_actions_with_context, running_query_rules,
+    ActionReplayContext, GuidancePayload, RuleDefinition, RuleId, DEFAULT_RULE_LIMIT,
 };
 pub use inspect::{
-    format_inspect_text, inspect, InspectCheckId, InspectLimitation, InspectReason,
-    InspectReportPayload, LogEvidence, LogInspectEvidence,
+    format_inspect_text, inspect, FailedInspectCheck, InspectCheckId, InspectLimitation,
+    InspectReason, InspectReportPayload, LogEvidence, LogInspectEvidence,
 };
 pub use output::{
     output_report, write_or_print_output, JsonFormatter, OutputFormat, TextFormatter,
 };
 pub use parsers::{TextLogFormat, TextLogParser};
+pub use report_store::{LoadedReportBase, ReportStore};
 pub use run_sql::{execute_run_sql, parse_action_parameters, ActionParameterInput, RunSqlRequest};
 pub use running_queries::{
     run_running_queries, ActiveQuerySummary, ActiveSession, BlockingSignal, RunningQueriesPayload,

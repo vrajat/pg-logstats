@@ -1,8 +1,10 @@
 # Investigation Guidance Framework
 
-`pg-logstats` models the database triage process as a directed acyclic investigation graph (DAG) with developer or agent judgement at branch points. 
+`pg-logstats` models the database triage process as a directed acyclic investigation graph (DAG) with developer or agent judgement at branch points.
 
-Instead of requiring callers to invent database-specific diagnostic commands, every triage report includes a list of safe, contextual `next_actions[]` that the caller can select from. The caller then executes the chosen action by running the corresponding CLI command (like `top query-families` or `run-sql`) while supplying audit linkage flags.
+Instead of requiring callers to invent database-specific diagnostic commands, every triage report includes a list of safe, contextual `next_actions[]` that the caller can select from.
+
+Some next actions are directly executable. Others are delegated branch points where the agent must ask the operator for a decision, such as whether to provide a DSN and rerun `inspect`.
 
 ---
 
@@ -12,28 +14,27 @@ Every machine-readable triage report (JSON output) includes a top-level `next_ac
 
 ```json
 {
-  "action_id": "query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf",
-  "kind": "run_sql",
+  "action_id": "query_family.pg_stat_activity.by_dimensions:qf_51125b8829ab1fdf",
+  "action_type": "run_sql",
   "label": "Find current active sessions for the same query-family dimensions",
   "status": "allowed",
   "priority": "optional",
   "judgement_required": true,
   "reason": "The finding includes database, user, or application attribution that can bound pg_stat_activity.",
-  "sql_preview": "SELECT pid, usename, datname, application_name, state, wait_event_type, wait_event, query_start, query_id, query FROM pg_stat_activity WHERE ...",
+  "target_id": "qf_51125b8829ab1fdf",
+  "command": {
+    "argv": ["pg-logstats", "--triage-report", "20260613T181530123456Z-top_query_families", "--action-id", "query_family.pg_stat_activity.by_dimensions:qf_51125b8829ab1fdf", "run-sql"]
+  },
   "risk": "safe",
-  "action_class": "bounded_activity_queries",
-  "required_identifiers": ["database|user|application_name"]
+  "action_class": "bounded_activity_queries"
 }
 ```
 
-### Action Kinds
-- `top_query_families`: Rank query families.
-- `run_sql`: Runs a safe, built-in diagnostic SQL query.
-- `agent_install`: Installs agent skill playbooks/harnesses.
-- `running_queries`: Monitor active database sessions.
-- `collect_logs`: Collects additional database logs.
-- `escalate`: Directs the agent to stop and notify a human operator.
-- `stop`: Directs the agent that the investigation is successfully complete.
+### Action Types
+- `run_workflow`: Run another `pg-logstats` workflow directly.
+- `run_sql`: Run a safe built-in SQL action through `pg-logstats run-sql`.
+- `prompt_user`: Ask the operator to choose how the investigation should proceed.
+- `stop`: End the current investigation branch.
 
 ### Priorities
 - `required`
@@ -48,6 +49,87 @@ Every machine-readable triage report (JSON output) includes a top-level `next_ac
 - `blocked_by_policy`: The action is blocked by built-in security policies.
 - `omitted_not_enough_context`: The action requires missing identifiers (e.g., missing query ID).
 - `omitted_unsupported_target`: The action target is not supported.
+
+### Delegated Operator Actions
+
+When a report cannot proceed safely on its own, `pg-logstats` may emit a delegated `prompt_user` action instead of a runnable SQL action.
+
+Example:
+
+```json
+{
+  "action_id": "workspace.prompt_user.enable_live_follow_up",
+  "action_type": "prompt_user",
+  "label": "Enable live follow-up or stop",
+  "status": "allowed",
+  "priority": "recommended",
+  "reason": "This investigation ranked historical findings from logs only. Live follow-up requires a configured DSN and a fresh inspect run.",
+  "survey": {
+    "question": "How should the investigation proceed?",
+    "choices": [
+      {
+        "choice_id": "configure_dsn_and_rerun_inspect",
+        "label": "Configure DSN and rerun inspect",
+        "description": "Provide database access for this workspace so pg-logstats can unlock live SQL follow-up.",
+        "workflow": "inspect",
+        "command": {
+          "argv": ["pg-logstats", "inspect"]
+        }
+      },
+      {
+        "choice_id": "stop_with_offline_findings",
+        "label": "Stop with offline findings",
+        "description": "End the investigation after offline log triage without enabling live database access.",
+        "workflow": "stop"
+      }
+    ]
+  }
+}
+```
+
+The important rule is:
+
+- only `action_type = "run_sql"` should be executed through `pg-logstats run-sql`
+- `action_type = "prompt_user"` means the agent must ask the operator for a decision first
+
+### Interpreted SQL Results
+
+`run-sql` reports can include a small `payload.insights[]` list when
+`pg-logstats` recognizes a strong pattern in the bounded result set of one of
+its own built-in SQL actions.
+
+Example:
+
+```json
+{
+  "workflow": "run_sql",
+  "payload": {
+    "action_id": "query_family.pg_stat_activity.by_dimensions:qf_51125b8829ab1fdf",
+    "source_report_id": "20260613T181530123456Z-top_query_families",
+    "source_finding_id": "qf_51125b8829ab1fdf",
+    "insights": [
+      {
+        "insight_id": "transactionid_lock_wait",
+        "label": "The query appears blocked on another transaction",
+        "confidence": "high",
+        "reason": "A matching active session is waiting on wait_event_type=Lock and wait_event=transactionid."
+      }
+    ],
+    "row_count": 1,
+    "truncated": false,
+    "columns": ["pid", "usename", "datname", "application_name", "state", "wait_event_type", "wait_event", "query_start", "query_id", "query"],
+    "rows": [[42137, "app", "appdb", "api", "active", "Lock", "transactionid", "2026-06-14T10:00:18+00:00", null, "SELECT * FROM invoices WHERE workspace_id = $1 ORDER BY created_at DESC LIMIT $2"]]
+  }
+}
+```
+
+Current product rule:
+
+- `source_finding_id` ties the live follow-up back to the parent finding
+- `insights[]` is emitted only when the built-in action result supports a
+  bounded interpretation
+- an empty `insights[]` is valid; `pg-logstats` should not invent certainty
+  from weak or ambiguous SQL output
 
 ---
 
@@ -64,28 +146,26 @@ To prevent diagnostic activity from adding harmful overhead to an already stress
 
 ---
 
-## Executing Actions with Linkage Flags
+## Executing SQL Actions with Linkage Flags
 
-Rather than running a single wrapper command, the caller executes the actual subcommand recommended by the action (using the command line provided in the `command` field of `NextAction`), and links it to the parent report using global audit flags.
+For `action_type = "run_sql"`, the caller executes `pg-logstats run-sql` and links it to the parent report using global audit flags.
 
 ### Command Usage Example
 ```bash
 pg-logstats \
-  --session-id test_sess \
-  --parent-report-id 0001-top_query_families \
-  --selected-action-id query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf \
+  --triage-report 20260613T181530123456Z-top_query_families \
+  --action-id query_family.pg_stat_activity.by_dimensions:qf_51125b8829ab1fdf \
   run-sql
 ```
 
 ### Global Audit Linkage Options
-- `--session-id <SESSION_ID>`: Unique identifier for the current investigation session.
-- `--parent-report-id <REPORT_ID>`: The ID of the report that led to this action.
-- `--selected-action-id <ACTION_ID>`: The `action_id` from the parent report's `next_actions` array.
+- `--triage-report <REPORT>`: The persisted report that led to this follow-up action. Accepts a report ID or a report path.
+- `--action-id <ACTION_ID>`: The `action_id` from the parent report's `next_actions` array.
 
 ### Behavior & Security
-1. **Safety Re-evaluation**: `pg-logstats` reads the parent report, finds the requested action, and re-validates the policy matrix against the current state and parameters. If the action is blocked or unknown, execution is rejected with a structured error.
+1. **Safety Re-evaluation**: `pg-logstats` reads the parent report, finds the requested action, and re-validates the policy matrix against the current state and parameters. If the action is blocked, unknown, or not a SQL action, execution is rejected with a structured error.
 2. **Execution**: The subcommand (e.g. `run-sql`) is executed with safety checks in place.
-3. **Report Output & Session Storage**: The command outputs a new triage report containing the results. If a session workspace is configured, it persists the report in the session directory under `<workspace>/sessions/<session_id>/reports/<sequence>-<workflow>.json` to record the progress of the investigation.
+3. **Report Output & Persistence**: The command outputs a new triage report containing the results. Follow-up actions persist immutable reports under `<workspace>/reports/<timestamp>-<workflow>.json` so the investigation history remains auditable without overwriting prior steps.
 
 ## Built-In Query-Family SQL Actions
 

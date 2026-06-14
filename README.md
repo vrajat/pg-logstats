@@ -1,350 +1,139 @@
 # pg-logstats
 
-`pg-logstats` is a PostgreSQL log investigation CLI. It reads supported
-PostgreSQL stderr logs, groups related statements into query families, ranks the
-most useful findings, and emits bounded follow-up actions for live PostgreSQL
-inspection.
+**pg-logstats is a PostgreSQL triage gateway that lets agents investigate database incidents without direct database access.**
+
+It packages established PostgreSQL triage runbooks into a controlled CLI:
+inspect the available evidence, rank the most suspicious findings from logs, and
+execute approved follow-up SQL through a bounded action model.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## Supported Workflows
+## Why Set This Up
 
-- `inspect`: inspect the environment to check database configuration and agent setup.
-- `top query-families`: rank query families in one log window by total runtime.
-- `slow-queries diff`: compare a target log window against a baseline window.
-- `run-sql`: execute a built-in diagnostic SQL action safely with session linkage and safety checks.
-- `errors`: triage, group, and attribute error and event logs.
-- `temp-files`: triage temporary-file resource pressure and correlate to query families.
-- `agent install`: idempotently install playbook instructions and commands into AI agent harnesses.
+Use `pg-logstats` when you want an agent in the investigation loop without
+turning that agent into a general-purpose database operator.
 
-Supported input is PostgreSQL stderr logs using this prefix shape:
+This is the intended operating model:
+
+- `pg-logstats` packages the runbook
+- the agent supplies judgement at the allowed branch points
+- `pg-logstats` remains the gateway for diagnostic SQL
+
+If a human wants to work the logs directly, `pgBadger` is the better tool.
+
+## Quick Start
+
+Install the CLI:
+
+```bash
+cargo install pg-logstats
+```
+
+Install the agent guidance. `codex` is the first-class target harness:
+
+```bash
+pg-logstats agent install --harness codex
+pg-logstats agent install --harness codex --status
+pg-logstats inspect /path/to/postgresql.log
+```
+
+If you want to preview the agent guidance install without writing files:
+
+```bash
+pg-logstats agent install --harness codex --dry-run
+```
+
+## How The Agent Loop Works
+
+1. A human installs `pg-logstats`.
+2. A human installs the agent guidance with `pg-logstats agent install`.
+3. The agent runs `inspect`.
+4. If the environment is ready, the agent runs one bounded triage workflow.
+5. The report returns compact findings plus `next_actions[]`.
+6. The agent checks `action_type` on each next action.
+7. `pg-logstats run-sql` executes only built-in approved actions with `action_type = "run_sql"`.
+8. Delegated branches like "configure DSN and rerun inspect" are `prompt_user` actions, not SQL actions.
+9. The agent stops or escalates when the workflow says to stop.
+
+This is not a free-form exploration loop.
+
+## Beta Boundary
+
+For beta, the intended success path is `log_backed`.
+
+If the required evidence is missing, `pg-logstats` should report `unready` and
+stop. It should not pretend a weak degraded workflow is acceptable.
+
+That means:
+
+- no historical ranking without supported logs
+- no temp-file triage without the required temp-file evidence
+- no arbitrary SQL execution through the product path
+- no promise that an agent can improvise around missing prerequisites
+
+## Supported Log Inputs
+
+The current text parser supports:
+
+- local PostgreSQL stderr logs with a prefix shaped like `%m [%p] %u@%d %a:`
+- Amazon RDS PostgreSQL text logs with a prefix shaped like `%t:%r:%u@%d:[%p]:`
+
+Example stderr shape:
 
 ```text
 2024-01-15 10:00:00.000 UTC [2001] app@appdb api: LOG:  statement: SELECT * FROM users WHERE id = 1;
 2024-01-15 10:00:00.020 UTC [2001] app@appdb api: LOG:  duration: 20.000 ms
 ```
 
-That corresponds to a PostgreSQL `log_line_prefix` similar to:
-
-```text
-%m [%p] %u@%d %a:
-```
-
-Amazon RDS for PostgreSQL logs are also supported when they use the RDS prefix
-shape documented for pgBadger:
-
-```text
-%t:%r:%u@%d:[%p]:
-```
-
-`pg-logstats` auto-detects local stderr and RDS-style logs by default. Use
-`--input-format rds` when you want JSON evidence to mark the source kind as
-`AwsRds` or when you want to reject non-RDS prefixes.
-
-## Quick Start
-
-```bash
-cargo install pg-logstats
-
-pg-logstats top query-families tests/fixtures/cli/sample_stderr.log
-
-pg-logstats --input-format rds top query-families tests/fixtures/cli/aws_rds.log
-
-pg-logstats top query-families \
-  --rds-instance my-db \
-  --since 2h \
-  --output-format json
-
-pg-logstats top query-families \
-  --output-format json \
-  --outfile findings.json \
-  tests/fixtures/cli/sample_stderr.log
-
-pg-logstats slow-queries diff \
-  --baseline tests/fixtures/cli/diff_baseline.log \
-  --target tests/fixtures/cli/diff_target.log
-
-pg-logstats --session-id test_sess --parent-report-id 0001-top_query_families --selected-action-id query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf run-sql
-
-pg-logstats errors tests/fixtures/cli/sample_stderr.log
-
-pg-logstats temp-files tests/fixtures/cli/sample_stderr.log
-
-pg-logstats agent install --harness claude --dry-run
-```
-
-Global flags such as `--input-format`, `--output-format`, `--outfile`,
-`--outdir`, `--workspace`, `--dsn`, and `--quiet` can be placed before or after the
-workflow command.
-
-## CloudWatch Logs Input
-
-For Amazon RDS PostgreSQL instances that publish PostgreSQL logs to CloudWatch
-Logs, `pg-logstats` can read a bounded time window through the optional AWS SDK
-integration.
-
-Build with the optional feature:
+RDS and CloudWatch-based investigation are also supported. For CloudWatch input,
+install with the optional AWS SDK feature:
 
 ```bash
 cargo install pg-logstats --features aws-sdk
 ```
 
-Then run:
-
-```bash
-pg-logstats top query-families \
-  --rds-instance my-db \
-  --since 2h \
-  --output-format json
-```
-
-`--rds-instance my-db` resolves to:
-
-```text
-/aws/rds/instance/my-db/postgresql
-```
-
-You can also pass the log group explicitly:
-
-```bash
-pg-logstats top query-families \
-  --cloudwatch-log-group /aws/rds/instance/my-db/postgresql \
-  --since 2026-05-03T10:00:00Z \
-  --until 2026-05-03T11:00:00Z
-```
-
-CloudWatch input uses the AWS SDK's normal credential and region provider chain.
-Use `--aws-profile`, `--aws-region`, `--cloudwatch-filter-pattern`, and
-`--cloudwatch-max-pages` to control the request. Relative `--since` values
-support `m`, `h`, and `d`.
-
-## Installation
-
-From crates.io:
-
-```bash
-cargo install pg-logstats
-pg-logstats --version
-```
-
-From a local checkout:
-
-```bash
-git clone https://github.com/vrajat/pg-logstats.git
-cd pg-logstats
-cargo install --path .
-pg-logstats --version
-```
-
-From source without installing:
-
-```bash
-cargo run -- top query-families tests/fixtures/cli/sample_stderr.log
-```
-
-## Commands
-
-### Inspect
-
-Inspect the environment and determine the supported operating mode:
-
-```bash
-pg-logstats inspect --output-format json
-```
-
-Use supported log input to determine `log_backed` mode even when no PostgreSQL
-connection is configured:
+Then the agent or operator can inspect a bounded RDS log window through:
 
 ```bash
 pg-logstats inspect \
-  --output-format json \
-  tests/fixtures/cli/sample_stderr.log
+  --rds-instance my-db \
+  --since 1h
 ```
 
-When live checks are needed, connection discovery precedence is:
+## What The Human Docs Are For
 
-1. `--dsn <postgres-url>`
-2. `PG_LOGSTATS_DATABASE_URL`
-3. `[database].dsn` from the resolved config
+The docs in `docs/` are for expert humans setting up `pg-logstats` for agents.
 
-The dedicated inspect guide lives in [docs/inspect.md](docs/inspect.md).
+They are meant to answer:
 
-### Top Query Families
+- why `pg-logstats` exists
+- how to install it
+- how to install the agent guidance
+- how to verify that agent triage is trustworthy
+- which PostgreSQL runbooks the agent is automating
+- where runbook ends and agent judgement begins
 
-Rank normalized query families in one log window:
+They are not meant to be a full command-by-command human CLI manual.
 
-```bash
-pg-logstats top query-families tests/fixtures/cli/sample_stderr.log
-```
+## Read Next
 
-Analyze every `.log` or `.txt` file in a directory:
-
-```bash
-pg-logstats top query-families --log-dir tests/fixtures/cli
-```
-
-Limit the number of emitted findings:
-
-```bash
-pg-logstats top query-families --limit 5 tests/fixtures/cli/sample_stderr.log
-```
-
-Write JSON findings for shell or agent workflows:
-
-```bash
-pg-logstats top query-families \
-  --output-format json \
-  --outfile findings.json \
-  tests/fixtures/cli/sample_stderr.log
-```
-
-### Slow Query Diff
-
-Compare a target log window with a baseline log window:
-
-```bash
-pg-logstats slow-queries diff \
-  --baseline tests/fixtures/cli/diff_baseline.log \
-  --target tests/fixtures/cli/diff_target.log
-```
-
-Apply eligibility thresholds:
-
-```bash
-pg-logstats slow-queries diff \
-  --baseline tests/fixtures/cli/diff_baseline.log \
-  --target tests/fixtures/cli/diff_target.log \
-  --min-target-count 2 \
-  --min-target-total-ms 100 \
-  --min-p95-delta-ms 10
-```
-
-### Run SQL / Guidance Action
-
-Execute a recommended action using safety checks and session tracking:
-
-```bash
-pg-logstats \
-  --session-id test_sess \
-  --parent-report-id 0001-top_query_families \
-  --selected-action-id query_family.pg_stat_activity.by_dimensions:query_family:qf_51125b8829ab1fdf \
-  run-sql
-```
-
-For SQL-based actions, the command validates the action's safety using the policy matrix (verdict and action class restrictions) and records the execution step under the session reports directory.
-
-## JSON Output
-
-`top query-families` JSON output now uses the V1 `PgTriageReport` shape:
-
-```bash
-pg-logstats top query-families \
-  --output-format json \
-  tests/fixtures/cli/sample_stderr.log | jq '.payload.findings[0]'
-```
-
-Useful fields include:
-
-- `schema_version`
-- `workflow`
-- `operating_mode`
-- `analysis_window.since`
-- `analysis_window.until`
-- `source_summary.kind`
-- `source_summary.entries_scanned`
-- `payload.findings[].finding_id`
-- `payload.findings[].kind`
-- `payload.findings[].rank`
-- `payload.findings[].title`
-- `payload.findings[].reason`
-- `payload.findings[].reason_codes`
-- `payload.findings[].score`
-- `payload.findings[].confidence`
-- `payload.findings[].query_family.normalized_sql`
-- `payload.findings[].query_family.database`
-- `payload.findings[].query_family.user`
-- `payload.findings[].query_family.application_name`
-- `payload.findings[].query_family.missing_attribution`
-- `payload.findings[].metrics.execution_count`
-- `payload.findings[].metrics.total_duration_ms`
-- `payload.findings[].metrics.max_duration_ms`
-
-For diff findings, each finding also includes `baseline`, `target`, and `delta`
-duration summaries.
-
-`top query-families` is a `log_backed` workflow. It requires PostgreSQL
-statement and duration evidence in supported logs. On startup, non-`inspect`
-commands require a persisted inspect report. By default that report is written
-inside the workspace as `inspect.json`. By default the workspace is
-`~/.local/share/pg-logstats`, or you can override it with `--workspace` or
-`PG_LOGSTATS_WORKSPACE`. The report window is described by
-`analysis_window.{since,until}` and `source_summary.*`.
-
-See [docs/top-query-families.md](docs/top-query-families.md) for the bounded
-window model, supported formats, missing-attribution behavior, and the logging
-references used during design.
-
-## Configuration
-
-Workspace precedence is:
-
-1. `--workspace <dir>`
-2. `PG_LOGSTATS_WORKSPACE`
-3. `~/.local/share/pg-logstats`
-
-Within the workspace, `pg-logstats` expects:
-
-- `config.toml`
-- `inspect.json`
-- `results/` for future command output and cached artifacts
-
-Minimal example:
-
-```toml
-[database]
-dsn = "postgres://user@host:5432/dbname"
-connect_timeout_ms = 3000
-
-[running_queries.thresholds]
-long_running_query_ms = 120000
-waiting_session_count_threshold = 2
-idle_in_transaction_count_threshold = 2
-
-[suggest_sql]
-max_risk = "bounded"
-show_omitted = true
-disabled_rules = []
-```
-
-Unknown config keys are rejected. The config loader fails fast instead of
-silently ignoring unsupported fields.
-
-## Fixture Logs
-
-[tests/fixtures/cli](tests/fixtures/cli/) contains the checked-in fixture logs
-used by the commands above.
+- [Docs Index](docs/index.md)
+- [Inspect Reference](docs/user-guide/inspect.md)
+- [Investigation Guidance](docs/user-guide/guidance.md)
+- [RDS and CloudWatch Input](docs/user-guide/rds-cloudwatch.md)
+- [Architecture](docs/development/architecture.md)
+- [Development](docs/development/index.md)
 
 ## Development
+
+Checked-in fixtures for smoke tests live in [tests/fixtures/cli](tests/fixtures/cli/).
+
+For local development:
 
 ```bash
 make fmt
 make check
 ```
-
-Run a smoke command during local development:
-
-```bash
-cargo run -- top query-families tests/fixtures/cli/sample_stderr.log
-```
-
-## Troubleshooting
-
-If no findings are emitted, first check the log prefix. The current parser expects
-the supported stderr prefix shown above and statement/duration lines that can be
-correlated by process id and order.
-
-Use `--sample-size <N>` with `top query-families` or `slow-queries diff` when you
-want a quick pass over the first N lines of each file.
 
 ## License
 

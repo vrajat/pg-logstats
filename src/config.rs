@@ -151,8 +151,8 @@ pub fn workspace_inspect_report_path(workspace: &Path) -> PathBuf {
     workspace.join(INSPECT_FILE_NAME)
 }
 
-pub fn workspace_results_dir(workspace: &Path) -> PathBuf {
-    workspace.join("results")
+pub fn workspace_reports_dir(workspace: &Path) -> PathBuf {
+    workspace.join("reports")
 }
 
 pub fn load_config(explicit_workspace: Option<&Path>) -> Result<ResolvedConfig> {

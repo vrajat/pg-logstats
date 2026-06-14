@@ -63,7 +63,7 @@ pub struct CloudWatchUntil {
 }
 
 impl CloudWatchUntil {
-    fn timestamp_millis(&self) -> i64 {
+    pub fn timestamp_millis(&self) -> i64 {
         self.timestamp_ms
     }
 }

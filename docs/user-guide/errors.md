@@ -60,8 +60,7 @@ Each finding outputs the following fields when available:
 Example finding payload:
 ```json
 {
-  "schema_version": 1,
-  "finding_id": "error_class:42P01",
+  "id": "42P01",
   "kind": "error_class",
   "rank": 1,
   "title": "relation \"?\" does not exist",

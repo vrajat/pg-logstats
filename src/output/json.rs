@@ -179,7 +179,6 @@ impl JsonFormatter {
     pub fn format_findings(&self, findings: &FindingSet) -> Result<String> {
         let root = json!({
             "metadata": self.metadata_object(),
-            "schema_version": findings.schema_version,
             "findings": findings.findings,
         });
 

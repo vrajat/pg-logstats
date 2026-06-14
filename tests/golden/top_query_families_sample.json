@@ -3,7 +3,9 @@
     "since": "2024-01-15T10:00:00+00:00",
     "until": "2024-01-15T10:00:04+00:00"
   },
-  "limitations": [],
+  "limitations": [
+    "live_database_checks_unavailable"
+  ],
   "operating_mode": "log_backed_only",
   "payload": {
     "findings": [
@@ -23,7 +25,7 @@
             "source_kind": "Stderr"
           }
         ],
-        "finding_id": "query_family:qf_51125b8829ab1fdf",
+        "id": "qf_51125b8829ab1fdf",
         "kind": "query_family",
         "metrics": {
           "avg_duration_ms": 22.0,
@@ -48,7 +50,6 @@
           "high_max_duration",
           "correlated_duration"
         ],
-        "schema_version": 1,
         "score": 44.0,
         "title": "Query family with high total runtime"
       },
@@ -64,7 +65,7 @@
             "source_kind": "Stderr"
           }
         ],
-        "finding_id": "query_family:qf_ea6d9c1674a70be1",
+        "id": "qf_ea6d9c1674a70be1",
         "kind": "query_family",
         "metrics": {
           "avg_duration_ms": 18.0,
@@ -89,7 +90,6 @@
           "high_max_duration",
           "correlated_duration"
         ],
-        "schema_version": 1,
         "score": 18.0,
         "title": "Query family with high total runtime"
       },
@@ -105,7 +105,7 @@
             "source_kind": "Stderr"
           }
         ],
-        "finding_id": "query_family:qf_8fd1b7db817a0410",
+        "id": "qf_8fd1b7db817a0410",
         "kind": "query_family",
         "metrics": {
           "avg_duration_ms": 9.0,
@@ -130,7 +130,6 @@
           "high_max_duration",
           "correlated_duration"
         ],
-        "schema_version": 1,
         "score": 9.0,
         "title": "Query family with high total runtime"
       }
@@ -141,9 +140,5 @@
     "entries_scanned": 9,
     "kind": "local_stderr"
   },
-  "verdict": "unknown",
-  "verdict_reasons": [
-    "live_state_verdict_not_evaluated"
-  ],
   "workflow": "top_query_families"
 }

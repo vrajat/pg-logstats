@@ -78,8 +78,17 @@ pub struct InspectReportPayload {
     pub agent_inspect: AgentInspect,
     /// The list of all checks run during this inspection.
     pub required_checks: Vec<InspectCheckId>,
-    /// Reasons for check failures, if any.
-    pub failed_checks: Vec<InspectReason>,
+    /// Failed checks with their machine-readable reasons.
+    pub failed_checks: Vec<FailedInspectCheck>,
+}
+
+/// One failed inspect check with its stable identifier and reason code.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FailedInspectCheck {
+    /// The check that failed.
+    pub check_id: InspectCheckId,
+    /// The machine-readable reason for failure.
+    pub reason: InspectReason,
 }
 
 /// Verification results for database configuration settings.
@@ -281,19 +290,15 @@ pub fn inspect(
     cloudwatch_input: Option<&CloudWatchInput>,
     parser: &TextLogParser,
     source_kind: EventSourceKind,
-    session_id: Option<String>,
     workspace: Option<&Path>,
 ) -> Result<PgTriageReport<InspectReportPayload>, crate::PgLogstatsError> {
     let log_evidence =
         collect_log_inspect_evidence(local_log_input, cloudwatch_input, parser, source_kind);
-    let mut report = build_inspect_report(
+    let report = build_inspect_report(
         config,
         crate::database::resolve_database_dsn(dsn, config).as_deref(),
         log_evidence,
     );
-    if let Some(sess_id) = session_id {
-        report.session_id = Some(sess_id);
-    }
 
     persist_inspect_report(&report, workspace)?;
 
@@ -367,10 +372,7 @@ pub fn inspect_rules() -> Vec<RuleDefinition> {
             action_class: None,
             command_template: Some(vec![
                 "pg-logstats".to_string(),
-                "top".to_string(),
                 "query-families".to_string(),
-                "--output-format".to_string(),
-                "json".to_string(),
             ]),
             sql_template: None,
             required_operating_mode: Some(OperatingMode::LogBackedOnly),
@@ -393,8 +395,6 @@ pub fn inspect_rules() -> Vec<RuleDefinition> {
             command_template: Some(vec![
                 "pg-logstats".to_string(),
                 "running-queries".to_string(),
-                "--output-format".to_string(),
-                "json".to_string(),
             ]),
             sql_template: None,
             required_operating_mode: Some(OperatingMode::LiveOnly),
@@ -416,7 +416,8 @@ pub fn inspect_rules() -> Vec<RuleDefinition> {
             action_class: None,
             command_template: Some(vec![
                 "pg-logstats".to_string(),
-                "agent-install".to_string(),
+                "agent".to_string(),
+                "install".to_string(),
             ]),
             sql_template: None,
             required_operating_mode: None,
@@ -478,7 +479,6 @@ impl GuidancePayload for InspectReportPayload {
                 rule.command_template
                     .clone()
                     .map(|argv| crate::triage::NextActionCommand { argv }),
-                None,
             );
             actions.push(next_act);
         }
@@ -527,7 +527,6 @@ fn build_inspect_report(
         source_summary: None,
         next_actions: Vec::new(),
         report_id: None,
-        session_id: None,
         parent_report_id: None,
         selected_action_id: None,
         created_at: None,
@@ -569,12 +568,19 @@ fn determine_mode(checks: &BTreeMap<InspectCheckId, InspectCheck>) -> OperatingM
     }
 }
 
-/// Accumulates the failure reasons from all verification checks.
-fn collect_failed_checks(checks: &BTreeMap<InspectCheckId, InspectCheck>) -> Vec<InspectReason> {
+/// Accumulates failed checks with their reasons.
+fn collect_failed_checks(
+    checks: &BTreeMap<InspectCheckId, InspectCheck>,
+) -> Vec<FailedInspectCheck> {
     checks
-        .values()
-        .filter(|check| matches!(check.status, CheckStatus::Failed))
-        .filter_map(|check| check.reason)
+        .iter()
+        .filter(|(_, check)| matches!(check.status, CheckStatus::Failed))
+        .filter_map(|(check_id, check)| {
+            check.reason.map(|reason| FailedInspectCheck {
+                check_id: *check_id,
+                reason,
+            })
+        })
         .collect()
 }
 
@@ -1338,6 +1344,13 @@ mod tests {
         assert_eq!(
             report.payload.database_inspect.checks[&InspectCheckId::LogSourceReachable].status,
             CheckStatus::Failed
+        );
+        assert_eq!(
+            report.payload.failed_checks,
+            vec![FailedInspectCheck {
+                check_id: InspectCheckId::LogSourceReachable,
+                reason: InspectReason::SupportedLogSourceUnreachable,
+            }]
         );
     }
 }

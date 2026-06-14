@@ -84,7 +84,24 @@ pub fn output_report<T: serde::Serialize>(
                         .map_err(crate::PgLogstatsError::Serialization)?;
 
                 let mut output = String::new();
-                output.push_str(&format!("SQL Query: {}\n\n", sql_report.payload.sql));
+                output.push_str(&format!("Action ID: {}\n", sql_report.payload.action_id));
+                if let Some(source_finding_id) = &sql_report.payload.source_finding_id {
+                    output.push_str(&format!("Source Finding: {}\n", source_finding_id));
+                }
+                if !sql_report.payload.insights.is_empty() {
+                    output.push_str("Insights:\n");
+                    for insight in &sql_report.payload.insights {
+                        let confidence = match insight.confidence {
+                            crate::triage::SqlInsightConfidence::High => "high",
+                            crate::triage::SqlInsightConfidence::Medium => "medium",
+                        };
+                        output.push_str(&format!(
+                            "- {} [{}]: {}\n",
+                            insight.label, confidence, insight.reason
+                        ));
+                    }
+                }
+                output.push('\n');
                 if sql_report.payload.row_count == 0 {
                     output.push_str("No rows returned.\n");
                 } else {

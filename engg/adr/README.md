@@ -22,4 +22,4 @@ Add an ADR when a change affects:
 
 - [0001 - Adopt a ripgrep-inspired CLI philosophy for pg-logstats](0001-ripgrep-inspired-cli-philosophy.md)
 - [0002 - Select three investigation workflows for V1](0002-select-v1-investigation-workflows.md)
-- [0003 - Internal AI App Database Diagnostics](0003-internal-ai-app-database-diagnostics.md)
+- [0003 - Agent-First PostgreSQL Triage Gateway For Internal AI Apps](0003-internal-ai-app-database-diagnostics.md)

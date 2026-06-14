@@ -136,8 +136,10 @@ fn update_codex_agents_md(
         ## pg-logstats Integration\n\n\
         You have `pg-logstats` available to perform PostgreSQL triage. Always use the following rule:\n\
         - Refer to the shared pg-logstats playbook located at: {}\n\
-        - Always run `pg-logstats inspect --output-format json` before attempting other diagnostic actions.\n\
-        - Respect `operating_mode`, `verdict`, and only run actions listed in `next_actions[]`.\n\
+        - Always run `pg-logstats inspect` before attempting other diagnostic actions.\n\
+        - Respect `operating_mode`, `verdict`, and only advance through actions listed in `next_actions[]`.\n\
+        - Run `pg-logstats run-sql` only when the selected action has `action_type = run_sql`.\n\
+        - If the selected action has `action_type = prompt_user`, ask the operator for a decision instead of inventing a SQL step.\n\
         <!-- END pg-logstats agent guidance -->",
         playbook_path_str
     );
@@ -217,12 +219,16 @@ fn playbook_content() -> &'static str {
      This playbook outlines the standard operating procedure for troubleshooting PostgreSQL database incidents using `pg-logstats`.\n\n\
      ## Core Workflow\n\n\
      Always follow these steps:\n\n\
-     1. **Inspect First**: Run `pg-logstats inspect --output-format json` to detect the `operating_mode` and check the environment.\n\
+     1. **Inspect First**: Run `pg-logstats inspect` to detect the `operating_mode` and check the environment.\n\
      2. **Respect Operating Mode**:\n\
-        - `log_backed_and_live` or `log_backed_only`: Safe to run log-based subcommands like `top query-families`, `errors`, and `temp-files`.\n\
+        - `log_backed_and_live` or `log_backed_only`: Safe to run log-based subcommands like `query-families`, `errors`, and `temp-files`.\n\
         - `live_only`: Do NOT attempt log-based subcommands. Only run live checks like `running-queries`.\n\
         - `unready`: Triage setup is incomplete. Do not proceed; check config or database availability.\n\
-     3. **DAG-driven Investigation**: Select and run commands ONLY from the `next_actions[]` array returned in the previous step's triage report JSON.\n\
+     3. **DAG-driven Investigation**: Select actions ONLY from the `next_actions[]` array returned in the previous step's triage report JSON.\n\
+        - `action_type = run_workflow`: run the suggested pg-logstats workflow.\n\
+        - `action_type = run_sql`: execute `pg-logstats run-sql` with the selected `action_id` and linkage flags.\n\
+        - `action_type = prompt_user`: ask the operator to choose a branch, such as configuring a DSN and rerunning `inspect`.\n\
+        - `action_type = stop`: end the current investigation branch.\n\
      4. **Follow Verdict Policies**:\n\
         - `clear`: All read-only and stats actions are allowed.\n\
         - `busy`: Only narrow, low-impact stats actions are allowed.\n\
@@ -260,7 +266,6 @@ pub fn execute_agent_install(
             source_summary: None,
             next_actions: Vec::new(),
             report_id: None,
-            session_id: None,
             parent_report_id: None,
             selected_action_id: None,
             created_at: Some(chrono::Utc::now().to_rfc3339()),
@@ -298,9 +303,11 @@ pub fn execute_agent_install(
                 "# pg-logstats Triage Skill\n\n\
                  This skill allows Claude to perform database triage using the `pg-logstats` CLI tool.\n\n\
                  ## Guidelines\n\n\
-                 - Always run `pg-logstats inspect --output-format json` first.\n\
+                 - Always run `pg-logstats inspect` first.\n\
                  - Refer to the pg-logstats playbook at `{}` for full safety and operating instructions.\n\
                  - Choose follow-up actions from `next_actions[]` in the triage reports.\n\
+                 - Run `pg-logstats run-sql` only for actions with `action_type = run_sql`.\n\
+                 - If an action has `action_type = prompt_user`, ask the operator for a choice instead of inventing a query.\n\
                  - Stop and escalate if the database is saturated or operating mode is unready.\n",
                 playbook_path.display()
             );
@@ -321,10 +328,12 @@ pub fn execute_agent_install(
                  prompt = \"\"\"\n\
                  You are a Gemini assistant equipped with pg-logstats.\n\
                  When troubleshooting:\n\
-                 1. Always start by running `pg-logstats inspect --output-format json`.\n\
+                 1. Always start by running `pg-logstats inspect`.\n\
                  2. Review the pg-logstats playbook at '{}' for guidance.\n\
-                 3. Only run commands suggested in `next_actions[]` from the triage report.\n\
-                 4. Stop and escalate immediately if the database is saturated or operating mode is unready.\n\
+                 3. Only advance through actions suggested in `next_actions[]` from the triage report.\n\
+                 4. Use `pg-logstats run-sql` only for actions with `action_type = run_sql`.\n\
+                 5. If an action has `action_type = prompt_user`, ask the operator for a decision instead of inventing a SQL step.\n\
+                 6. Stop and escalate immediately if the database is saturated or operating mode is unready.\n\
                  \"\"\"\n",
                 playbook_path.display(),
                 playbook_path.display()
@@ -354,7 +363,6 @@ pub fn execute_agent_install(
         source_summary: None,
         next_actions: Vec::new(),
         report_id: None,
-        session_id: None,
         parent_report_id: None,
         selected_action_id: None,
         created_at: Some(chrono::Utc::now().to_rfc3339()),

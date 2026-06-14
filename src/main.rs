@@ -7,13 +7,14 @@ use pg_logstats::{
         discover_log_files, process_cloudwatch_input, process_log_file, process_log_paths,
         validate_file_input_args, CloudWatchInput, CloudWatchSince, CloudWatchUntil, LocalLogInput,
     },
-    inspect, load_config, normalize_log_entries, parse_action_parameters, query_family_findings,
-    resolve_workspace_path, run_running_queries, slow_query_diff_findings, temp_file_findings,
-    temp_files_report, top_query_families_report, workflow_slug, workspace_inspect_report_path,
-    ActionKind, ActionParameterInput, Correlator, EventSourceKind, InspectReportPayload,
-    JsonFormatter, NextAction, NextActionStatus, OperatingMode, OutputFormat, PgLogstatsError,
-    PgTriageReport, ProcessOrderCorrelator, Result, RunSqlRequest, SlowQueryDiffOptions,
-    TextFormatter, TextLogFormat, TextLogParser,
+    inspect, load_config, normalize_log_entries, parse_action_parameters,
+    populate_next_actions_with_context, query_family_findings, resolve_workspace_path,
+    run_running_queries, slow_query_diff_findings, temp_file_findings, temp_files_report,
+    top_query_families_report, workspace_inspect_report_path, ActionKind, ActionParameterInput,
+    ActionReplayContext, Correlator, EventSourceKind, InspectReportPayload, JsonFormatter,
+    OperatingMode, OutputFormat, PgLogstatsError, PgTriageReport, ProcessOrderCorrelator,
+    ReportStore, Result, RunSqlRequest, SlowQueryDiffOptions, TextFormatter, TextLogFormat,
+    TextLogParser,
 };
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -31,7 +32,7 @@ struct Arguments {
     command: Command,
 
     /// Output format for results
-    #[clap(long, global = true, value_enum, default_value = "text")]
+    #[clap(long, global = true, value_enum, default_value = "json")]
     output_format: OutputFormat,
 
     /// Input log format. auto supports local PostgreSQL stderr and AWS RDS logs.
@@ -54,27 +55,18 @@ struct Arguments {
     #[clap(short = 'q', long, global = true)]
     quiet: bool,
 
-    /// Session ID to group reports and reconstruct the investigation graph
-    #[clap(long, global = true, value_name = "SESSION_ID")]
-    session_id: Option<String>,
+    /// Parent triage report used by a follow-up workflow. Accepts a report ID or path.
+    #[clap(long, global = true, value_name = "REPORT")]
+    triage_report: Option<String>,
 
-    /// The ID (filename prefix) of the parent report in the session
-    #[clap(long, global = true, value_name = "REPORT_ID")]
-    parent_report_id: Option<String>,
-
-    /// The ID of the action selected from the parent report
+    /// The ID of the action selected from the parent triage report
     #[clap(long, global = true, value_name = "ACTION_ID")]
-    selected_action_id: Option<String>,
+    action_id: Option<String>,
 
     /// PostgreSQL connection string. Falls back to PG_LOGSTATS_DATABASE_URL
     /// and then [database].dsn from config.
     #[clap(long, global = true, value_name = "POSTGRES_URL")]
     dsn: Option<String>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct SessionActionIndex {
-    next_actions: Vec<NextAction>,
 }
 
 #[derive(Debug, Args)]
@@ -163,10 +155,15 @@ impl LogInputArgs {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Investigation-oriented top findings
-    Top {
-        #[clap(subcommand)]
-        command: TopCommand,
+    /// Rank query families by total runtime in one log window
+    #[clap(name = "query-families")]
+    QueryFamilies {
+        /// Maximum number of query-family findings to emit
+        #[clap(long, default_value_t = 10)]
+        limit: usize,
+
+        #[clap(flatten)]
+        input: LogInputArgs,
     },
     /// Inspect the environment and determine the supported operating mode
     Inspect {
@@ -176,7 +173,7 @@ enum Command {
     /// Slow-query investigation workflows
     SlowQueries {
         #[clap(subcommand)]
-        command: SlowQueriesCommand,
+        command: Option<SlowQueriesCommand>,
     },
     /// Run a diagnostic SQL query against the database
     RunSql {
@@ -228,19 +225,6 @@ enum AgentCommand {
         /// Dry run, print intended writes without modifying files
         #[clap(long)]
         dry_run: bool,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-enum TopCommand {
-    /// Rank query families by total runtime in one log window
-    QueryFamilies {
-        /// Maximum number of query-family findings to emit
-        #[clap(long, default_value_t = 10)]
-        limit: usize,
-
-        #[clap(flatten)]
-        input: LogInputArgs,
     },
 }
 
@@ -305,15 +289,18 @@ impl InputFormat {
     }
 }
 
-fn main() -> Result<()> {
+fn main() {
+    if let Err(err) = try_main() {
+        eprintln!("{err}");
+        process::exit(1);
+    }
+}
+
+fn try_main() -> Result<()> {
     // Initialize logging
     env_logger::init();
 
-    let mut args = Arguments::parse();
-    if args.session_id.is_none() {
-        let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
-        args.session_id = Some(timestamp);
-    }
+    let args = Arguments::parse();
     let start_time = Instant::now();
 
     // Validate CLI arguments
@@ -341,75 +328,16 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn validate_session_action(args: &Arguments, workspace_path: &Path) -> Result<()> {
-    if (args.parent_report_id.is_some() || args.selected_action_id.is_some())
-        && (args.parent_report_id.is_none() || args.selected_action_id.is_none())
-    {
-        return Err(PgLogstatsError::Configuration {
-            message: "Both --parent-report-id and --selected-action-id must be specified together"
-                .to_string(),
-            field: Some("selected_action_id".to_string()),
-        });
-    }
-
-    if let (Some(sess_id), Some(parent_id), Some(act_id)) = (
-        &args.session_id,
-        &args.parent_report_id,
-        &args.selected_action_id,
-    ) {
-        let parent_path = workspace_path
-            .join("sessions")
-            .join(sess_id)
-            .join("reports")
-            .join(format!("{}.json", parent_id));
-
-        if parent_path.exists() {
-            let parent_content = fs::read_to_string(&parent_path)?;
-            let parent_rep: SessionActionIndex =
-                serde_json::from_str(&parent_content).map_err(PgLogstatsError::Serialization)?;
-
-            let action = parent_rep
-                .next_actions
-                .iter()
-                .find(|a| a.action_id == *act_id)
-                .ok_or_else(|| PgLogstatsError::Configuration {
-                    message: format!(
-                        "Action ID '{}' not found in parent report next_actions",
-                        act_id
-                    ),
-                    field: Some("selected_action_id".to_string()),
-                })?;
-
-            if action.status != NextActionStatus::Allowed {
-                return Err(PgLogstatsError::Configuration {
-                    message: format!(
-                        "Action '{}' is not allowed in parent report. Status: {:?}, Reason: {}",
-                        act_id, action.status, action.reason
-                    ),
-                    field: Some("selected_action_id".to_string()),
-                });
-            }
-        } else {
-            return Err(PgLogstatsError::Configuration {
-                message: format!("Parent report '{}' not found in session", parent_id),
-                field: Some("parent_report_id".to_string()),
-            });
-        }
-    }
-    Ok(())
-}
-
 fn run_command(
     args: &Arguments,
     parser: &TextLogParser,
     config: &pg_logstats::AppConfig,
     inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
-    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
-    validate_session_action(args, &workspace)?;
-
     match &args.command {
-        Command::Top { .. } => run_top_query_families_command(args, parser, config, inspect_report),
+        Command::QueryFamilies { .. } => {
+            run_top_query_families_command(args, parser, config, inspect_report)
+        }
         Command::Inspect { input } => {
             let cloudwatch_input = input.uses_cloudwatch().then(|| input.cloudwatch_input());
             let mut report = inspect(
@@ -419,12 +347,15 @@ fn run_command(
                 cloudwatch_input.as_ref(),
                 parser,
                 source_kind_for_input(args, input),
-                args.session_id.clone(),
                 args.workspace.as_deref(),
             )?;
+            populate_next_actions_with_context(
+                &mut report,
+                config,
+                &action_replay_context(args, Some(input))?,
+            );
+            persist_inspect_report_override(args, &report)?;
 
-            let workspace = resolve_workspace_path(args.workspace.as_deref())?;
-            record_session_report(&workspace, &mut report, args)?;
             output_report(&report, args)?;
             Ok(())
         }
@@ -523,11 +454,9 @@ fn run_top_query_families_command(
     config: &pg_logstats::AppConfig,
     inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
-    let Command::Top {
-        command: TopCommand::QueryFamilies { limit, input },
-    } = &args.command
-    else {
-        unreachable!();
+    let (limit, input) = match &args.command {
+        Command::QueryFamilies { limit, input } => (limit, input),
+        _ => unreachable!(),
     };
 
     require_log_backed_mode(inspect_report)?;
@@ -540,12 +469,9 @@ fn run_top_query_families_command(
         top_query_families_report(findings, &all_entries, source_kind_for_input(args, input));
     if let Some(ir) = inspect_report {
         report.operating_mode = ir.operating_mode;
+        reconcile_live_database_limitations(&mut report);
     }
-    report.session_id = args.session_id.clone();
-    pg_logstats::populate_next_actions(&mut report, config);
-
-    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
-    record_session_report(&workspace, &mut report, args)?;
+    finalize_workspace_report(args, &mut report, config, Some(input))?;
 
     output_report(&report, args)
 }
@@ -556,20 +482,32 @@ fn run_slow_queries_diff_command(
     _config: &pg_logstats::AppConfig,
     inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
-    let Command::SlowQueries {
-        command:
-            SlowQueriesCommand::Diff {
-                baseline,
-                target,
-                sample_size,
-                limit,
-                min_target_count,
-                min_target_total_ms,
-                min_p95_delta_ms,
-            },
-    } = &args.command
-    else {
+    let Command::SlowQueries { command } = &args.command else {
         unreachable!();
+    };
+
+    let Some(SlowQueriesCommand::Diff {
+        baseline,
+        target,
+        sample_size,
+        limit,
+        min_target_count,
+        min_target_total_ms,
+        min_p95_delta_ms,
+    }) = command
+    else {
+        require_log_backed_mode(inspect_report)?;
+
+        return Err(PgLogstatsError::Configuration {
+            message: concat!(
+                "`pg-logstats slow-queries` is not the first slow-query triage step.\n",
+                "Run `pg-logstats inspect /path/to/postgresql.log` first.\n",
+                "Then run `pg-logstats query-families /path/to/postgresql.log` for single-window slow-query triage.\n",
+                "Use `pg-logstats slow-queries diff --baseline ... --target ...` only when you already have explicit baseline and target log windows."
+            )
+            .to_string(),
+            field: Some("slow_queries".to_string()),
+        });
     };
 
     require_log_backed_mode(inspect_report)?;
@@ -594,13 +532,12 @@ fn run_slow_queries_diff_command(
 
 fn validate_arguments(args: &Arguments) -> Result<()> {
     match &args.command {
-        Command::Top {
-            command: TopCommand::QueryFamilies { input, .. },
-        } => validate_log_input_args(input)?,
+        Command::QueryFamilies { input, .. } => validate_log_input_args(input)?,
         Command::Inspect { input, .. } => validate_log_input_args(input)?,
         Command::SlowQueries {
-            command: SlowQueriesCommand::Diff { sample_size, .. },
+            command: Some(SlowQueriesCommand::Diff { sample_size, .. }),
         } => validate_sample_size(*sample_size)?,
+        Command::SlowQueries { command: None } => {}
         Command::RunSql { parameters } => {
             parse_action_parameters(parameters)?;
         }
@@ -719,93 +656,164 @@ fn run_slow_queries_diff(
     Ok((findings, total_entries))
 }
 
-fn record_session_report<T: serde::Serialize>(
-    workspace_path: &Path,
-    report: &mut PgTriageReport<T>,
+fn finalize_workspace_report<T: serde::Serialize + pg_logstats::GuidancePayload>(
     args: &Arguments,
+    report: &mut PgTriageReport<T>,
+    config: &pg_logstats::AppConfig,
+    input: Option<&LogInputArgs>,
+) -> Result<PathBuf> {
+    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
+    let store = ReportStore::new(&workspace);
+    store.prepare(report)?;
+    populate_next_actions_with_context(report, config, &action_replay_context(args, input)?);
+    store.persist(report)
+}
+
+fn persist_inspect_report_override(
+    args: &Arguments,
+    report: &PgTriageReport<InspectReportPayload>,
 ) -> Result<()> {
-    let sess_id = report
-        .session_id
-        .clone()
-        .or_else(|| args.session_id.clone());
+    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
+    let path = workspace_inspect_report_path(&workspace);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
 
-    let Some(sess_id_str) = sess_id else {
-        return Ok(());
-    };
+    let output = serde_json::to_string_pretty(report).map_err(PgLogstatsError::Serialization)?;
+    fs::write(path, output)?;
+    Ok(())
+}
 
-    report.session_id = Some(sess_id_str.clone());
+fn action_replay_context(
+    args: &Arguments,
+    input: Option<&LogInputArgs>,
+) -> Result<ActionReplayContext> {
+    Ok(ActionReplayContext {
+        workspace: resolve_workspace_path(args.workspace.as_deref())
+            .ok()
+            .map(|path| path.display().to_string()),
+        log_input_args: input
+            .map(log_input_replay_args)
+            .transpose()?
+            .unwrap_or_default(),
+    })
+}
 
-    let session_dir = workspace_path.join("sessions").join(&sess_id_str);
-    let reports_dir = session_dir.join("reports");
-    fs::create_dir_all(&reports_dir)?;
+fn log_input_replay_args(input: &LogInputArgs) -> Result<Vec<String>> {
+    let mut args = Vec::new();
 
-    if let (Some(parent_id), Some(act_id)) = (&args.parent_report_id, &args.selected_action_id) {
-        let parent_path = reports_dir.join(format!("{}.json", parent_id));
-        if parent_path.exists() {
-            let parent_content = fs::read_to_string(&parent_path)?;
-            let parent_rep: SessionActionIndex =
-                serde_json::from_str(&parent_content).map_err(PgLogstatsError::Serialization)?;
+    if let Some(log_dir) = &input.log_dir {
+        args.push("--log-dir".to_string());
+        args.push(log_dir.display().to_string());
+    }
 
-            let action = parent_rep
-                .next_actions
-                .iter()
-                .find(|a| a.action_id == *act_id)
-                .ok_or_else(|| PgLogstatsError::Configuration {
-                    message: format!(
-                        "Action ID '{}' not found in parent report next_actions",
-                        act_id
-                    ),
-                    field: Some("selected_action_id".to_string()),
-                })?;
+    if let Some(log_group) = &input.cloudwatch_log_group {
+        args.push("--cloudwatch-log-group".to_string());
+        args.push(log_group.clone());
+    }
 
-            if action.status != NextActionStatus::Allowed {
-                return Err(PgLogstatsError::Configuration {
-                    message: format!(
-                        "Action '{}' is not allowed in parent report. Status: {:?}, Reason: {}",
-                        act_id, action.status, action.reason
-                    ),
-                    field: Some("selected_action_id".to_string()),
-                });
+    if let Some(rds_instance) = &input.rds_instance {
+        args.push("--rds-instance".to_string());
+        args.push(rds_instance.clone());
+    }
+
+    if input.uses_cloudwatch() {
+        args.push("--since".to_string());
+        args.push(cloudwatch_since_cli_value(&input.since));
+    }
+
+    if let Some(until) = &input.until {
+        args.push("--until".to_string());
+        args.push(cloudwatch_until_cli_value(until));
+    }
+
+    if let Some(filter_pattern) = &input.cloudwatch_filter_pattern {
+        args.push("--cloudwatch-filter-pattern".to_string());
+        args.push(filter_pattern.clone());
+    }
+
+    if input.cloudwatch_max_pages != 20 {
+        args.push("--cloudwatch-max-pages".to_string());
+        args.push(input.cloudwatch_max_pages.to_string());
+    }
+
+    if let Some(region) = &input.aws_region {
+        args.push("--aws-region".to_string());
+        args.push(region.clone());
+    }
+
+    if let Some(profile) = &input.aws_profile {
+        args.push("--aws-profile".to_string());
+        args.push(profile.clone());
+    }
+
+    if let Some(sample_size) = input.sample_size {
+        args.push("--sample-size".to_string());
+        args.push(sample_size.to_string());
+    }
+
+    if let Some(logfile_list) = &input.logfile_list {
+        args.push("--logfile-list".to_string());
+        args.push(logfile_list.clone());
+    }
+
+    args.extend(input.log_files.iter().cloned());
+    Ok(args)
+}
+
+fn cloudwatch_since_cli_value(value: &CloudWatchSince) -> String {
+    match value {
+        CloudWatchSince::RelativeMillis(duration_ms) => {
+            if duration_ms % 86_400_000 == 0 {
+                format!("{}d", duration_ms / 86_400_000)
+            } else if duration_ms % 3_600_000 == 0 {
+                format!("{}h", duration_ms / 3_600_000)
+            } else {
+                format!("{}m", duration_ms / 60_000)
             }
-        } else {
-            return Err(PgLogstatsError::Configuration {
-                message: format!("Parent report '{}' not found in session", parent_id),
-                field: Some("parent_report_id".to_string()),
-            });
+        }
+        CloudWatchSince::AbsoluteMillis(timestamp_ms) => {
+            chrono::DateTime::from_timestamp_millis(*timestamp_ms)
+                .expect("valid timestamp millis")
+                .to_rfc3339()
         }
     }
+}
 
-    if let Some(parent_id) = &args.parent_report_id {
-        report.parent_report_id = Some(parent_id.clone());
+fn cloudwatch_until_cli_value(value: &CloudWatchUntil) -> String {
+    chrono::DateTime::from_timestamp_millis(value.timestamp_millis())
+        .expect("valid timestamp millis")
+        .to_rfc3339()
+}
+
+fn reconcile_live_database_limitations<T>(report: &mut PgTriageReport<T>) {
+    const LIVE_DB_UNAVAILABLE: &str = "live_database_checks_unavailable";
+
+    match report.operating_mode {
+        OperatingMode::LogBackedAndLive => report
+            .limitations
+            .retain(|limitation| limitation != LIVE_DB_UNAVAILABLE),
+        OperatingMode::LogBackedOnly
+            if !report
+                .limitations
+                .iter()
+                .any(|limitation| limitation == LIVE_DB_UNAVAILABLE) =>
+        {
+            report
+                .limitations
+                .insert(0, LIVE_DB_UNAVAILABLE.to_string());
+        }
+        _ => {}
     }
-    if let Some(act_id) = &args.selected_action_id {
-        report.selected_action_id = Some(act_id.clone());
-    }
-
-    if report.created_at.is_none() {
-        report.created_at = Some(chrono::Utc::now().to_rfc3339());
-    }
-
-    let sequence = fs::read_dir(&reports_dir)?
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().extension().is_some_and(|ext| ext == "json"))
-        .count()
-        + 1;
-
-    let report_id_str = format!("{:04}-{}", sequence, workflow_slug(report.workflow));
-    report.report_id = Some(report_id_str.clone());
-
-    let report_file = reports_dir.join(format!("{}.json", report_id_str));
-    let content = serde_json::to_string_pretty(report).map_err(PgLogstatsError::Serialization)?;
-    fs::write(report_file, content)?;
-
-    Ok(())
 }
 
 fn load_startup_inspect_report(
     args: &Arguments,
 ) -> Result<Option<PgTriageReport<InspectReportPayload>>> {
-    if matches!(args.command, Command::Inspect { .. }) {
+    if matches!(
+        args.command,
+        Command::Inspect { .. } | Command::Agent { .. }
+    ) {
         return Ok(None);
     }
 
@@ -868,6 +876,24 @@ fn require_log_backed_mode(
     Ok(())
 }
 
+fn require_ready_mode(inspect_report: Option<&PgTriageReport<InspectReportPayload>>) -> Result<()> {
+    let Some(report) = inspect_report else {
+        return Err(PgLogstatsError::Configuration {
+            message: "Inspect output is required before running this command.".to_string(),
+            field: Some("inspect_report".to_string()),
+        });
+    };
+
+    if report.operating_mode == OperatingMode::Unready {
+        return Err(PgLogstatsError::Configuration {
+            message: "This command cannot run when inspect reported unready.".to_string(),
+            field: Some("operating_mode".to_string()),
+        });
+    }
+
+    Ok(())
+}
+
 fn run_sql_command(
     args: &Arguments,
     _parser: &TextLogParser,
@@ -878,14 +904,30 @@ fn run_sql_command(
         unreachable!();
     };
 
+    require_ready_mode(inspect_report)?;
+
     let workspace = resolve_workspace_path(args.workspace.as_deref())?;
     let parsed_parameters: Vec<ActionParameterInput> = parse_action_parameters(parameters)?;
+    let triage_report =
+        args.triage_report
+            .as_deref()
+            .ok_or_else(|| PgLogstatsError::Configuration {
+                message: "run-sql requires --triage-report".to_string(),
+                field: Some("triage_report".to_string()),
+            })?;
+    let action_id = args
+        .action_id
+        .as_deref()
+        .ok_or_else(|| PgLogstatsError::Configuration {
+            message: "run-sql requires --action-id".to_string(),
+            field: Some("action_id".to_string()),
+        })?;
+    let parent_report = ReportStore::new(&workspace).load_report_base(triage_report)?;
     let mut sql_report = execute_run_sql(
         &RunSqlRequest {
             workspace_path: &workspace,
-            session_id: args.session_id.as_deref(),
-            parent_report_id: args.parent_report_id.as_deref(),
-            selected_action_id: args.selected_action_id.as_deref(),
+            triage_report,
+            action_id,
             dsn: args.dsn.as_deref(),
             operating_mode: inspect_report
                 .map(|report| report.operating_mode)
@@ -895,9 +937,9 @@ fn run_sql_command(
         config,
     )?;
 
-    pg_logstats::populate_next_actions(&mut sql_report, config);
-
-    record_session_report(&workspace, &mut sql_report, args)?;
+    sql_report.parent_report_id = parent_report.report_id;
+    sql_report.selected_action_id = Some(action_id.to_string());
+    finalize_workspace_report(args, &mut sql_report, config, None)?;
 
     output_report(&sql_report, args)
 }
@@ -908,15 +950,10 @@ fn run_running_queries_command(
     config: &pg_logstats::AppConfig,
     inspect_report: Option<&PgTriageReport<InspectReportPayload>>,
 ) -> Result<()> {
-    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
-    let mut report = run_running_queries(
-        args.dsn.as_deref(),
-        config,
-        inspect_report,
-        args.session_id.clone(),
-    )?;
+    require_ready_mode(inspect_report)?;
 
-    record_session_report(&workspace, &mut report, args)?;
+    let mut report = run_running_queries(args.dsn.as_deref(), config, inspect_report)?;
+    finalize_workspace_report(args, &mut report, config, None)?;
     output_report(&report, args)
 }
 
@@ -994,12 +1031,9 @@ fn run_errors_command(
 
     if let Some(ir) = inspect_report {
         report.operating_mode = ir.operating_mode;
+        reconcile_live_database_limitations(&mut report);
     }
-    report.session_id = args.session_id.clone();
-    pg_logstats::populate_next_actions(&mut report, config);
-
-    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
-    record_session_report(&workspace, &mut report, args)?;
+    finalize_workspace_report(args, &mut report, config, Some(input))?;
 
     output_report(&report, args)
 }
@@ -1053,12 +1087,9 @@ fn run_temp_files_command(
 
     if let Some(ir) = inspect_report {
         report.operating_mode = ir.operating_mode;
+        reconcile_live_database_limitations(&mut report);
     }
-    report.session_id = args.session_id.clone();
-    pg_logstats::populate_next_actions(&mut report, config);
-
-    let workspace = resolve_workspace_path(args.workspace.as_deref())?;
-    record_session_report(&workspace, &mut report, args)?;
+    finalize_workspace_report(args, &mut report, config, Some(input))?;
 
     output_report(&report, args)
 }

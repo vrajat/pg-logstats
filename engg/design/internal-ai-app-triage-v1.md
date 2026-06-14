@@ -311,16 +311,14 @@ Examples:
 V1 should treat reports as the primary artifacts and breadcrumbs as a derived
 debugging aid.
 
-When session storage is enabled, reports should be written under the workspace:
+When report persistence is enabled, reports should be written under the workspace:
 
-- `<workspace>/sessions/<session_id>/reports/<sequence>-<workflow>.json`
-- `<workspace>/sessions/<session_id>/results/`
+- `<workspace>/reports/<timestamp>-<workflow>.json`
 
 Each stored report should include enough metadata to reconstruct the
 investigation graph:
 
 - `report_id`
-- `session_id`
 - `parent_report_id`
 - `selected_action_id`
 - `created_at`
