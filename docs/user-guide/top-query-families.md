@@ -43,9 +43,9 @@ sequenceDiagram
     end
     
     rect rgb(20, 30, 20)
-        Note over Agent, DBA: Structured Remedial Handoff
+        Note over Agent, DBA: DBA Handoff
         Agent->>Agent: Derive session & plan insights
-        Agent->>DBA: Recommend granular fixes (create index, select columns, local work_mem)
+        Agent->>DBA: Recommend fixes (create index, select columns, local work_mem)
     end
 ```
 
@@ -60,7 +60,7 @@ If live access is configured (`log_backed_and_live` mode), the agent correlates 
 * `query_family.pg_stat_activity.by_dimensions`: Queries `pg_stat_activity` for active backends that match the target database, user, application name, or query pattern.
 * **Concurrency Check**: Identifies whether the slow query is an isolated incident or part of a concurrent bottleneck causing queueing.
 
-### Phase 3: Optional Execution Plan Deep-Dive (EXPLAIN / EXPLAIN ANALYZE)
+### Phase 3: Optional Execution Plan Check (EXPLAIN / EXPLAIN ANALYZE)
 The agent runs query plan verification to locate inefficient scan nodes or spills:
 * **EXPLAIN** (`query_family.explain`): Safely retrieves the execution plan without running the query to check for sequential scans or bad joins.
 * **EXPLAIN ANALYZE** (`query_family.explain_analyze`): Executes the query with buffer statistics to verify actual read/write counts and plan node durations.
@@ -86,7 +86,7 @@ Based on live SQL actions, the agent automatically interprets raw session rows a
 
 ## Agent-Suggested DBA Remedial Actions
 
-Once the agent completes the available diagnostic path, it stops exploration and hands off structured remedial actions to the DBA:
+Once the agent completes the available diagnostic path, it stops exploration and hands off remedial actions to the DBA:
 
 ### 1. Create B-Tree Index
 * **Action ID**: `remedial.create_sort_index`
@@ -108,7 +108,7 @@ Once the agent completes the available diagnostic path, it stops exploration and
 ## Safety & Audit Policies
 
 > [!IMPORTANT]
-> The agent is restricted by a strict safety policy enforced at the gateway layer. The agent **cannot** run arbitrary SQL or modify schema/data.
+> The agent is restricted by the gateway policy. The agent **cannot** run arbitrary SQL or modify schema/data.
 
 ### Risk & Verdict Restrictions
 * **No Arbitrary SQL**: The agent can only request queries by selecting a structured `action_id`.

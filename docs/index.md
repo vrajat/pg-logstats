@@ -1,13 +1,13 @@
 ---
-title: pg-logstats Docs for PostgreSQL Triage
-description: Install pg-logstats, inspect PostgreSQL log readiness, and follow agent-safe runbooks for slow queries, temp files, and RDS log analysis.
+title: pg-logstats PostgreSQL Triage Gateway
+description: Install pg-logstats, inspect PostgreSQL readiness, and run agent-first triage workflows for slow queries, errors, temp files, and RDS logs.
 schema:
   "@context": "https://schema.org"
   "@type": "SoftwareApplication"
   name: "pg-logstats"
   applicationCategory: "DeveloperApplication"
   operatingSystem: "macOS, Linux"
-  description: "Agent-safe PostgreSQL log analysis and triage runbooks for DBAs, operators, and coding agents."
+  description: "Agent-first PostgreSQL triage gateway using logs and read-only system views."
   url: "https://pg-logstats.vrajat.com/"
   downloadUrl: "https://crates.io/crates/pg-logstats"
   codeRepository: "https://github.com/vrajat/pg-logstats"
@@ -16,16 +16,17 @@ schema:
 
 # pg-logstats
 
-**pg-logstats turns PostgreSQL logs into bounded triage reports that humans and coding agents can act on.** It ranks slow query families, groups error classes, attributes temporary file spills, and exposes only DBA-approved follow-up actions when live database access is configured.
+**pg-logstats is an agent-first PostgreSQL triage gateway.** Instead of granting coding agents arbitrary database access, it gives them packaged, DBA-approved runbooks that combine PostgreSQL logs with read-only system views.
 
-Instead of granting coding agents arbitrary database access, `pg-logstats` gives them a PostgreSQL-specific runbook interface. The CLI parses log evidence locally, emits structured JSON reports, gates live diagnostic SQL through named actions, and preserves an auditable incident history under a workspace directory.
+The CLI parses log evidence, checks live readiness when a DSN is configured, gates diagnostic SQL through named actions, and writes an audit trail under a workspace directory. The goal is to let an agent investigate PostgreSQL incidents without becoming a SQL shell.
 
-## What It Does Today
+## What It Does
 
 - Find slow query families from PostgreSQL statement and duration logs.
 - Group PostgreSQL errors by SQLSTATE, normalized message, database, user, and application.
 - Attribute temporary file spills to nearby statements when `log_temp_files` evidence is available.
-- Inspect readiness before an agent starts deeper triage.
+- Inspect readiness from logs and PostgreSQL system views before an agent starts triage.
+- Run bounded follow-up checks against views such as `pg_stat_activity`, `pg_stat_database`, and `pg_stat_statements` when live access is configured.
 - Read Amazon RDS logs from CloudWatch with the optional AWS SDK feature.
 
 ## Start Here
@@ -53,12 +54,12 @@ cargo install pg-logstats --features aws-sdk
 
 ## Why DBAs Adopt pg-logstats
 
-For database administrators, allowing autonomous coding agents to investigate issues requires strict boundaries. `pg-logstats` acts as a secure gateway that protects your database:
+For database administrators, allowing coding agents to investigate issues requires strict boundaries. `pg-logstats` protects your database by constraining what the agent can do:
 
 - **Zero Arbitrary SQL**: Agents are restricted to a pre-approved menu of read-only diagnostic SQL queries. They cannot execute arbitrary query strings or modify data/schemas.
 - **Proactive Load Protection**: High-overhead actions (such as `EXPLAIN ANALYZE`) are dynamically blocked if the database health verdict degrades under locks or query saturation.
-- **Structured Incident Handoffs**: The agent resolves first-pass triage and presents you with structured recommendations (like index creation or local memory adjustments) rather than raw log dumps.
-- **Full Audit Trail**: The gateway logs all agent attempts, parameters, and query results to immutable JSON reports, providing a complete audit record.
+- **Operator-Facing Handoffs**: The agent resolves first-pass triage and presents recommendations (like index creation or local memory adjustments) rather than raw log dumps.
+- **Audit Trail**: The gateway logs agent attempts, parameters, and query results to JSON reports.
 
 ## Runbook References
 

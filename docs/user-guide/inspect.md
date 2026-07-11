@@ -11,7 +11,7 @@ schema:
 
 # Inspect
 
-`pg-logstats inspect` is the first command to run before deeper investigation.
+`pg-logstats inspect` is the first command to run before investigation.
 It tells the caller which operating mode is actually supported by the available
 PostgreSQL evidence.
 

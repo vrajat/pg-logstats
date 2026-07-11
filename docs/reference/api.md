@@ -18,7 +18,7 @@ reports. The Rust crate also exposes parser, normalization, analytics, finding,
 report, and formatter types for embedding PostgreSQL log analysis in other
 tools.
 
-This page is a compact orientation to the public Rust surface. Treat the source
+This page is an orientation to the public Rust surface. Treat the source
 and generated Rust documentation as authoritative for exact signatures.
 
 ## Modules

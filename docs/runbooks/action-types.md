@@ -183,7 +183,7 @@ pg-logstats \
 ### Behavior & Security
 1. **Safety Re-evaluation**: `pg-logstats` reads the parent report, finds the requested action, and re-validates the policy matrix against the current state and parameters. If the action is blocked, unknown, or not a SQL action, execution is rejected with a structured error.
 2. **Execution**: The subcommand (e.g. `run-sql`) is executed with safety checks in place.
-3. **Report Output & Persistence**: The command outputs a new triage report containing the results. Follow-up actions persist immutable reports under `<workspace>/reports/<timestamp>-<runbook>.json` so the investigation history remains auditable without overwriting prior steps.
+3. **Report Output & Persistence**: The command outputs a new triage report containing the results. Follow-up actions persist reports under `<workspace>/reports/<timestamp>-<runbook>.json` so the investigation history remains auditable without overwriting prior steps.
 
 ---
 

@@ -11,9 +11,9 @@ schema:
 
 # The Runbook Model
 
-`pg-logstats` is not a SQL shell or a command runner for AI agents. It is a PostgreSQL-specific triage gateway that turns logs and approved live checks into structured runbook reports.
+`pg-logstats` is not a SQL shell or a command runner for AI agents. It is a PostgreSQL-specific triage gateway that turns logs and approved live checks into runbook reports.
 
-As a Database Administrator (DBA), granting autonomous agents direct or arbitrary access to your PostgreSQL instance carries high operational and security risks. `pg-logstats` solves this by making log evidence the default path and restricting live database access to structured, pre-defined operational actions.
+As a Database Administrator (DBA), granting agents direct or arbitrary access to your PostgreSQL instance carries operational and security risks. `pg-logstats` solves this by making log evidence the default path and restricting live database access to named, pre-defined actions.
 
 ---
 
@@ -22,7 +22,7 @@ As a Database Administrator (DBA), granting autonomous agents direct or arbitrar
 The core design is a clean separation between **runbook structure** and **agent judgement**:
 
 * **The Gateway Enforces the Runbook**: `pg-logstats` defines the diagnostic evidence model, the log-parsing logic, the allowed database queries, and the safety policies.
-* **The Agent Supplies the Judgement**: The agent acts as a navigator. It reads the gateway's structured findings and decides which branch of the runbook to pursue next based on the incident context.
+* **The Agent Supplies the Judgement**: The agent acts as a navigator. It reads the gateway's findings and decides which branch of the runbook to pursue next based on the incident context.
 
 This design prevents agents from inventing raw database queries, running arbitrary commands, or degrading database performance during an active incident.
 
@@ -30,7 +30,7 @@ This design prevents agents from inventing raw database queries, running arbitra
 
 ## The Runbook Execution Loop
 
-When an incident occurs, the agent follows a structured runbook in three phases:
+When an incident occurs, the agent follows a runbook in three phases:
 
 ```mermaid
 graph TD
@@ -52,7 +52,7 @@ To help the agent investigate further, the gateway attaches a list of pre-approv
 * The agent executes the action by invoking the gateway's `run-sql` interface. The gateway validates the action, binds any required parameters (like a query ID or application name), and executes its own built-in query. The agent has no way to supply raw SQL text.
 
 ### Phase 3: DBA Handoff & Remediation
-When the diagnostic path is exhausted or requires human intervention (such as modifying schema or adjusting global parameters), the agent stops. It hands off the investigation to the DBA, providing structured, granular recommendations (like creating specific indexes or adjusting session memory).
+When the diagnostic path is exhausted or requires human intervention (such as modifying schema or adjusting global parameters), the agent stops. It hands off the investigation to the DBA, with recommendations like creating specific indexes or adjusting session memory.
 
 ---
 
@@ -62,7 +62,7 @@ To protect your production database from runaway agent queries, the gateway enfo
 
 1. **Strict Parameter Binding**: Pre-approved diagnostic actions only accept specific identifiers (e.g., `queryid` or `application_name`). Raw SQL execution is impossible.
 2. **Active Load Shedding (The Safety Verdict)**: Running diagnostic queries—especially `EXPLAIN ANALYZE`, which actually executes the query—can add harmful overhead to a stressed database. The gateway evaluates database health (e.g., active session counts and wait events) to determine a health **verdict** (`clear`, `busy`, or `saturated`). Bounded-risk actions are automatically blocked if the database is under load.
-3. **Immutable Audit Trail**: The gateway persists every triage step and follow-up query as an immutable JSON report under the workspace directory. This provides the DBA with a complete, tamper-proof audit trail of the agent's actions during the incident.
+3. **Audit Trail**: The gateway persists triage steps and follow-up query results as JSON reports under the workspace directory.
 
 ---
 

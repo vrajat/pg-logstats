@@ -14,7 +14,7 @@ schema:
 `pg-logstats errors` triages, groups, and attributes PostgreSQL error log events inside a bounded historical log window.
 
 Use this workflow when PostgreSQL logs show repeated `ERROR`, `FATAL`, or
-`PANIC` entries and you need a compact report that identifies the recurring
+`PANIC` entries and you need a report that identifies the recurring
 failure class instead of sending raw logs to a human or LLM.
 
 ## Supported Mode

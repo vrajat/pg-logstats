@@ -1,29 +1,30 @@
 # pg-logstats
 
-**pg-logstats turns PostgreSQL logs into bounded triage reports that humans and coding agents can act on.** It ranks slow query families, groups error classes, attributes temporary file spills, and exposes only DBA-approved follow-up actions when live database access is configured.
+**pg-logstats is an agent-first PostgreSQL triage gateway.** Instead of granting coding agents arbitrary database access, it gives them packaged, DBA-approved runbooks that combine PostgreSQL logs with read-only system views.
 
-Instead of granting coding agents arbitrary database access, `pg-logstats` gives them a PostgreSQL-specific runbook interface. The CLI parses log evidence locally, emits structured JSON reports, gates live diagnostic SQL through named actions, and preserves an auditable incident history under a workspace directory.
+The CLI parses log evidence, checks live readiness when a DSN is configured, gates diagnostic SQL through named actions, and writes an audit trail under a workspace directory. The goal is to let an agent investigate PostgreSQL incidents without becoming a SQL shell.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
 
-## What You Can Do Today
+## What It Does
 
 - **Find slow query families** from PostgreSQL statement and duration logs.
 - **Group PostgreSQL errors** by SQLSTATE, normalized message, database, user, and application.
 - **Attribute temporary file spills** to nearby statements when `log_temp_files` evidence is available.
-- **Inspect readiness** before an agent starts deeper triage, including whether the workspace is `log_backed_only`, `log_backed_and_live`, `live_only`, or `unready`.
+- **Inspect readiness** from logs and PostgreSQL system views before an agent starts triage.
+- **Run bounded follow-up checks** against views such as `pg_stat_activity`, `pg_stat_database`, and `pg_stat_statements` when live access is configured.
 - **Read Amazon RDS logs from CloudWatch** with the optional AWS SDK feature.
 
 ## Why DBAs Adopt pg-logstats
 
-For database administrators, allowing autonomous coding agents to investigate database incidents requires strict safety boundaries. `pg-logstats` acts as a secure gateway that protects your database:
+For database administrators, allowing coding agents to investigate database incidents requires strict boundaries. `pg-logstats` protects your database by constraining what the agent can do:
 
 - **Zero Arbitrary SQL**: Agents are restricted to a pre-approved menu of read-only diagnostic SQL queries. They cannot execute arbitrary query strings or modify data/schemas.
 - **Proactive Load Protection**: High-overhead actions (such as `EXPLAIN ANALYZE`) are dynamically blocked if the database health verdict degrades under locks or query saturation.
-- **Structured Incident Handoffs**: The agent resolves first-pass triage and presents you with structured recommendations (like index creation or local memory adjustments) rather than raw log dumps.
-- **Full Audit Trail**: The gateway logs all agent attempts, parameters, and query results to immutable JSON reports, providing a complete audit record.
+- **Operator-Facing Handoffs**: The agent resolves first-pass triage and presents recommendations (like index creation or local memory adjustments) rather than raw log dumps.
+- **Audit Trail**: The gateway logs agent attempts, parameters, and query results to JSON reports.
 
 ---
 
@@ -32,7 +33,7 @@ For database administrators, allowing autonomous coding agents to investigate da
 The gateway enables a structured, three-phase runbook loop for the agent:
 1. **Local Log Triage**: The agent parses PostgreSQL logs offline to rank findings and query families.
 2. **Bounded Diagnostic Expansion**: The agent chooses pre-approved, parameter-bound database actions (`run_sql` action class) to check active sessions or execution plans.
-3. **Escalation & Remediation**: When the runbook is complete, the agent presents structured remedial recommendations (like B-Tree indexes or local `work_mem` overrides) directly to the DBA.
+3. **Escalation & Remediation**: When the runbook is complete, the agent presents recommendations (like B-Tree indexes or local `work_mem` overrides) directly to the DBA.
 
 ---
 

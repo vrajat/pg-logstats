@@ -1,7 +1,7 @@
 [project]
 site_name = "pg-logstats"
 site_url = "https://pg-logstats.vrajat.com"
-site_description = "Agent-safe PostgreSQL log analysis and triage runbooks for DBAs, operators, and coding agents."
+site_description = "Agent-first PostgreSQL triage gateway using logs and read-only system views."
 docs_dir = "docs"
 site_dir = "site"
 repo_url = "https://github.com/vrajat/pg-logstats"

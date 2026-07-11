@@ -1,6 +1,6 @@
 ---
 title: pg-logstats Setup for PostgreSQL Triage
-description: Install pg-logstats, add agent guidance, and verify PostgreSQL log-backed or RDS-backed triage readiness before deeper investigation.
+description: Install pg-logstats, add agent guidance, and verify PostgreSQL log-backed or RDS-backed triage readiness before investigation.
 schema:
   "@context": "https://schema.org"
   "@type": "TechArticle"
@@ -57,7 +57,7 @@ pg-logstats agent install --harness codex --dry-run
 
 ## Verify Readiness
 
-Before the agent starts deeper triage, run `inspect` against the actual evidence
+Before the agent starts triage, run `inspect` against the actual evidence
 source you expect the agent to use. The result is persisted to the workspace and
 required by later workflows.
 

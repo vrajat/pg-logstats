@@ -35,7 +35,7 @@ sequenceDiagram
     end
     
     rect rgb(30, 20, 20)
-        Note over Agent, DB: Optional Live Verification & Deep-Dive
+        Note over Agent, DB: Optional Live Verification
         Agent->>DB: Query database counters & temp block activity
         DB-->>Agent: Confirms database-wide disk write pressure
         Agent->>DB: Run EXPLAIN / EXPLAIN ANALYZE on query family
@@ -43,9 +43,9 @@ sequenceDiagram
     end
     
     rect rgb(20, 30, 20)
-        Note over Agent, DBA: Structured Remedial Handoff
+        Note over Agent, DBA: DBA Handoff
         Agent->>Agent: Derive plan insights (disk spill / temp buffers)
-        Agent->>DBA: Suggest granular fixes (index sort, reduce width, local work_mem)
+        Agent->>DBA: Suggest fixes (index sort, reduce width, local work_mem)
     end
 ```
 
@@ -59,7 +59,7 @@ If the database connection is available (`log_backed_and_live` mode), the agent 
 * `temp_file.pg_stat_database.temp_counters`: Verifies database-level cumulative temp file statistics in `pg_stat_database`.
 * `temp_file.pg_stat_statements.temp_blocks`: Queries `pg_stat_statements` to identify the heaviest queries writing temporary blocks.
 
-### Phase 3: Optional Plan Verification (EXPLAIN / EXPLAIN ANALYZE)
+### Phase 3: Optional Plan Check (EXPLAIN / EXPLAIN ANALYZE)
 The agent runs query plan verification next:
 * **EXPLAIN** (`temp_file.explain`): Safely retrieves the execution plan without running the query to verify if the planner anticipates a sort or hash spill.
 * **EXPLAIN ANALYZE** (`temp_file.explain_analyze`): Runs the query with buffer statistics to verify actual temp buffers written under execution.
@@ -81,7 +81,7 @@ When the agent receives the query plan from a `run_sql` action, it parses the ex
 
 ## Agent-Suggested DBA Remedial Actions
 
-Once the agent completes the diagnostic loop and confirms a temp file issue, it terminates its live exploration branch and hands off three distinct, granular remedial actions to the DBA:
+Once the agent completes the diagnostic loop and confirms a temp file issue, it terminates its live exploration branch and hands off three remedial actions to the DBA:
 
 ### 1. Create B-Tree Index
 * **Action ID**: `remedial.create_sort_index`
@@ -103,7 +103,7 @@ Once the agent completes the diagnostic loop and confirms a temp file issue, it 
 ## Safety & Audit Policies
 
 > [!IMPORTANT]
-> The agent is restricted by a strict safety policy enforced at the gateway layer. The agent **cannot** run arbitrary SQL or modify schema/data.
+> The agent is restricted by the gateway policy. The agent **cannot** run arbitrary SQL or modify schema/data.
 
 ### Risk & Verdict Restrictions
 * **No Arbitrary SQL**: The agent can only request queries by selecting a structured `action_id`.
