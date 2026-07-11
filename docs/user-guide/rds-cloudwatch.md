@@ -1,3 +1,14 @@
+---
+title: Amazon RDS CloudWatch Logs with pg-logstats
+description: Fetch PostgreSQL logs from Amazon RDS and CloudWatch with pg-logstats using bounded time windows, AWS credentials, and agent-safe triage flows.
+schema:
+  "@context": "https://schema.org"
+  "@type": "TechArticle"
+  headline: "Amazon RDS CloudWatch Logs with pg-logstats"
+  description: "Use pg-logstats to inspect Amazon RDS PostgreSQL logs from CloudWatch with bounded windows and AWS IAM controls."
+  url: "https://pg-logstats.vrajat.com/user-guide/rds-cloudwatch/"
+---
+
 # Amazon RDS CloudWatch Input
 
 `pg-logstats` can read Amazon RDS for PostgreSQL logs from CloudWatch Logs and

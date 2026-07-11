@@ -1,4 +1,4 @@
-.PHONY: fmt fmt-check test clippy package-smoke install-smoke check release-dry-run release docs-build docs-serve docs
+.PHONY: fmt fmt-check test clippy package-smoke install-smoke check release-dry-run release docs-build docs-check docs-serve docs
 
 UV ?= uv
 ZENSICAL ?= zensical
@@ -41,6 +41,9 @@ release:
 
 docs-build:
 	$(UV) run --with zensical $(ZENSICAL) build
+
+docs-check: docs-build
+	python3 docs/tools/check_site.py
 
 docs-serve:
 	$(UV) run --with zensical $(ZENSICAL) serve

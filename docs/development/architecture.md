@@ -1,3 +1,14 @@
+---
+title: pg-logstats Architecture Overview
+description: Review the pg-logstats architecture, including parsers, analytics, output layers, and workflow boundaries for PostgreSQL log investigation.
+schema:
+  "@context": "https://schema.org"
+  "@type": "TechArticle"
+  headline: "pg-logstats Architecture Overview"
+  description: "Architecture reference for pg-logstats parsers, analytics, and output paths."
+  url: "https://pg-logstats.vrajat.com/development/architecture/"
+---
+
 # pg-logstats Architecture
 
 This document provides a comprehensive overview of the pg-logstats system architecture, module responsibilities, data flow, and extension points for future development.
@@ -186,7 +197,7 @@ pub struct LogEntry {
     pub timestamp: DateTime<Utc>,
     pub level: LogLevel,
     pub message: String,
-    pub query: Option<String>,
+    pub queries: Option<Vec<Query>>,
     pub duration: Option<f64>,
     pub connection_id: Option<String>,
     pub database: Option<String>,

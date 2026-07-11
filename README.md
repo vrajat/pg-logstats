@@ -1,12 +1,20 @@
 # pg-logstats
 
-**pg-logstats is an agent-first PostgreSQL triage gateway. Instead of granting coding agents arbitrary database access, it provides them with pre-packaged, DBA-approved PostgreSQL runbooks.**
+**pg-logstats turns PostgreSQL logs into bounded triage reports that humans and coding agents can act on.** It ranks slow query families, groups error classes, attributes temporary file spills, and exposes only DBA-approved follow-up actions when live database access is configured.
 
-By bundling database triage logic directly into the gateway CLI, `pg-logstats` translates raw log analysis and diagnostic SQL into a sequence of safe, bounded next actions. The agent only supplies the judgement at explicit branch points, while the gateway enforces security, protects database load, and generates an auditable history of the incident.
+Instead of granting coding agents arbitrary database access, `pg-logstats` gives them a PostgreSQL-specific runbook interface. The CLI parses log evidence locally, emits structured JSON reports, gates live diagnostic SQL through named actions, and preserves an auditable incident history under a workspace directory.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ---
+
+## What You Can Do Today
+
+- **Find slow query families** from PostgreSQL statement and duration logs.
+- **Group PostgreSQL errors** by SQLSTATE, normalized message, database, user, and application.
+- **Attribute temporary file spills** to nearby statements when `log_temp_files` evidence is available.
+- **Inspect readiness** before an agent starts deeper triage, including whether the workspace is `log_backed_only`, `log_backed_and_live`, `live_only`, or `unready`.
+- **Read Amazon RDS logs from CloudWatch** with the optional AWS SDK feature.
 
 ## Why DBAs Adopt pg-logstats
 
@@ -40,6 +48,7 @@ Install the agent guidance (supporting Codex, Claude Code, and Gemini):
 pg-logstats agent install --harness codex
 pg-logstats agent install --harness codex --status
 pg-logstats inspect /path/to/postgresql.log
+pg-logstats query-families /path/to/postgresql.log
 ```
 
 If the investigation requires Amazon RDS or CloudWatch support, compile with the optional AWS SDK feature:
@@ -55,9 +64,10 @@ The current text parser supports:
 * **Local stderr logs** with a prefix shaped like `%m [%p] %u@%d %a:`
 * **Amazon RDS text logs** with a prefix shaped like `%t:%r:%u@%d:[%p]:`
 
-For CloudWatch logs, the agent or operator can inspect a bounded RDS log window:
+For CloudWatch logs, the agent or operator can inspect and analyze a bounded RDS log window:
 ```bash
 pg-logstats inspect --rds-instance my-db --since 1h
+pg-logstats query-families --rds-instance my-db --since 1h
 ```
 
 ---
@@ -68,6 +78,7 @@ The documentation is organized specifically for DBAs setting up and auditing the
 
 ### 1. Primary Runbook References
 * [Slow Query Triage](docs/user-guide/top-query-families.md) - Triaging slow queries by ranking query families and inspecting execution plans.
+* [Error Triage](docs/user-guide/errors.md) - Grouping repeated PostgreSQL errors by SQLSTATE and normalized message.
 * [Temporary Files Triage](docs/user-guide/temp-files.md) - Triaging disk-write pressure from temporary file spills.
 
 ### 2. Setup & Safety Controls

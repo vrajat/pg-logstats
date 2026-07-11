@@ -1,14 +1,25 @@
+---
+title: PostgreSQL Temp File Triage with pg-logstats
+description: Diagnose PostgreSQL temporary file spills with pg-logstats by correlating log events, ranking query families, and reviewing bounded explain steps.
+schema:
+  "@context": "https://schema.org"
+  "@type": "TechArticle"
+  headline: "PostgreSQL Temp File Triage with pg-logstats"
+  description: "A PostgreSQL temporary file triage runbook using log correlation and bounded diagnostic actions."
+  url: "https://pg-logstats.vrajat.com/user-guide/temp-files/"
+---
+
 # Temporary Files Triage Runbook
 
-This page defines the temporary files triage runbook that `pg-logstats` enables for AI agents. 
+This page defines the temporary files triage runbook that `pg-logstats` enables for humans and AI agents.
 
-As a Database Administrator (DBA), you configure and monitor `pg-logstats` as a secure gateway. This document outlines how agents execute this specific runbook, the diagnostic evidence they gather, the safety policies enforced, and the structured recommendations they hand off to you.
+Use this workflow when PostgreSQL logs contain temporary file events or the database is under disk pressure from sorts, hashes, or wide intermediate results. The first pass is offline and log-backed: `pg-logstats` correlates temp file messages with nearby statements by process ID and ranks the query families responsible for disk writes. If live database access is configured and `inspect` reports `log_backed_and_live`, the report can include bounded follow-up actions for database counters, `pg_stat_statements`, or execution plans.
 
 ---
 
 ## The Agent Triage Runbook
 
-When database alerts or query latency logs indicate disk pressure from temporary files, the agent automates a three-phase runbook to safely isolate and diagnose the root cause:
+When database alerts or logs indicate disk pressure from temporary files, the runbook isolates the likely query family first, then optionally expands into live verification:
 
 ```mermaid
 sequenceDiagram
@@ -24,7 +35,7 @@ sequenceDiagram
     end
     
     rect rgb(30, 20, 20)
-        Note over Agent, DB: Phase 2 & 3: Live Verification & Deep-Dive
+        Note over Agent, DB: Optional Live Verification & Deep-Dive
         Agent->>DB: Query database counters & temp block activity
         DB-->>Agent: Confirms database-wide disk write pressure
         Agent->>DB: Run EXPLAIN / EXPLAIN ANALYZE on query family
@@ -32,7 +43,7 @@ sequenceDiagram
     end
     
     rect rgb(20, 30, 20)
-        Note over Agent, DBA: Phase 4: Structured Remedial Handoff
+        Note over Agent, DBA: Structured Remedial Handoff
         Agent->>Agent: Derive plan insights (disk spill / temp buffers)
         Agent->>DBA: Suggest granular fixes (index sort, reduce width, local work_mem)
     end
@@ -43,12 +54,12 @@ PostgreSQL logs temporary file creation on a separate line (e.g., `LOG: temporar
 * **PID Correlation**: The agent matches the database process ID (PID) of the temp file event and searches nearby log events to attribute the disk pressure to a specific query statement.
 * **Query Family Mapping**: The matched query is normalized into a stable `query_family_id` so the agent can rank and track database-wide temp file volume by pattern.
 
-### Phase 2: Live Statistics Verification
+### Phase 2: Optional Live Statistics Verification
 If the database connection is available (`log_backed_and_live` mode), the agent queries system views to verify if the disk spill is an ongoing or database-wide concern:
 * `temp_file.pg_stat_database.temp_counters`: Verifies database-level cumulative temp file statistics in `pg_stat_database`.
 * `temp_file.pg_stat_statements.temp_blocks`: Queries `pg_stat_statements` to identify the heaviest queries writing temporary blocks.
 
-### Phase 3: Deep-Dive Plan Verification (EXPLAIN / EXPLAIN ANALYZE)
+### Phase 3: Optional Plan Verification (EXPLAIN / EXPLAIN ANALYZE)
 The agent runs query plan verification next:
 * **EXPLAIN** (`temp_file.explain`): Safely retrieves the execution plan without running the query to verify if the planner anticipates a sort or hash spill.
 * **EXPLAIN ANALYZE** (`temp_file.explain_analyze`): Runs the query with buffer statistics to verify actual temp buffers written under execution.
@@ -98,4 +109,4 @@ Once the agent completes the diagnostic loop and confirms a temp file issue, it 
 * **No Arbitrary SQL**: The agent can only request queries by selecting a structured `action_id`.
 * **Risk Classifications**:
   * Standard `EXPLAIN` (`ExplainWithoutAnalyze` class) is classified as `Safe` and is allowed.
-  * `EXPLAIN (ANALYZE, BUFFERS)` (`ExplainAnalyze` class) actually runs the query, carrying a risk of side-effects or heavy database load. It is classified as `Bounded` risk and is blocked by default under restrictive health verdicts (`Verdict::Clear` blocks it by default to avoid unintended system load).
+  * `EXPLAIN (ANALYZE, BUFFERS)` (`ExplainAnalyze` class) actually runs the query, carrying a risk of side-effects or heavy database load. It is classified as `Bounded` risk and is blocked whenever the safety verdict or configuration does not permit that action class.

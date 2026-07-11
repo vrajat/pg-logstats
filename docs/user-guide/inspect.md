@@ -1,3 +1,14 @@
+---
+title: pg-logstats Inspect and Readiness Guide
+description: Learn how pg-logstats inspect determines PostgreSQL log-backed, live-only, or unready modes and what evidence or DSN configuration is missing.
+schema:
+  "@context": "https://schema.org"
+  "@type": "TechArticle"
+  headline: "pg-logstats Inspect and Readiness Guide"
+  description: "How pg-logstats inspect determines supported PostgreSQL triage modes and required evidence."
+  url: "https://pg-logstats.vrajat.com/user-guide/inspect/"
+---
+
 # Inspect
 
 `pg-logstats inspect` is the first command to run before deeper investigation.
@@ -8,7 +19,7 @@ PostgreSQL evidence.
 
 The command answers four questions:
 
-1. Can `pg-logstats` determine `log_backed` mode from available log evidence?
+1. Can `pg-logstats` determine `log_backed_only` or `log_backed_and_live` mode from available log evidence?
 2. If not, is `live_only` mode available from PostgreSQL system views?
 3. If neither is true, why is the environment `unready`?
 4. What command should the caller run next?
@@ -25,12 +36,12 @@ Live PostgreSQL checks use this precedence:
 
 ## Supported Evidence
 
-`log_backed` currently requires parsed statement and duration evidence from:
+Log-backed operation currently requires parsed statement and duration evidence from:
 
 - local PostgreSQL stderr-style logs
 - AWS RDS text logs supported by the current text parser
 
-Documented but not yet `log_backed`-ready:
+Documented but not yet log-backed-ready:
 
 - `csvlog`
 - `jsonlog`
@@ -61,12 +72,12 @@ Example:
 {
   "schema_version": 1,
   "workflow": "inspect",
-  "operating_mode": "log_backed",
+  "operating_mode": "log_backed_only",
   "limitations": ["live_database_checks_unavailable"],
   "payload": {
     "inspect": {
       "database_inspect": {
-        "mode_candidate": "log_backed",
+        "mode_candidate": "log_backed_only",
         "checks": {
           "log_source_reachable": {
             "status": "passed",
@@ -147,7 +158,7 @@ Important behavior:
 
 ## Modes
 
-### `log_backed`
+### `log_backed_only`
 
 Chosen when available parsed log evidence supports:
 
@@ -166,6 +177,13 @@ If later triage needs live database follow-up, the operator provides a DSN for
 the workspace and the agent reruns `pg-logstats inspect`. The agent should not
 assume live capability before `inspect` reports it.
 
+### `log_backed_and_live`
+
+Chosen when log evidence is available and the configured PostgreSQL connection
+also passes the required live probes. Log-backed workflows can rank historical
+findings and emit allowed `run_sql` follow-up actions when the current safety
+verdict permits them.
+
 ### `live_only`
 
 Chosen when log-backed evidence is unavailable but all required PostgreSQL live
@@ -179,7 +197,7 @@ pg-logstats running-queries
 
 ### `unready`
 
-Chosen when neither `log_backed` nor `live_only` can be supported honestly.
+Chosen when neither log-backed nor `live_only` operation can be supported honestly.
 
 Typical fixes:
 

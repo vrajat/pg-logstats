@@ -1,12 +1,13 @@
 [project]
 site_name = "pg-logstats"
-site_url = "https://github.com/vrajat/pg-logstats"
-site_description = "PostgreSQL log investigation CLI"
+site_url = "https://pg-logstats.vrajat.com"
+site_description = "Agent-safe PostgreSQL log analysis and triage runbooks for DBAs, operators, and coding agents."
 docs_dir = "docs"
 site_dir = "site"
 repo_url = "https://github.com/vrajat/pg-logstats"
 repo_name = "vrajat/pg-logstats"
 edit_uri = "edit/main/docs/"
+extra_templates = ["robots.txt", "llms.txt"]
 nav = [
   {"Overview" = [
     {"What is pg-logstats?" = "index.md"},
@@ -31,6 +32,7 @@ nav = [
 ]
 
 [project.theme]
+custom_dir = "overrides"
 features = [
   "navigation.instant",
   "navigation.sections",

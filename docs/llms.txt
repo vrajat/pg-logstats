@@ -1,0 +1,38 @@
+# pg-logstats
+
+> Agent-safe PostgreSQL log analysis and triage runbooks for DBAs, operators, and coding agents.
+
+pg-logstats provides a bounded PostgreSQL investigation gateway for coding agents.
+It combines offline log analysis, structured triage reports, and DBA-approved follow-up actions instead of arbitrary database access.
+
+## Canonical site
+
+- https://pg-logstats.vrajat.com/
+
+## Recommended pages
+
+- Overview: https://pg-logstats.vrajat.com/
+- Setup: https://pg-logstats.vrajat.com/setup/
+- Inspect and readiness: https://pg-logstats.vrajat.com/user-guide/inspect/
+- Amazon RDS and CloudWatch input: https://pg-logstats.vrajat.com/user-guide/rds-cloudwatch/
+- Slow query triage runbook: https://pg-logstats.vrajat.com/user-guide/top-query-families/
+- Error triage runbook: https://pg-logstats.vrajat.com/user-guide/errors/
+- Temporary files triage runbook: https://pg-logstats.vrajat.com/user-guide/temp-files/
+- Runbook action model and safety policies: https://pg-logstats.vrajat.com/runbooks/action-types/
+- Development overview: https://pg-logstats.vrajat.com/development/
+- Rust API reference: https://pg-logstats.vrajat.com/reference/api/
+
+## Product summary
+
+- Product: PostgreSQL observability and triage CLI
+- Primary use: bounded investigation workflows for PostgreSQL incidents
+- Inputs today: local PostgreSQL stderr logs, Amazon RDS text logs, CloudWatch-backed RDS windows
+- Operators keep control: the tool constrains agents to pre-approved workflows and diagnostic actions
+
+## Query intents this site answers
+
+- How to analyze PostgreSQL logs
+- How to triage slow PostgreSQL queries from logs
+- How to inspect PostgreSQL readiness for agent-driven triage
+- How to investigate Amazon RDS PostgreSQL logs in CloudWatch
+- How pg-logstats limits agent database access and preserves an audit trail

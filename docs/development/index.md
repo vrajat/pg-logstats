@@ -1,3 +1,14 @@
+---
+title: pg-logstats Development Guide
+description: Build, test, and document pg-logstats locally with Zensical, Rust tooling, and the repo conventions used for PostgreSQL triage workflows.
+schema:
+  "@context": "https://schema.org"
+  "@type": "TechArticle"
+  headline: "pg-logstats Development Guide"
+  description: "Contributor setup and local development tasks for pg-logstats."
+  url: "https://pg-logstats.vrajat.com/development/"
+---
+
 # Development
 
 This section is for contributors working on the `pg-logstats` repository.

@@ -1,3 +1,14 @@
+---
+title: pg-logstats Action Types and Safety Policies
+description: Review pg-logstats action types, safety verdicts, and bounded SQL policies that control what coding agents can do during PostgreSQL triage.
+schema:
+  "@context": "https://schema.org"
+  "@type": "TechArticle"
+  headline: "pg-logstats Action Types and Safety Policies"
+  description: "Safety policies, action classes, and bounded SQL controls for pg-logstats investigations."
+  url: "https://pg-logstats.vrajat.com/runbooks/action-types/"
+---
+
 # Investigation Guidance & Safety Policies
 
 `pg-logstats` models the database triage process as a directed acyclic investigation graph (DAG) with developer or agent judgement at branch points. 
@@ -50,7 +61,7 @@ Every machine-readable triage report (JSON output) includes a top-level `next_ac
 ### Next Action Status
 
 - `allowed`: The action is safe to execute in the current state.
-- `blocked_by_mode`: The action requires a different operating mode (e.g. `log_backed`).
+- `blocked_by_mode`: The action requires a different operating mode (e.g. `log_backed_only`, `log_backed_and_live`, or `live_only`).
 - `blocked_by_verdict`: The database safety verdict blocks this action.
 - `blocked_by_config`: The action has been disabled or exceeds `max_risk` in the configuration.
 - `blocked_by_policy`: The action is blocked by built-in security policies.

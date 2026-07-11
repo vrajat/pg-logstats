@@ -1,12 +1,27 @@
+---
+title: PostgreSQL Error Log Triage with pg-logstats
+description: Group PostgreSQL error log events by SQLSTATE and normalized message with pg-logstats, then follow bounded next actions for live investigation.
+schema:
+  "@context": "https://schema.org"
+  "@type": "TechArticle"
+  headline: "PostgreSQL Error Log Triage with pg-logstats"
+  description: "A PostgreSQL error log triage guide using SQLSTATE extraction and bounded follow-up actions."
+  url: "https://pg-logstats.vrajat.com/user-guide/errors/"
+---
+
 # `pg-logstats errors`
 
 `pg-logstats errors` triages, groups, and attributes PostgreSQL error log events inside a bounded historical log window.
 
+Use this workflow when PostgreSQL logs show repeated `ERROR`, `FATAL`, or
+`PANIC` entries and you need a compact report that identifies the recurring
+failure class instead of sending raw logs to a human or LLM.
+
 ## Supported Mode
 
-This workflow supports `log_backed` mode only.
+This workflow supports log-backed modes only.
 
-At startup, `pg-logstats` requires a persisted `inspect` report. This workflow then requires that the stored inspect report says `operating_mode` is either `log_backed` or `log_backed_and_live`.
+At startup, `pg-logstats` requires a persisted `inspect` report. This workflow then requires that the stored inspect report says `operating_mode` is either `log_backed_only` or `log_backed_and_live`.
 
 If the inspect report is missing, startup fails and points you to `pg-logstats inspect`.
 
@@ -80,5 +95,5 @@ Example finding payload:
 
 ## Diagnostic Next Actions
 
-If the triage report connects to a database in `log_backed_and_live` mode, it emits next actions to run follow-up diagnostic SQL query:
+If the triage report connects to a database in `log_backed_and_live` mode, it emits next actions to run follow-up diagnostic SQL queries:
 - `error_class.pg_stat_activity.by_dimensions`: Returns active backends matching the specific `database`, `user`, and `application_name` of the error class to pinpoint active queries causing issues.

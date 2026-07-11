@@ -1,8 +1,25 @@
+---
+title: pg-logstats Rust API Reference
+description: Reference the Rust library surface for pg-logstats parsers, analytics, and formatters used in PostgreSQL log analysis workflows.
+schema:
+  "@context": "https://schema.org"
+  "@type": "TechArticle"
+  headline: "pg-logstats Rust API Reference"
+  description: "Rust API reference for pg-logstats parsing, analytics, and output modules."
+  url: "https://pg-logstats.vrajat.com/reference/api/"
+---
+
 # pg-logstats API Documentation
 
 ## Overview
 
-pg-logstats is a Rust library for parsing and analyzing PostgreSQL log files. It provides modules for parsing different log formats, analyzing query patterns and performance metrics, and formatting results in various output formats.
+The primary product surface is the `pg-logstats` CLI and its persisted triage
+reports. The Rust crate also exposes parser, normalization, analytics, finding,
+report, and formatter types for embedding PostgreSQL log analysis in other
+tools.
+
+This page is a compact orientation to the public Rust surface. Treat the source
+and generated Rust documentation as authoritative for exact signatures.
 
 ## Modules
 
@@ -23,11 +40,13 @@ let entries = parser.parse_lines(&log_lines)?;
 Amazon RDS `%t:%r:%u@%d:[%p]:` prefix. Use
 `TextLogParser::with_format(TextLogFormat::AwsRds)` to force RDS parsing.
 
-**Methods:**
+Common methods:
 - `new() -> Self`
 - `with_format(format: TextLogFormat) -> Self`
 - `parse_line(&mut self, line: &str) -> Result<Option<LogEntry>>` — returns `Ok(None)` for unparseable/continuation lines
 - `parse_lines(&self, lines: &[String]) -> Result<Vec<LogEntry>>`
+- `parse_timestamp(&self, timestamp_str: &str, timezone: &str) -> Result<DateTime<Utc>>`
+- `extract_duration(&self, message: &str) -> Option<f64>`
 
 ### Analytics (`analytics`)
 
@@ -39,13 +58,17 @@ The analytics module provides tools for analyzing parsed log data.
 use pg_logstats::{QueryAnalyzer, Result};
 
 let analyzer = QueryAnalyzer::new();
-let analysis = analyzer.analyze_queries(&entries)?;
+let analysis = analyzer.analyze(&entries)?;
 ```
 
-**Methods:**
+Common methods:
 - `new() -> Self`
-- `analyze_queries(&self, entries: &[LogEntry]) -> Result<AnalysisResult>`
+- `with_settings(slow_query_threshold: f64, max_slow_queries: usize, max_frequent_queries: usize) -> Self`
+- `analyze(&self, entries: &[LogEntry]) -> Result<AnalysisResult>`
+- `analyze_events(&self, events: &[NormalizedEvent]) -> Result<AnalysisResult>`
 - `find_slow_queries(&self, entries: &[LogEntry], threshold_ms: f64) -> Result<Vec<LogEntry>>`
+- `normalize_query(&self, sql: &str) -> String`
+- `classify_query(&self, sql: &str) -> QueryType`
 
 #### TimingAnalyzer
 
@@ -56,10 +79,12 @@ let analyzer = TimingAnalyzer::new();
 let analysis = analyzer.analyze_timing(&entries)?;
 ```
 
-**Methods:**
+Common methods:
 - `new() -> Self`
+- `with_config(config: TimingAnalyzerConfig) -> Self`
 - `with_bucket_size(time_bucket_size: u32) -> Self`
 - `analyze_timing(&self, entries: &[LogEntry]) -> Result<TimingAnalysis>`
+- `analyze_timing_events(&self, events: &[NormalizedEvent]) -> Result<TimingAnalysis>`
 - `calculate_percentiles(&self, response_times: &[f64], percentiles: &[f64]) -> Result<Vec<(f64, f64)>>`
 
 ### Output (`output`)
@@ -72,14 +97,17 @@ The output module provides formatters for different output formats.
 use pg_logstats::JsonFormatter;
 
 let formatter = JsonFormatter::new();
-let json_output = formatter.format_query_analysis(&analysis)?;
+let json_output = formatter.format(&analysis)?;
 ```
 
-**Methods:**
+Common methods:
 - `new() -> Self`
-- `format_query_analysis(&self, analysis: &AnalysisResult) -> Result<String>`
-- `format_timing_analysis(&self, analysis: &TimingAnalysis) -> Result<String>`
-- `format_log_entries(&self, entries: &[LogEntry]) -> Result<String>`
+- `with_pretty(pretty: bool) -> Self`
+- `with_metadata(tool_version: impl Into<String>, log_files_processed: Vec<String>, total_log_entries: usize) -> Self`
+- `format(&self, analysis: &AnalysisResult) -> Result<String>`
+- `format_with_timing(&self, analysis: &AnalysisResult, timing: &TimingAnalysis) -> Result<String>`
+- `format_findings(&self, findings: &FindingSet) -> Result<String>`
+- `format_triage_report<T: Serialize>(&self, report: &PgTriageReport<T>) -> Result<String>`
 
 #### TextFormatter
 
@@ -90,10 +118,12 @@ let formatter = TextFormatter::new();
 let text_output = formatter.format_query_analysis(&analysis)?;
 ```
 
-**Methods:**
+Common methods:
 - `new() -> Self`
+- `with_color(enable: bool) -> Self`
 - `format_query_analysis(&self, analysis: &AnalysisResult) -> Result<String>`
 - `format_timing_analysis(&self, analysis: &TimingAnalysis) -> Result<String>`
+- `format_findings(&self, findings: &FindingSet) -> Result<String>`
 - `format_log_entries(&self, entries: &[LogEntry]) -> Result<String>`
 
 ## Data Structures
@@ -111,10 +141,13 @@ pub struct LogEntry {
     pub application_name: Option<String>,
     pub message_type: LogLevel,
     pub message: String,
-    pub query: Option<String>,
+    pub queries: Option<Vec<Query>>,
     pub duration: Option<f64>,
 }
 ```
+
+`LogEntry::normalized_query()` joins parsed statement fragments into the
+normalized representation used by query-family analytics.
 
 ### AnalysisResult
 
@@ -159,4 +192,7 @@ Most public methods return `Result<T>` where errors are `PgLogstatsError` varian
 
 ## Examples
 
-See the root README for CLI usage examples.
+See the root README and setup guide for CLI usage examples. Library consumers
+usually start by parsing logs with `TextLogParser`, normalizing with
+`normalize_log_entries`, and then building findings or triage reports from those
+events.

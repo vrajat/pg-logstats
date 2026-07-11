@@ -1,14 +1,25 @@
+---
+title: pg-logstats Runbook Model for PostgreSQL Incidents
+description: Understand the pg-logstats runbook loop for PostgreSQL incidents, including offline log triage, bounded SQL follow-up, and DBA handoff.
+schema:
+  "@context": "https://schema.org"
+  "@type": "TechArticle"
+  headline: "pg-logstats Runbook Model for PostgreSQL Incidents"
+  description: "The pg-logstats runbook model for bounded PostgreSQL incident triage by coding agents."
+  url: "https://pg-logstats.vrajat.com/runbooks/"
+---
+
 # The Runbook Model
 
-`pg-logstats` is not a SQL shell or a command runner for AI agents. Instead, it is a secure, runbook-driven triage gateway. 
+`pg-logstats` is not a SQL shell or a command runner for AI agents. It is a PostgreSQL-specific triage gateway that turns logs and approved live checks into structured runbook reports.
 
-As a Database Administrator (DBA), granting autonomous agents direct or arbitrary access to your PostgreSQL instance carries high operational and security risks. `pg-logstats` solves this by restricting agents to executing structured, pre-defined operational runbooks.
+As a Database Administrator (DBA), granting autonomous agents direct or arbitrary access to your PostgreSQL instance carries high operational and security risks. `pg-logstats` solves this by making log evidence the default path and restricting live database access to structured, pre-defined operational actions.
 
 ---
 
 ## Runbook Structure & Division of Labor
 
-The core philosophy of `pg-logstats` is a clean separation between **runbook structure** and **agent judgement**:
+The core design is a clean separation between **runbook structure** and **agent judgement**:
 
 * **The Gateway Enforces the Runbook**: `pg-logstats` defines the diagnostic evidence model, the log-parsing logic, the allowed database queries, and the safety policies.
 * **The Agent Supplies the Judgement**: The agent acts as a navigator. It reads the gateway's structured findings and decides which branch of the runbook to pursue next based on the incident context.
@@ -19,7 +30,7 @@ This design prevents agents from inventing raw database queries, running arbitra
 
 ## The Runbook Execution Loop
 
-When an incident occurs, the agent executes a structured runbook in three distinct phases:
+When an incident occurs, the agent follows a structured runbook in three phases:
 
 ```mermaid
 graph TD
@@ -35,7 +46,7 @@ graph TD
 ### Phase 1: Local Log Triage
 The agent initiates triage offline by analyzing a database log source. The gateway parses these logs, normalizes the queries, groups related events, and generates a structured report containing ranked findings. 
 
-### Phase 2: Bounded Diagnostic Expansion
+### Phase 2: Optional Bounded Diagnostic Expansion
 To help the agent investigate further, the gateway attaches a list of pre-approved, context-specific diagnostic SQL actions (`next_actions[]`) directly to the findings.
 * If the agent wants to inspect lock waits or check query plans, it must select a specific, pre-defined `action_id`.
 * The agent executes the action by invoking the gateway's `run-sql` interface. The gateway validates the action, binds any required parameters (like a query ID or application name), and executes its own built-in query. The agent has no way to supply raw SQL text.

@@ -1,14 +1,25 @@
+---
+title: PostgreSQL Slow Query Triage with pg-logstats
+description: Use pg-logstats to rank PostgreSQL slow query families from logs, correlate live sessions, and review bounded explain actions before DBA handoff.
+schema:
+  "@context": "https://schema.org"
+  "@type": "TechArticle"
+  headline: "PostgreSQL Slow Query Triage with pg-logstats"
+  description: "A PostgreSQL slow query triage runbook using pg-logstats log analysis and bounded follow-up actions."
+  url: "https://pg-logstats.vrajat.com/user-guide/top-query-families/"
+---
+
 # Slow Query Triage Runbook
 
-This page defines the slow query triage runbook that `pg-logstats` enables for AI agents.
+This page defines the slow query triage runbook that `pg-logstats` enables for humans and AI agents.
 
-As a Database Administrator (DBA), you configure and monitor `pg-logstats` as a secure gateway. This document outlines how agents execute the slow query triage runbook, the diagnostic evidence they gather, the safety policies enforced, and the structured recommendations they hand off to you.
+Use this workflow when PostgreSQL logs show slow statements, latency alerts, or query duration spikes. The first pass is offline and log-backed: `pg-logstats` ranks query families by total runtime, call count, and latency. If live database access is configured and `inspect` reports `log_backed_and_live`, the report can include bounded follow-up actions for current sessions or execution plans.
 
 ---
 
 ## The Agent Triage Runbook
 
-When query latency alerts trigger, the agent automates a three-phase runbook to identify bottleneck queries, check active session lock waits, and inspect execution plans:
+When query latency alerts trigger, the runbook identifies bottleneck queries first, then optionally expands into live session and plan checks:
 
 ```mermaid
 sequenceDiagram
@@ -24,7 +35,7 @@ sequenceDiagram
     end
     
     rect rgb(30, 20, 20)
-        Note over Agent, DB: Phase 2 & 3: Live Session & Plan Correlation
+        Note over Agent, DB: Optional Live Follow-Up
         Agent->>DB: Query pg_stat_activity by DB, user, app dimensions
         DB-->>Agent: Returns active sessions (e.g. locks, wait states)
         Agent->>DB: Run EXPLAIN / EXPLAIN ANALYZE on query family
@@ -32,7 +43,7 @@ sequenceDiagram
     end
     
     rect rgb(20, 30, 20)
-        Note over Agent, DBA: Phase 4: Structured Remedial Handoff
+        Note over Agent, DBA: Structured Remedial Handoff
         Agent->>Agent: Derive session & plan insights
         Agent->>DBA: Recommend granular fixes (create index, select columns, local work_mem)
     end
@@ -44,12 +55,12 @@ The agent begins by scanning the historical log window to isolate resource hogs:
 * **Query Family Grouping**: Normalizes literals and whitespace to group query patterns into stable `query_family_id` targets.
 * **Outlier Ranking**: Ranks query families by total execution time, p95 latency, and call frequency to pinpoint the bottleneck.
 
-### Phase 2: Live Session Correlation
+### Phase 2: Optional Live Session Correlation
 If live access is configured (`log_backed_and_live` mode), the agent correlates log findings with the current database state:
 * `query_family.pg_stat_activity.by_dimensions`: Queries `pg_stat_activity` for active backends that match the target database, user, application name, or query pattern.
 * **Concurrency Check**: Identifies whether the slow query is an isolated incident or part of a concurrent bottleneck causing queueing.
 
-### Phase 3: Execution Plan Deep-Dive (EXPLAIN / EXPLAIN ANALYZE)
+### Phase 3: Optional Execution Plan Deep-Dive (EXPLAIN / EXPLAIN ANALYZE)
 The agent runs query plan verification to locate inefficient scan nodes or spills:
 * **EXPLAIN** (`query_family.explain`): Safely retrieves the execution plan without running the query to check for sequential scans or bad joins.
 * **EXPLAIN ANALYZE** (`query_family.explain_analyze`): Executes the query with buffer statistics to verify actual read/write counts and plan node durations.
@@ -75,7 +86,7 @@ Based on live SQL actions, the agent automatically interprets raw session rows a
 
 ## Agent-Suggested DBA Remedial Actions
 
-Once the agent completes the diagnostic loop, it terminates its live exploration branch and hands off structured remedial actions to the DBA:
+Once the agent completes the available diagnostic path, it stops exploration and hands off structured remedial actions to the DBA:
 
 ### 1. Create B-Tree Index
 * **Action ID**: `remedial.create_sort_index`
@@ -103,4 +114,4 @@ Once the agent completes the diagnostic loop, it terminates its live exploration
 * **No Arbitrary SQL**: The agent can only request queries by selecting a structured `action_id`.
 * **Risk Classifications**:
   * Standard `EXPLAIN` (`ExplainWithoutAnalyze` class) is classified as `Safe` and is allowed.
-  * `EXPLAIN (ANALYZE, BUFFERS)` (`ExplainAnalyze` class) actually runs the query, carrying a risk of side-effects or heavy database load. It is classified as `Bounded` risk and is blocked by default under restrictive health verdicts (`Verdict::Clear` blocks it by default to avoid unintended system load).
+  * `EXPLAIN (ANALYZE, BUFFERS)` (`ExplainAnalyze` class) actually runs the query, carrying a risk of side-effects or heavy database load. It is classified as `Bounded` risk and is blocked whenever the safety verdict or configuration does not permit that action class.
